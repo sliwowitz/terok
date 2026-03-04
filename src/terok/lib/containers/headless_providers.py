@@ -194,7 +194,7 @@ HEADLESS_PROVIDERS: dict[str, HeadlessProvider] = {
         git_author_name="Blablador",
         git_author_email="noreply@hzdr.de",
         headless_subcommand=None,
-        prompt_flag="",
+        prompt_flag="--prompt",
         auto_approve_flags=(),
         output_format_flags=(),
         model_flag=None,
@@ -215,7 +215,7 @@ HEADLESS_PROVIDERS: dict[str, HeadlessProvider] = {
         git_author_name="OpenCode",
         git_author_email="noreply@opencode.ai",
         headless_subcommand="run",
-        prompt_flag="",
+        prompt_flag="--prompt",
         auto_approve_flags=(),
         output_format_flags=(),
         model_flag="--model",
@@ -342,9 +342,10 @@ def apply_provider_config(
         )
 
     # --- Instructions (non-Claude: inject into prompt) ---
-    # Claude receives instructions via --append-system-prompt in the wrapper,
-    # so we only inject into the prompt for other providers.
-    if instructions and provider.name != "claude":
+    # Claude receives instructions via --append-system-prompt in the wrapper.
+    # opencode/blablador handle instructions separately via instructions.md file.
+    # Only inject for providers that don't have their own prompt handling.
+    if instructions and provider.name != "claude" and not provider.prompt_flag:
         prompt_parts.insert(0, instructions)
 
     return ProviderConfig(
@@ -451,9 +452,17 @@ def _build_generic_command(
         parts.append(provider.verbose_flag)
 
     # Prompt — flag-based or positional
+    # For providers with prompt_flag, concatenate instructions.md + prompt.txt
     if provider.prompt_flag:
         parts.append(provider.prompt_flag)
-    parts.append('"$(cat /home/dev/.terok/prompt.txt)"')
+        # Concatenate instructions (if exists) + prompt, handling empty instructions gracefully
+        prompt_file = (
+            '$([ -s /home/dev/.terok/instructions.md ] && cat /home/dev/.terok/instructions.md; '
+            'cat /home/dev/.terok/prompt.txt)'
+        )
+        parts.append(prompt_file)
+    else:
+        parts.append('"$(cat /home/dev/.terok/prompt.txt)"')
 
     return " ".join(parts)
 
@@ -464,6 +473,7 @@ def generate_agent_wrapper(
     has_agents: bool,
     *,
     claude_wrapper_fn: Callable[[bool, Project, bool], str] | None = None,
+    has_instructions: bool = False,
 ) -> str:
     """Generate the shell wrapper function content for a single provider.
 
@@ -479,16 +489,17 @@ def generate_agent_wrapper(
     Args:
         claude_wrapper_fn: ``(has_agents, project, skip_permissions) -> str``.
             Required when ``provider.name == "claude"``.
+        has_instructions: Whether instructions.md should be passed to agents.
 
     See also :func:`generate_all_wrappers` which produces wrappers for every
-    registered provider in a single file.
+    registered provider in one file.
     """
     if provider.name == "claude":
         if claude_wrapper_fn is None:
             raise ValueError("claude_wrapper_fn is required for Claude provider")
         return claude_wrapper_fn(has_agents, project, True)
 
-    return _generate_generic_wrapper(provider, project)
+    return _generate_generic_wrapper(provider, project, has_instructions)
 
 
 def generate_all_wrappers(
@@ -496,6 +507,7 @@ def generate_all_wrappers(
     has_agents: bool,
     *,
     claude_wrapper_fn: Callable[[bool, Project, bool], str] | None = None,
+    has_instructions: bool = False,
 ) -> str:
     """Generate shell wrappers for **all** registered providers in one file.
 
@@ -506,17 +518,19 @@ def generate_all_wrappers(
 
     Args:
         claude_wrapper_fn: Required — produces the Claude wrapper.
+        has_instructions: Whether instructions.md should be passed to agents.
     """
     sections: list[str] = []
     for provider in HEADLESS_PROVIDERS.values():
         section = generate_agent_wrapper(
-            provider, project, has_agents, claude_wrapper_fn=claude_wrapper_fn
+            provider, project, has_agents, claude_wrapper_fn=claude_wrapper_fn,
+            has_instructions=has_instructions
         )
         sections.append(section)
     return "\n".join(sections)
 
 
-def _generate_generic_wrapper(provider: HeadlessProvider, project: Project) -> str:
+def _generate_generic_wrapper(provider: HeadlessProvider, project: Project, has_instructions: bool = False) -> str:
     """Generate a shell wrapper for non-Claude providers.
 
     Sets git identity env vars and wraps the binary with optional timeout
@@ -540,6 +554,11 @@ def _generate_generic_wrapper(provider: HeadlessProvider, project: Project) -> s
         "        esac",
         "    done",
     ]
+
+    # Pass instructions via --prompt if available (non-Claude providers)
+    if has_instructions and provider.prompt_flag:
+        lines.append("    [ -f /home/dev/.terok/instructions.md ] && \\")
+        lines.append(f'        set -- --prompt "$(cat /home/dev/.terok/instructions.md)" "$@"')
 
     # Session resume support for providers that have it.
     # --continue is a standalone flag (no session ID argument) for all

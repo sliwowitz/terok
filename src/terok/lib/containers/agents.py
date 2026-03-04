@@ -384,7 +384,8 @@ def prepare_agent_config_dir(
         return _generate_claude_wrapper(ha, proj, sp, has_instructions=has_instructions)
 
     wrapper = generate_all_wrappers(
-        project, has_agents, claude_wrapper_fn=_claude_wrapper_with_instructions
+        project, has_agents, claude_wrapper_fn=_claude_wrapper_with_instructions,
+        has_instructions=has_instructions
     )
     (agent_config_dir / "terok-agent.sh").write_text(wrapper, encoding="utf-8")
 
