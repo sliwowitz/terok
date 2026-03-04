@@ -12,8 +12,7 @@ import os
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path
-from urllib import request, error
-
+from urllib import error, request
 
 DEFAULT_BASE_URL = "https://api.helmholtz-blablador.fz-juelich.de/v1"
 # Preferred model - alias-huge provides the largest available model
@@ -105,8 +104,13 @@ def _build_config(base_url: str, api_key: str, model: str, models: list[str] | N
 
 
 def _opencode_config_path() -> Path:
-    """Return the standard OpenCode config path."""
-    return Path.home() / ".config" / "opencode" / "opencode.json"
+    """Return the Blablador-specific OpenCode config path.
+
+    Lives under ~/.blablador/opencode/ so it does not conflict with plain
+    OpenCode's default config at ~/.config/opencode/opencode.json.
+    The OPENCODE_CONFIG env var is used at launch time to point OpenCode here.
+    """
+    return _config_dir() / "opencode" / "opencode.json"
 
 
 def _load_opencode_config() -> dict | None:
@@ -129,6 +133,17 @@ def _get_configured_models(config: dict | None) -> set[str]:
         return set(models.keys()) if isinstance(models, dict) else set()
     except (AttributeError, TypeError):
         return set()
+
+
+def _get_configured_options(config: dict | None) -> dict:
+    """Extract provider options (baseURL, apiKey) from existing config."""
+    if not config:
+        return {}
+    try:
+        options = config.get("provider", {}).get("blablador", {}).get("options", {})
+        return options if isinstance(options, dict) else {}
+    except (AttributeError, TypeError):
+        return {}
 
 
 def _write_opencode_config(config: dict) -> Path:
@@ -195,23 +210,31 @@ def main() -> int:
         )
         model = FALLBACK_MODEL
 
-    # Update config if we have new models or no config exists
+    # Update config if models, credentials, or base URL changed
+    stored_options = _get_configured_options(existing_config)
+    options_changed = (
+        stored_options.get("baseURL") != base_url
+        or stored_options.get("apiKey") != api_key
+    )
     if fetched_models:
         fetched_set = set(fetched_models)
-        if fetched_set != configured_models:
+        needs_update = fetched_set != configured_models or options_changed
+        if needs_update:
             new_models = fetched_set - configured_models
             if new_models:
                 print(f"New models available: {', '.join(sorted(new_models))}")
             config = _build_config(base_url, api_key, model, fetched_models)
             _write_opencode_config(config)
-    elif not configured_models:
-        # No fetched models and no existing config - create minimal config
-        config = _build_config(base_url, api_key, model, [model])
+    elif options_changed or not configured_models:
+        # Fetch failed: preserve known models if available, refresh options
+        fallback_models = sorted(configured_models) if configured_models else [model]
+        config = _build_config(base_url, api_key, model, fallback_models)
         _write_opencode_config(config)
 
     cmd = ["opencode"] + opencode_args
+    env = {**os.environ, "OPENCODE_CONFIG": str(_opencode_config_path())}
     try:
-        return subprocess.call(cmd)
+        return subprocess.call(cmd, env=env)
     except FileNotFoundError:
         raise SystemExit("opencode not found. Rebuild the L1 CLI image to install it.")
 

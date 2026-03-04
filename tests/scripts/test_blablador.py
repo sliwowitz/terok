@@ -251,6 +251,26 @@ class BlabladorDockerfileTests(unittest.TestCase):
             # Verify OpenCode installation (runs as dev user)
             self.assertIn("opencode.ai/install", content)
 
+    def test_l1_cli_opencode_in_agents_list(self) -> None:
+        """Verify opencode appears in the available agents list."""
+        yaml_text = (
+            "project:\n"
+            "  id: proj_opencode_list_test\n"
+            "git:\n"
+            "  upstream_url: https://example.com/repo.git\n"
+            "  default_branch: main\n"
+        )
+        with project_env(yaml_text, project_id="proj_opencode_list_test") as _env:
+            generate_dockerfiles("proj_opencode_list_test")
+            out_dir = build_root() / "proj_opencode_list_test"
+            l1_cli = out_dir / "L1.cli.Dockerfile"
+
+            content = l1_cli.read_text(encoding="utf-8")
+
+            # Verify opencode is listed with import hint
+            self.assertIn("opencode", content)
+            self.assertIn("import-opencode", content)
+
     def test_l1_cli_blablador_script_copied(self) -> None:
         """Verify the blablador wrapper script is copied to the image."""
         yaml_text = (
@@ -354,6 +374,105 @@ class BlabladorPersistentConfigTests(unittest.TestCase):
                 blablador._write_opencode_config({"test": "config"})
                 self.assertTrue(config_path.exists())
                 self.assertEqual(json.loads(config_path.read_text()), {"test": "config"})
+
+
+class BlabladorConfigSeparationTests(unittest.TestCase):
+    """Tests for Blablador/OpenCode config separation (issue #132)."""
+
+    def setUp(self) -> None:
+        if "blablador" in sys.modules:
+            del sys.modules["blablador"]
+
+    def tearDown(self) -> None:
+        if "blablador" in sys.modules:
+            del sys.modules["blablador"]
+
+    def test_opencode_config_path_under_blablador_dir(self) -> None:
+        """Verify _opencode_config_path() returns a path under ~/.blablador/."""
+        blablador = load_blablador_module()
+        config_path = blablador._opencode_config_path()
+        home = Path.home()
+        self.assertTrue(
+            config_path.resolve().is_relative_to((home / ".blablador").resolve()),
+            f"Expected path under ~/.blablador/, got {config_path}",
+        )
+        self.assertEqual(config_path.name, "opencode.json")
+
+    def test_opencode_config_path_not_default_opencode_dir(self) -> None:
+        """Verify config path is NOT the default ~/.config/opencode/ location."""
+        blablador = load_blablador_module()
+        config_path = blablador._opencode_config_path()
+        default_path = Path.home() / ".config" / "opencode" / "opencode.json"
+        self.assertNotEqual(
+            config_path,
+            default_path,
+            "Blablador config path must differ from default OpenCode config path",
+        )
+
+    def test_main_passes_opencode_config_env(self) -> None:
+        """Verify main() passes OPENCODE_CONFIG env var to subprocess.call()."""
+        blablador = load_blablador_module()
+
+        mock_response = make_mock_http_response({"data": [{"id": "alias-huge"}]})
+
+        with (
+            tempfile.TemporaryDirectory() as td,
+            unittest.mock.patch.object(blablador, "_load_api_key", return_value="fake-key"),
+            unittest.mock.patch("blablador.request.urlopen", return_value=mock_response),
+            unittest.mock.patch.object(
+                blablador,
+                "_opencode_config_path",
+                return_value=Path(td) / "opencode" / "opencode.json",
+            ),
+            unittest.mock.patch("blablador.subprocess.call", return_value=0) as mock_call,
+            unittest.mock.patch("sys.argv", ["blablador"]),
+        ):
+            blablador.main()
+
+        mock_call.assert_called_once()
+        call_kwargs = mock_call.call_args
+        env = call_kwargs[1].get("env") if call_kwargs[1] else None
+        self.assertIsNotNone(env, "subprocess.call must be called with env kwarg")
+        self.assertIn("OPENCODE_CONFIG", env)
+        self.assertEqual(env["OPENCODE_CONFIG"], str(Path(td) / "opencode" / "opencode.json"))
+
+    def test_options_refresh_when_fetch_fails(self) -> None:
+        """Config is rewritten with new credentials even when model fetch fails."""
+        blablador = load_blablador_module()
+
+        with tempfile.TemporaryDirectory() as td:
+            config_path = Path(td) / "opencode" / "opencode.json"
+            # Seed an existing config with old credentials
+            old_config = blablador._build_config(
+                base_url="https://old-url/v1",
+                api_key="old-key",
+                model="alias-huge",
+                models=["alias-huge", "alias-code"],
+            )
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(json.dumps(old_config), encoding="utf-8")
+
+            with (
+                unittest.mock.patch.object(blablador, "_load_api_key", return_value="new-key"),
+                unittest.mock.patch(
+                    "blablador.request.urlopen",
+                    side_effect=blablador.error.URLError("unreachable"),
+                ),
+                unittest.mock.patch.object(
+                    blablador, "_opencode_config_path", return_value=config_path
+                ),
+                unittest.mock.patch("blablador.subprocess.call", return_value=0),
+                unittest.mock.patch("sys.argv", ["blablador"]),
+            ):
+                blablador.main()
+
+            # Config should have been rewritten with new credentials
+            updated = json.loads(config_path.read_text(encoding="utf-8"))
+            opts = updated["provider"]["blablador"]["options"]
+            self.assertEqual(opts["apiKey"], "new-key")
+            # Models should be preserved from the old config
+            self.assertIn("alias-huge", updated["provider"]["blablador"]["models"])
+            self.assertIn("alias-code", updated["provider"]["blablador"]["models"])
 
 
 class BlabladorConfigTests(unittest.TestCase):
