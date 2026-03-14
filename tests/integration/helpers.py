@@ -43,6 +43,15 @@ class TerokIntegrationEnv:
         return self.xdg_config_home / "terok" / "presets"
 
     @property
+    def system_projects_root(self) -> Path:
+        """Return the isolated system projects root."""
+        return self.system_config_root / "projects"
+
+    def _projects_root(self, scope: ProjectScope) -> Path:
+        """Return the projects root for the requested scope."""
+        return self.user_projects_root if scope == "user" else self.system_projects_root
+
+    @property
     def cli_env(self) -> dict[str, str]:
         """Return environment variables for a real ``python -m terok.cli`` run."""
         env = os.environ.copy()
@@ -93,8 +102,7 @@ class TerokIntegrationEnv:
         scope: ProjectScope = "user",
     ) -> Path:
         """Write ``project.yml`` for *project_id* under the requested scope."""
-        root = self.user_projects_root if scope == "user" else self.system_config_root
-        project_root = root / project_id
+        project_root = self._projects_root(scope) / project_id
         project_root.mkdir(parents=True, exist_ok=True)
         content = textwrap.dedent(yaml_text).strip() + "\n"
         (project_root / PROJECT_FILENAME).write_text(content, encoding="utf-8")
@@ -102,8 +110,7 @@ class TerokIntegrationEnv:
 
     def project_root(self, project_id: str, *, scope: ProjectScope = "user") -> Path:
         """Return the project root path for *project_id* in the requested scope."""
-        root = self.user_projects_root if scope == "user" else self.system_config_root
-        return root / project_id
+        return self._projects_root(scope) / project_id
 
     def tasks_root(self, project_id: str) -> Path:
         """Return the live task workspace root for *project_id*."""

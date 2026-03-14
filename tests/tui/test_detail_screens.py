@@ -13,6 +13,8 @@ from tui_test_helpers import import_app, import_screens, import_widgets, make_ke
 
 from testfs import MOCK_BASE
 
+MOCK_WORKSPACE = str(MOCK_BASE / "ws")
+
 
 class RenderHelpersTests(TestCase):
     """Tests for the extracted render_* helper functions."""
@@ -69,7 +71,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="42",
             mode="cli",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             backend="codex",
             container_state="running",
@@ -116,7 +118,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="5",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
         )
@@ -131,7 +133,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="5",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             exit_code=0,
         )
@@ -144,7 +146,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="10",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             work_status="coding",
@@ -161,7 +163,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="11",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             work_status="testing",
@@ -176,7 +178,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="12",
             mode="cli",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
         )
@@ -189,7 +191,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="20",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             unrestricted=True,
@@ -203,7 +205,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="21",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             unrestricted=False,
@@ -218,7 +220,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="99",
             mode="cli",
-            workspace=str(MOCK_BASE / "ws"),
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             shield_state="DISABLED",
@@ -234,7 +236,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="98",
             mode="cli",
-            workspace=str(MOCK_BASE / "ws"),
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             shield_state="INACTIVE",
@@ -249,7 +251,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="97",
             mode="cli",
-            workspace=str(MOCK_BASE / "ws"),
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             shield_state="UP",
@@ -264,7 +266,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="13",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
             work_status="debugging",
@@ -278,7 +280,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="14",
             mode="cli",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
         )
@@ -291,7 +293,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="3",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             container_state="running",
         )
@@ -304,7 +306,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="1",
             mode="run",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             exit_code=1,
         )
@@ -315,7 +317,7 @@ class RenderHelpersTests(TestCase):
         task = widgets.TaskMeta(
             task_id="1",
             mode="cli",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
         )
         self.assertIsNone(task.exit_code)
@@ -348,7 +350,7 @@ class ScreenConstructionTests(TestCase):
         task = widgets.TaskMeta(
             task_id="7",
             mode="cli",
-            workspace="/tmp/ws",
+            workspace=MOCK_WORKSPACE,
             web_port=None,
             backend="codex",
             container_state="running",
@@ -653,7 +655,11 @@ class TaskScreenKeyBindingTests(TestCase):
     def test_lowercase_f_works_with_autopilot_task(self) -> None:
         screens, widgets = import_screens()
         task = widgets.TaskMeta(
-            task_id="t1", mode="run", workspace="/w", web_port=None, container_state="running"
+            task_id="t1",
+            mode="run",
+            workspace=MOCK_WORKSPACE,
+            web_port=None,
+            container_state="running",
         )
         screen = screens.TaskDetailsScreen(task=task, has_tasks=True, project_id="p")
         screen.dismiss = mock.Mock()
@@ -664,7 +670,11 @@ class TaskScreenKeyBindingTests(TestCase):
     def test_lowercase_f_works_for_non_autopilot_task(self) -> None:
         screens, widgets = import_screens()
         task = widgets.TaskMeta(
-            task_id="t1", mode="cli", workspace="/w", web_port=None, container_state="running"
+            task_id="t1",
+            mode="cli",
+            workspace=MOCK_WORKSPACE,
+            web_port=None,
+            container_state="running",
         )
         screen = screens.TaskDetailsScreen(task=task, has_tasks=True, project_id="p")
         screen.dismiss = mock.Mock()

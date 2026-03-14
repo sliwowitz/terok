@@ -64,9 +64,9 @@ class TestTaskLifecycle:
         assert not terok_env.task_dir("demo", "1").exists()
 
         archive_root = terok_env.task_archive_root("demo")
-        archived_entries = list(archive_root.iterdir())
+        archived_entries = [entry for entry in archive_root.iterdir() if entry.is_dir()]
         assert archived_entries, "Expected task delete to create an archive entry"
-        assert (archived_entries[0] / "task.yml").is_file()
+        assert any((entry / "task.yml").is_file() for entry in archived_entries)
 
         archived = terok_env.run_cli("task", "archive", "list", "demo")
         assert "#1: ship-it" in archived.stdout

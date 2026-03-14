@@ -31,15 +31,26 @@ agent:
 class TestProjects:
     """Verify project workflows through the real CLI."""
 
-    def test_projects_lists_user_projects(self, terok_env: TerokIntegrationEnv) -> None:
-        """``terokctl projects`` lists projects from the isolated user root."""
+    def test_projects_lists_user_and_system_projects(self, terok_env: TerokIntegrationEnv) -> None:
+        """``terokctl projects`` lists projects from both isolated config roots."""
         terok_env.write_project("alpha", SOURCE_PROJECT)
+        terok_env.write_project(
+            "sysalpha",
+            SOURCE_PROJECT.replace("id: alpha", "id: sysalpha"),
+            scope="system",
+        )
 
         result = terok_env.run_cli("projects")
 
         assert "Known projects:" in result.stdout
-        assert "- alpha [online]" in result.stdout
-        assert f"upstream={TEST_UPSTREAM_URL}" in result.stdout
+        assert (
+            f"- alpha [online] upstream={TEST_UPSTREAM_URL} "
+            f"config_root={terok_env.project_root('alpha')}"
+        ) in result.stdout
+        assert (
+            f"- sysalpha [online] upstream={TEST_UPSTREAM_URL} "
+            f"config_root={terok_env.project_root('sysalpha', scope='system')}"
+        ) in result.stdout
 
     def test_project_derive_preserves_infra_and_clears_agent(
         self, terok_env: TerokIntegrationEnv

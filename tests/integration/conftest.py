@@ -79,7 +79,9 @@ class MockRunner:
         stdin: str | None = None,
         timeout: int | None = None,
     ) -> str:
-        """Handle known commands, return empty string for others."""
+        """Handle known commands and fail fast on unexpected ones."""
+        if not cmd:
+            raise AssertionError("Unexpected MockRunner command: []")
         if cmd[:2] == ["podman", "info"]:
             return json.dumps(
                 {
@@ -93,7 +95,10 @@ class MockRunner:
             return ""
         if cmd[:2] == ["podman", "unshare"]:
             return ""
-        return ""
+        raise AssertionError(
+            f"Unexpected MockRunner command: {cmd!r} (check={check}, stdin={stdin!r}, "
+            f"timeout={timeout})"
+        )
 
     def has(self, name: str) -> bool:
         """Return True for nft, False otherwise."""
@@ -202,4 +207,5 @@ def terok_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TerokIntegrati
     )
     env.user_projects_root.mkdir(parents=True, exist_ok=True)
     env.global_presets_root.mkdir(parents=True, exist_ok=True)
+    env.system_projects_root.mkdir(parents=True, exist_ok=True)
     return env
