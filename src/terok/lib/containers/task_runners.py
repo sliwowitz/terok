@@ -14,9 +14,14 @@ from typing import TYPE_CHECKING
 
 import yaml
 
+from ..core.config import get_shield_bypass_firewall_no_protection
 from ..core.images import project_cli_image, project_web_image
 from ..core.projects import load_project
-from ..security.shield import down as _shield_down_impl, pre_start as _shield_pre_start_impl
+from ..security.shield import (
+    SHIELD_SECURITY_HINT,
+    down as _shield_down_impl,
+    pre_start as _shield_pre_start_impl,
+)
 from ..util.ansi import (
     blue as _blue,
     green as _green,
@@ -205,6 +210,7 @@ def _maybe_drop_shield(project: ProjectConfig, cname: str, task_dir: Path) -> No
         _shield_down_impl(cname, task_dir)
         audit_path = task_dir / "shield" / "audit.jsonl"
         print(f"Shield dropped (bypass mode). Audit log: {audit_path}")
+        print(SHIELD_SECURITY_HINT)
     except Exception as exc:
         import warnings
 
@@ -239,6 +245,14 @@ def _run_container(
             args (e.g. ``["-p", "127.0.0.1:8080:7860"]``).
         command: Optional command + args appended after the image name.
     """
+    # DANGEROUS TRANSITIONAL OVERRIDE — bypass_firewall_no_protection
+    # Print a loud banner so the user cannot miss that the firewall is off.
+    if get_shield_bypass_firewall_no_protection():
+        print(
+            "\n!! SHIELD BYPASSED — egress firewall DISABLED "
+            f"(shield.bypass_firewall_no_protection is set) !!\n{SHIELD_SECURITY_HINT}\n"
+        )
+
     cmd: list[str] = ["podman", "run", "-d"]
     cmd += _podman_userns_args()
     cmd += _shield_pre_start_impl(cname, task_dir)

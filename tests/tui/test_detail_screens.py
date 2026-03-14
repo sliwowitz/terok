@@ -11,6 +11,8 @@ from unittest import TestCase, main, mock
 from rich.text import Text
 from tui_test_helpers import import_app, import_screens, import_widgets, make_key_event
 
+from constants import MOCK_BASE
+
 
 class RenderHelpersTests(TestCase):
     """Tests for the extracted render_* helper functions."""
@@ -210,6 +212,52 @@ class RenderHelpersTests(TestCase):
         text_str = str(result)
         self.assertIn("Perms:     restricted", text_str)
         self.assertNotIn("Perms:     unrestricted", text_str)
+
+    def test_render_task_details_shield_disabled(self) -> None:
+        widgets = import_widgets()
+        task = widgets.TaskMeta(
+            task_id="99",
+            mode="cli",
+            workspace=str(MOCK_BASE / "ws"),
+            web_port=None,
+            container_state="running",
+            shield_state="DISABLED",
+        )
+        result = widgets.render_task_details(task, project_id="proj1")
+        text_str = str(result)
+        self.assertIn("Shield:", text_str)
+        self.assertIn("disabled", text_str)
+        self.assertIn("shield-security", text_str)
+
+    def test_render_task_details_shield_inactive_shows_hint(self) -> None:
+        widgets = import_widgets()
+        task = widgets.TaskMeta(
+            task_id="98",
+            mode="cli",
+            workspace=str(MOCK_BASE / "ws"),
+            web_port=None,
+            container_state="running",
+            shield_state="INACTIVE",
+        )
+        result = widgets.render_task_details(task, project_id="proj1")
+        text_str = str(result)
+        self.assertIn("inactive", text_str)
+        self.assertIn("shield-security", text_str)
+
+    def test_render_task_details_shield_up_no_hint(self) -> None:
+        widgets = import_widgets()
+        task = widgets.TaskMeta(
+            task_id="97",
+            mode="cli",
+            workspace=str(MOCK_BASE / "ws"),
+            web_port=None,
+            container_state="running",
+            shield_state="UP",
+        )
+        result = widgets.render_task_details(task, project_id="proj1")
+        text_str = str(result)
+        self.assertIn("up", text_str)
+        self.assertNotIn("shield-security", text_str)
 
     def test_format_task_label_with_work_status(self) -> None:
         widgets = import_widgets()
