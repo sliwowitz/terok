@@ -13,9 +13,14 @@ Uses the per-task Shield class API (state_dir from ShieldConfig).
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from terok_shield import Shield, ShieldConfig, ShieldMode
+import pytest
 
-from constants import GATE_PORT, HOST_ALIAS_LOOPBACK, HOST_ALIAS_SLIRP
+terok_shield = pytest.importorskip("terok_shield")
+Shield = terok_shield.Shield
+ShieldConfig = terok_shield.ShieldConfig
+ShieldMode = terok_shield.ShieldMode
+
+from testnet import GATE_PORT, HOST_ALIAS_LOOPBACK, HOST_ALIAS_SLIRP
 
 from .conftest import MockRunner
 

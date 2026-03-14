@@ -14,11 +14,13 @@ import subprocess
 import uuid
 
 import pytest
-from terok_shield import Shield
 
-from constants import EGRESS_DOMAIN, TEST_EGRESS_URL, TEST_IP_RFC5737
+terok_shield = pytest.importorskip("terok_shield")
+Shield = terok_shield.Shield
 
-from .conftest import skip_if_no_podman, skip_if_no_root
+from testnet import EGRESS_DOMAIN, TEST_EGRESS_URL, TEST_IP_RFC5737
+
+from .conftest import podman_missing, skip_if_no_root
 
 pytestmark = pytest.mark.needs_podman
 
@@ -47,7 +49,7 @@ def podman_container(real_shield: Shield) -> str:
 # ── TestShieldEndToEnd ───────────────────────────────────
 
 
-@skip_if_no_podman
+@podman_missing
 class TestShieldEndToEnd:
     """End-to-end tests with a real container."""
 
@@ -88,7 +90,7 @@ class TestShieldEndToEnd:
 # ── TestShieldEgress ──────────────────────────────────────
 
 
-@skip_if_no_podman
+@podman_missing
 @skip_if_no_root
 class TestShieldEgress:
     """Egress filtering tests (requires network + root)."""
