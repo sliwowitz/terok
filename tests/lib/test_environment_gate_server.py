@@ -1,11 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for environment.py gate server integration."""
+"""Tests for environment.py gate-server integration."""
 
-import unittest
-import unittest.mock
+from __future__ import annotations
+
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from terok.lib.containers.environment import _security_mode_env_and_volumes
 from terok.lib.core.projects import load_project
@@ -30,126 +33,115 @@ git:
 """
 
 
-class TestGatekeepingMode(unittest.TestCase):
-    """Gatekeeping mode produces http:// URLs with token auth, no volume mounts for gate."""
+def gate_mounts(volumes: list[str]) -> list[str]:
+    """Return any gate-related volume mounts from the generated volume list."""
+    return [volume for volume in volumes if "git-gate" in volume or "gate" in volume.split(":")[0]]
 
-    @unittest.mock.patch(
-        "terok.lib.security.gate_tokens.create_token",
-        return_value="deadbeef" * 4,
-    )
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server.get_server_status",
-        return_value=unittest.mock.Mock(running=True),
-    )
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server._get_port",
-        return_value=9418,
-    )
-    def test_gatekeeping_uses_http_url_with_token(self, *_mocks: unittest.mock.Mock) -> None:
-        with (
-            mock_git_config(),
-            project_env(_GATEKEEPING_YAML, project_id="gk-proj", with_gate=True) as ctx,
-        ):
-            project = load_project("gk-proj")
-            env, volumes = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
 
-        expected_token = "deadbeef" * 4
-        self.assertEqual(
-            env["CODE_REPO"],
-            f"http://{expected_token}@host.containers.internal:9418/gk-proj.git",
+@pytest.mark.parametrize(
+    ("yaml_text", "project_id", "token", "env_key"),
+    [
+        pytest.param(_GATEKEEPING_YAML, "gk-proj", "deadbeef" * 4, "CODE_REPO", id="gatekeeping"),
+        pytest.param(
+            _ONLINE_YAML, "online-proj", "cafebabe" * 4, "CLONE_FROM", id="online-with-gate"
+        ),
+    ],
+)
+def test_gate_projects_use_http_urls_with_tokens(
+    yaml_text: str,
+    project_id: str,
+    token: str,
+    env_key: str,
+) -> None:
+    """Gate-backed project modes generate token-authenticated HTTP URLs."""
+    with (
+        mock_git_config(),
+        project_env(yaml_text, project_id=project_id, with_gate=True) as ctx,
+        patch("terok.lib.containers.environment.ensure_server_reachable"),
+        patch("terok.lib.containers.environment.get_gate_server_port", return_value=9418),
+        patch(
+            "terok.lib.containers.environment.get_gate_base_path",
+            return_value=ctx.state_dir / "gate",
+        ),
+        patch("terok.lib.security.gate_tokens.create_token", return_value=token),
+    ):
+        project = load_project(project_id)
+        env, volumes = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
+
+    assert env[env_key] == f"http://{token}@host.containers.internal:9418/{project_id}.git"
+    assert gate_mounts(volumes) == []
+
+    if project.security_class == "gatekeeping":
+        assert env["GIT_BRANCH"] == "main"
+    else:
+        assert env["CODE_REPO"] == "https://example.com/repo.git"
+
+
+def test_gatekeeping_missing_gate_raises() -> None:
+    """Gatekeeping mode requires a synced gate mirror before task startup."""
+    with mock_git_config(), project_env(_GATEKEEPING_YAML, project_id="gk-proj", with_gate=False):
+        project = load_project("gk-proj")
+        with pytest.raises(SystemExit, match="gate-sync"):
+            _security_mode_env_and_volumes(project, Path("/tmp/ssh"), "1")
+
+
+def test_gatekeeping_server_not_running_raises() -> None:
+    """Gatekeeping mode fails when the gate server cannot be reached."""
+    with (
+        mock_git_config(),
+        project_env(_GATEKEEPING_YAML, project_id="gk-proj", with_gate=True),
+        patch(
+            "terok.lib.containers.environment.ensure_server_reachable",
+            side_effect=SystemExit("Gate server unavailable"),
+        ),
+    ):
+        project = load_project("gk-proj")
+        with pytest.raises(SystemExit, match="Gate server"):
+            _security_mode_env_and_volumes(project, Path("/tmp/ssh"), "1")
+
+
+@pytest.mark.parametrize(
+    "server_reachable",
+    [pytest.param(True, id="server-up"), pytest.param(False, id="server-down")],
+)
+def test_online_gate_server_fallback(server_reachable: bool) -> None:
+    """Online mode uses CLONE_FROM only when the gate server is reachable."""
+    with (
+        mock_git_config(),
+        project_env(_ONLINE_YAML, project_id="online-proj", with_gate=True) as ctx,
+        patch(
+            "terok.lib.containers.environment.ensure_server_reachable",
+            side_effect=None if server_reachable else SystemExit("server down"),
+        ),
+        patch("terok.lib.containers.environment.get_gate_server_port", return_value=9418),
+        patch(
+            "terok.lib.containers.environment.get_gate_base_path",
+            return_value=ctx.state_dir / "gate",
+        ),
+        patch("terok.lib.security.gate_tokens.create_token", return_value="cafebabe" * 4),
+    ):
+        project = load_project("online-proj")
+        env, volumes = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
+
+    if server_reachable:
+        assert env["CLONE_FROM"] == (
+            "http://cafebabecafebabecafebabecafebabe@host.containers.internal:9418/online-proj.git"
         )
-        # No gate volume mount
-        gate_mounts = [v for v in volumes if "git-gate" in v or "gate" in v.split(":")[0]]
-        self.assertEqual(gate_mounts, [])
-        self.assertEqual(env["GIT_BRANCH"], "main")
-
-    def test_gatekeeping_missing_gate_raises(self) -> None:
-        with (
-            mock_git_config(),
-            project_env(_GATEKEEPING_YAML, project_id="gk-proj", with_gate=False),
-        ):
-            project = load_project("gk-proj")
-            with self.assertRaises(SystemExit) as ctx:
-                _security_mode_env_and_volumes(project, Path("/tmp/ssh"), "1")
-            self.assertIn("gate-sync", str(ctx.exception))
-
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server.get_server_status",
-        return_value=unittest.mock.Mock(running=False),
-    )
-    @unittest.mock.patch("terok.lib.security.gate_server.is_systemd_available", return_value=False)
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server._get_port",
-        return_value=9418,
-    )
-    def test_gatekeeping_server_not_running_raises(self, *_mocks: unittest.mock.Mock) -> None:
-        with (
-            mock_git_config(),
-            project_env(_GATEKEEPING_YAML, project_id="gk-proj", with_gate=True),
-        ):
-            project = load_project("gk-proj")
-            with self.assertRaises(SystemExit) as ctx:
-                _security_mode_env_and_volumes(project, Path("/tmp/ssh"), "1")
-            self.assertIn("Gate server", str(ctx.exception))
+    else:
+        assert "CLONE_FROM" not in env
+    assert env["CODE_REPO"] == "https://example.com/repo.git"
+    assert gate_mounts(volumes) == []
 
 
-class TestOnlineMode(unittest.TestCase):
-    """Online mode produces http:// CLONE_FROM with token when gate exists."""
+def test_online_without_gate_has_no_clone_from() -> None:
+    """Online mode without a gate mirror clones directly from upstream only."""
+    with (
+        mock_git_config(),
+        project_env(_ONLINE_YAML, project_id="online-proj", with_gate=False) as ctx,
+    ):
+        project = load_project("online-proj")
+        env, volumes = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
 
-    @unittest.mock.patch(
-        "terok.lib.security.gate_tokens.create_token",
-        return_value="cafebabe" * 4,
-    )
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server.get_server_status",
-        return_value=unittest.mock.Mock(running=True),
-    )
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server._get_port",
-        return_value=9418,
-    )
-    def test_online_with_gate_uses_http_url_with_token(self, *_mocks: unittest.mock.Mock) -> None:
-        with (
-            mock_git_config(),
-            project_env(_ONLINE_YAML, project_id="online-proj", with_gate=True) as ctx,
-        ):
-            project = load_project("online-proj")
-            env, volumes = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
-
-        expected_token = "cafebabe" * 4
-        self.assertEqual(
-            env["CLONE_FROM"],
-            f"http://{expected_token}@host.containers.internal:9418/online-proj.git",
-        )
-        self.assertEqual(env["CODE_REPO"], "https://example.com/repo.git")
-        # No gate volume mount
-        gate_mounts = [v for v in volumes if "git-gate" in v or "gate" in v.split(":")[0]]
-        self.assertEqual(gate_mounts, [])
-
-    @unittest.mock.patch(
-        "terok.lib.security.gate_server.get_server_status",
-        return_value=unittest.mock.Mock(running=False),
-    )
-    @unittest.mock.patch("terok.lib.security.gate_server.is_systemd_available", return_value=False)
-    def test_online_gate_server_down_skips_clone_from(self, *_mocks: unittest.mock.Mock) -> None:
-        """Online mode with gate repo but server down falls back gracefully."""
-        with (
-            mock_git_config(),
-            project_env(_ONLINE_YAML, project_id="online-proj", with_gate=True) as ctx,
-        ):
-            project = load_project("online-proj")
-            env, _volumes = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
-
-        self.assertNotIn("CLONE_FROM", env)
-        self.assertEqual(env["CODE_REPO"], "https://example.com/repo.git")
-
-    def test_online_without_gate_no_clone_from(self) -> None:
-        with (
-            mock_git_config(),
-            project_env(_ONLINE_YAML, project_id="online-proj", with_gate=False) as ctx,
-        ):
-            project = load_project("online-proj")
-            env, _ = _security_mode_env_and_volumes(project, Path(ctx.base / "ssh"), "1")
-
-        self.assertNotIn("CLONE_FROM", env)
-        self.assertEqual(env["CODE_REPO"], "https://example.com/repo.git")
+    assert "CLONE_FROM" not in env
+    assert env["CODE_REPO"] == "https://example.com/repo.git"
+    assert gate_mounts(volumes) == []
