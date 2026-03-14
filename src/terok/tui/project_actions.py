@@ -564,3 +564,22 @@ class ProjectActionsMixin:
             stop_daemon,
             success_msg="Gate server daemon stopped",
         )
+
+    # ---------- Shield actions ----------
+
+    async def _action_shield_setup(self) -> None:
+        """Push shield setup modal and run hook installation on result."""
+        from .screens import ShieldSetupScreen
+
+        await self.push_screen(ShieldSetupScreen(), self._on_shield_setup_result)
+
+    async def _on_shield_setup_result(self, result: str | None) -> None:
+        """Run hook installation after shield setup modal choice."""
+        if result is None:
+            return
+        from ..lib.facade import shield_setup_hooks_direct
+
+        await self._run_suspended(
+            lambda: shield_setup_hooks_direct(root=result == "root"),
+            success_msg="Shield hooks installed",
+        )

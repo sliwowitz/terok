@@ -49,6 +49,7 @@ from ..lib.containers.tasks import sanitize_task_name, validate_task_name
 from ..lib.core.config import is_experimental
 from ..lib.core.projects import ProjectConfig
 from ..lib.facade import (
+    EnvironmentCheck,
     GateServerStatus,
     GateStalenessInfo,
     check_units_outdated,
@@ -1227,4 +1228,289 @@ class TaskDetailsScreen(screen.Screen[str | None]):
 
     def action_dismiss(self) -> None:
         """Close the task details screen without selecting an action."""
+        self.dismiss(None)
+
+
+# ---------------------------------------------------------------------------
+# Shield helpers
+# ---------------------------------------------------------------------------
+
+
+_SHIELD_HEALTH_STYLES: dict[str, str] = {
+    "ok": "green",
+    "setup-needed": "red",
+    "stale-hooks": "yellow",
+    "bypass": "yellow",
+}
+
+
+def render_shield_status(
+    env_check: EnvironmentCheck | None, shield_info: dict | None = None
+) -> Text:
+    """Render shield environment check as a Rich Text object."""
+    if env_check is None:
+        return Text("Shield environment status unknown.")
+
+    color = _SHIELD_HEALTH_STYLES.get(env_check.health, "red")
+    health_s = Text(env_check.health, style=Style(color=color))
+
+    # Shield package version
+    try:
+        from importlib.metadata import version as _meta_version
+
+        shield_version = _meta_version("terok-shield")
+    except Exception:
+        shield_version = "unknown"
+
+    podman_str = ".".join(str(v) for v in env_check.podman_version)
+    lines = [
+        Text(f"Version:   {shield_version}"),
+        Text(f"Podman:    {podman_str}"),
+        Text.assemble("Health:    ", health_s),
+        Text(f"Hooks:     {env_check.hooks}"),
+    ]
+
+    # Config details from shield_info (mode, audit, profiles)
+    if shield_info:
+        mode = shield_info.get("mode", "hook")
+        audit = "enabled" if shield_info.get("audit_enabled", True) else "disabled"
+        profiles = shield_info.get("profiles", [])
+        lines.append(Text(f"Mode:      {mode}"))
+        lines.append(Text(f"Audit:     {audit}"))
+        lines.append(Text(f"Profiles:  {', '.join(profiles) or '(none)'}"))
+    if env_check.issues:
+        lines.append(Text(""))
+        lines.append(Text("Issues:"))
+        for issue in env_check.issues:
+            style = Style(color="red", bold=True) if "bypass" in issue else None
+            lines.append(Text(f"  - {issue}", style=style))
+
+    if env_check.setup_hint:
+        lines.append(Text(""))
+        lines.append(Text(env_check.setup_hint, style=Style(dim=True)))
+
+    return Text("\n").join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Shield Screen
+# ---------------------------------------------------------------------------
+
+
+class ShieldScreen(screen.Screen[str | None]):
+    """Full-page screen for viewing shield environment status."""
+
+    BINDINGS = [
+        _modal_binding("escape", "dismiss", "Back"),
+        _modal_binding("q", "dismiss", "Back"),
+        _modal_binding("s", "shield_setup", "Setup global hooks"),
+        _modal_binding("r", "shield_refresh", "Refresh status"),
+    ]
+
+    CSS = (
+        """
+    ShieldScreen {
+        layout: vertical;
+        background: $background;
+    }
+    """
+        + _DETAIL_SCREEN_CSS
+    )
+
+    def __init__(self, env_check: EnvironmentCheck | None = None) -> None:
+        """Store environment check result for rendering."""
+        super().__init__()
+        self._env_check = env_check
+        self._shield_info: dict | None = None
+        self._loading = False
+
+    @property
+    def _needs_setup(self) -> bool:
+        """Return True if global hook setup is needed (podman < 5.6.0 without hooks)."""
+        return self._env_check is not None and self._env_check.needs_setup
+
+    def compose(self) -> ComposeResult:
+        """Build the detail pane and action list for shield management."""
+        detail_pane = Static(id="detail-content")
+        detail_pane.border_title = "Shield Environment"
+        detail_pane.border_subtitle = "Esc to close"
+        yield detail_pane
+
+        yield OptionList(
+            Option("\\[s]etup global hooks", id="shield_setup"),
+            None,
+            Option("\\[r]efresh status", id="shield_refresh"),
+            id="actions-list",
+        )
+
+    def on_mount(self) -> None:
+        """Start loading shield status and focus the action list."""
+        actions = self.query_one("#actions-list", OptionList)
+        actions.focus()
+        if self._env_check is not None:
+            # Already have cached data — render it, then refresh in background
+            self._load_shield_info()
+            self._render_status()
+            self._update_setup_option()
+        self._start_refresh()
+
+    def _load_shield_info(self) -> None:
+        """Fetch shield config (mode, audit, profiles) for display."""
+        from ..lib.facade import shield_status
+
+        try:
+            self._shield_info = shield_status()
+        except Exception:
+            self._shield_info = None
+
+    def _render_status(self) -> None:
+        """Update the detail pane with current status."""
+        detail_widget = self.query_one("#detail-content", Static)
+        if self._loading and self._env_check is None:
+            detail_widget.update(Text("Loading shield status...", style=Style(dim=True)))
+        elif self._loading:
+            # Show existing data with a loading hint
+            content = render_shield_status(self._env_check, self._shield_info)
+            content.append("\n\nRefreshing...")
+            detail_widget.update(content)
+        else:
+            detail_widget.update(render_shield_status(self._env_check, self._shield_info))
+
+    def _update_setup_option(self) -> None:
+        """Disable the setup option when hooks are per-container (modern podman)."""
+        actions = self.query_one("#actions-list", OptionList)
+        for idx in range(actions.option_count):
+            opt = actions.get_option_at_index(idx)
+            if opt.id == "shield_setup":
+                if self._needs_setup:
+                    actions.enable_option_at_index(idx)
+                else:
+                    actions.disable_option_at_index(idx)
+                break
+
+    def _start_refresh(self) -> None:
+        """Kick off a background refresh of shield status."""
+        self._loading = True
+        self._render_status()
+        self.run_worker(self._fetch_status, thread=True, exit_on_error=False)
+
+    @staticmethod
+    def _fetch_status() -> tuple[EnvironmentCheck | None, dict | None]:
+        """Load environment check and shield config in a thread."""
+        from ..lib.facade import shield_check_environment, shield_status
+
+        env: EnvironmentCheck | None = None
+        info: dict | None = None
+        try:
+            env = shield_check_environment()
+        except Exception:
+            pass
+        try:
+            info = shield_status()
+        except Exception:
+            pass
+        return env, info
+
+    def on_worker_state_changed(self, event) -> None:
+        """Handle background worker completion."""
+        if event.state.name != "SUCCESS":
+            self._loading = False
+            self._render_status()
+            return
+        result = event.worker.result
+        if result and isinstance(result, tuple) and len(result) == 2:
+            self._env_check, self._shield_info = result
+            self._loading = False
+            self._render_status()
+            self._update_setup_option()
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Handle action selection from the option list."""
+        option_id = event.option_id
+        if option_id == "shield_refresh":
+            self._start_refresh()
+        elif option_id:
+            self.dismiss(option_id)
+
+    def action_dismiss(self) -> None:
+        """Close the screen without selecting an action."""
+        self.dismiss(None)
+
+    def action_shield_setup(self) -> None:
+        """Trigger shield setup flow (only if needed)."""
+        if not self._needs_setup:
+            return
+        self.dismiss("shield_setup")
+
+    def action_shield_refresh(self) -> None:
+        """Refresh the status display."""
+        self._start_refresh()
+
+
+class ShieldSetupScreen(screen.ModalScreen[str | None]):
+    """Modal screen for choosing root vs user hook installation."""
+
+    BINDINGS = [
+        _modal_binding("escape", "dismiss", "Cancel"),
+    ]
+
+    CSS = """
+    ShieldSetupScreen {
+        align: center middle;
+    }
+    #setup-dialog {
+        width: 64;
+        height: auto;
+        max-height: 14;
+        border: round $primary;
+        border-title-align: right;
+        border-subtitle-align: left;
+        background: $surface;
+        padding: 1 2;
+    }
+    #setup-buttons {
+        height: auto;
+        align-horizontal: center;
+        margin-top: 1;
+    }
+    #setup-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        """Build the setup choice dialog with styled buttons."""
+        with Vertical(id="setup-dialog") as dialog:
+            yield Static("Install global OCI hooks for podman < 5.6.0")
+            with Horizontal(id="setup-buttons"):
+                yield Button("[u] User-local", id="btn-user")
+                yield Button("[r] System-wide", id="btn-root")
+                yield Button("Cancel", id="btn-cancel")
+        dialog.border_title = "Shield Setup"
+        dialog.border_subtitle = "Esc to cancel"
+
+    def on_mount(self) -> None:
+        """Focus the first button on modal open."""
+        self.query_one("#btn-user", Button).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button presses."""
+        if event.button.id == "btn-root":
+            self.dismiss("root")
+        elif event.button.id == "btn-user":
+            self.dismiss("user")
+        elif event.button.id == "btn-cancel":
+            self.dismiss(None)
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle shortcut keys for root/user selection."""
+        if event.character == "r":
+            self.dismiss("root")
+            event.stop()
+        elif event.character == "u":
+            self.dismiss("user")
+            event.stop()
+
+    def action_dismiss(self) -> None:
+        """Cancel without choosing."""
         self.dismiss(None)

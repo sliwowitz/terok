@@ -8,15 +8,22 @@ Creates per-task :class:`Shield` instances from the terok global config.
 Each task gets its own ``state_dir`` under ``{task_dir}/shield/``.
 """
 
+import tempfile
 import warnings
 from pathlib import Path
 
 from terok_shield import (
+    USER_HOOKS_DIR,
+    EnvironmentCheck,  # noqa: F401 — re-exported
     NftNotFoundError,  # noqa: F401 — re-exported
     Shield,
     ShieldConfig,
     ShieldMode,
+    ShieldNeedsSetup,  # noqa: F401 — re-exported
     ShieldState,  # noqa: F401 — re-exported
+    ensure_containers_conf_hooks_dir,
+    setup_global_hooks,
+    system_hooks_dir,
 )
 
 from ..core.config import (
@@ -107,11 +114,17 @@ def pre_start(container: str, task_dir: Path) -> list[str]:
 
     Returns an empty list (no firewall args) when the dangerous
     ``bypass_firewall_no_protection`` override is active.
+
+    Raises :class:`SystemExit` with setup instructions when the
+    podman environment requires one-time hook installation.
     """
     if get_shield_bypass_firewall_no_protection():
         warnings.warn(_BYPASS_WARNING, stacklevel=2)
         return []
-    return make_shield(task_dir).pre_start(container)
+    try:
+        return make_shield(task_dir).pre_start(container)
+    except ShieldNeedsSetup as exc:
+        raise SystemExit(f"{exc}\n\nRun 'terokctl shield setup' to install global hooks.") from None
 
 
 def down(container: str, task_dir: Path) -> None:
@@ -131,11 +144,10 @@ def up(container: str, task_dir: Path) -> None:
 def state(container: str, task_dir: Path) -> ShieldState:
     """Return the live shield state for a running container.
 
-    Returns ``ShieldState.INACTIVE`` when the dangerous
-    ``bypass_firewall_no_protection`` override is active.
+    Queries actual nft state even when ``bypass_firewall_no_protection``
+    is set, because containers started *before* bypass was enabled may
+    still have active firewall rules.
     """
-    if get_shield_bypass_firewall_no_protection():
-        return ShieldState.INACTIVE
     return make_shield(task_dir).state(container)
 
 
@@ -158,3 +170,61 @@ def status() -> dict:
         # DANGEROUS TRANSITIONAL OVERRIDE — surface prominently in status output
         result["bypass_firewall_no_protection"] = True
     return result
+
+
+def check_environment() -> EnvironmentCheck:
+    """Check the podman environment for shield compatibility.
+
+    Constructs a temporary :class:`Shield` and calls
+    :meth:`Shield.check_environment`.  Returns a synthetic
+    :class:`EnvironmentCheck` with bypass info when the dangerous
+    ``bypass_firewall_no_protection`` override is active.
+    """
+    if get_shield_bypass_firewall_no_protection():
+        return EnvironmentCheck(
+            ok=False,
+            health="bypass",
+            issues=["bypass_firewall_no_protection is set — egress firewall disabled"],
+        )
+    with tempfile.TemporaryDirectory() as tmp:
+        return make_shield(Path(tmp)).check_environment()
+
+
+def run_setup(*, root: bool = False, user: bool = False) -> None:
+    """Install global OCI hooks for podman < 5.6.0.
+
+    Checks the environment first — if podman >= 5.6.0 uses per-container
+    hooks natively, prints a message and returns without installing anything.
+
+    Raises :class:`SystemExit` when neither ``--root`` nor ``--user`` is given.
+    """
+    env = check_environment()
+    if env.hooks == "per-container":
+        print(
+            f"Podman {'.'.join(str(v) for v in env.podman_version)} uses per-task hooks natively.\n"
+            "Global hook setup is not needed."
+        )
+        return
+    if not root and not user:
+        raise SystemExit(
+            "Specify --root (system-wide, uses sudo) or --user (user-local).\n"
+            "  terokctl shield setup --root   # /etc/containers/oci/hooks.d\n"
+            "  terokctl shield setup --user   # ~/.local/share/containers/oci/hooks.d"
+        )
+    setup_hooks_direct(root=root)
+
+
+def setup_hooks_direct(*, root: bool = False) -> None:
+    """Install global hooks via the terok-shield Python API (no subprocess).
+
+    Suitable for TUI callers that need direct control.  Installs hooks
+    to the system directory (with sudo) when *root* is True, otherwise
+    to the user directory.
+    """
+    if root:
+        target = system_hooks_dir()
+        setup_global_hooks(target, use_sudo=True)
+    else:
+        target = Path(USER_HOOKS_DIR).expanduser()
+        setup_global_hooks(target)
+        ensure_containers_conf_hooks_dir(target)
