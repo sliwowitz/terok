@@ -73,8 +73,21 @@ if command -v jq >/dev/null 2>&1; then
     existing=$(printf '%s' "${raw}" | jq -e '.' 2>/dev/null) || existing='{}'
   fi
 
-  if [[ -z "$(printf '%s' "${existing}" | jq -r '.launcher.agents // empty' 2>/dev/null)" ]]; then
-    updated=$(printf '%s' "${existing}" | jq --arg agents "${LAUNCHER_AGENTS}" \
+  # Ensure all expected agents are in the launcher (append missing ones).
+  current=$(printf '%s' "${existing}" | jq -r '.launcher.agents // ""' 2>/dev/null)
+  missing=""
+  while IFS= read -r agent; do
+    [[ -z "${agent}" ]] && continue
+    if ! printf '%s' "${current}" | grep -qF "${agent}"; then
+      missing="${missing:+${missing}
+}${agent}"
+    fi
+  done <<< "${LAUNCHER_AGENTS}"
+
+  if [[ -n "${missing}" ]]; then
+    new_agents="${current:+${current}
+}${missing}"
+    updated=$(printf '%s' "${existing}" | jq --arg agents "${new_agents}" \
       '.launcher.agents = $agents' 2>/dev/null) || true
     if [[ -n "${updated}" ]]; then
       tmpfile=$(mktemp "${TOAD_CONFIG}.XXXXXX") || true
