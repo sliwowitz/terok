@@ -10,6 +10,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
 USER root
 ENV HOME=/root
 
+# Cache bust point - changing AGENT_CACHE_BUST invalidates all layers below
+# Used by `terokctl build --agents` to force fresh agent installs and script updates
+ARG AGENT_CACHE_BUST=0
+
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -141,10 +145,6 @@ ENV NPM_CONFIG_PREFIX=/home/dev/.npm-packages \
     PATH=/home/dev/.npm-packages/bin:/home/dev/.local/bin:/home/dev/.opencode/bin:$PATH
 USER dev
 WORKDIR /home/dev
-
-# Cache bust point - changing AGENT_CACHE_BUST invalidates all layers below
-# Used by `terokctl build --agents` to force fresh agent installs
-ARG AGENT_CACHE_BUST=0
 
 # Install AI agent CLIs as dev user
 RUN mkdir -p "$NPM_CONFIG_PREFIX" && npm config set prefix "$NPM_CONFIG_PREFIX"
