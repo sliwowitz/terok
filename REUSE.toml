@@ -12,6 +12,7 @@ path = [
   "**/*.txt",
   "**/*.template",
   "**/*.conf",
+  "sonar-project.properties",
   "**/*.dockerinclude",
   ".gitignore",
   "MANIFEST.in",
