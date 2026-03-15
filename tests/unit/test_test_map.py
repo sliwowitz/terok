@@ -8,14 +8,14 @@ from __future__ import annotations
 import importlib.util
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 from tests.testfs import MOCK_BASE
 
 
-def _load_test_map_module():
+def _load_test_map_module() -> ModuleType:
     """Load ``docs/test_map.py`` as a module for direct function testing."""
     path = Path(__file__).resolve().parents[2] / "docs" / "test_map.py"
     spec = importlib.util.spec_from_file_location("test_map", path)
@@ -26,7 +26,7 @@ def _load_test_map_module():
 
 
 @pytest.fixture
-def test_map_module():
+def test_map_module() -> ModuleType:
     """Return the loaded test-map module."""
     return _load_test_map_module()
 
