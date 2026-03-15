@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2025 Jiri Vyskocil
+# SPDX-License-Identifier: Apache-2.0
+
+# ACP wrapper for OpenAI Codex.
+#
+# Sets up git identity, unrestricted mode via config.toml, and
+# exec's the real codex-acp adapter via npx.
+
+set -euo pipefail
+
+_AGENT_NAME="Codex"
+_AGENT_EMAIL="noreply@openai.com"
+. /usr/local/share/terok/terok-acp-env.sh
+
+# Unrestricted mode: write ~/.codex/config.toml
+if [ "${TEROK_UNRESTRICTED:-}" = "1" ]; then
+    mkdir -p "$HOME/.codex"
+    cat > "$HOME/.codex/config.toml" <<'TOML'
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+TOML
+fi
+
+exec npx @zed-industries/codex-acp "$@"

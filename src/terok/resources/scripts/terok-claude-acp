@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2025 Jiri Vyskocil
+# SPDX-License-Identifier: Apache-2.0
+
+# ACP wrapper for Claude Code.
+#
+# Sets up git identity, unrestricted mode via managed settings, and
+# per-task instructions before exec-ing the real claude-code-acp adapter.
+
+set -euo pipefail
+
+_AGENT_NAME="Claude"
+_AGENT_EMAIL="noreply@anthropic.com"
+. /usr/local/share/terok/terok-acp-env.sh
+
+# Unrestricted mode: write managed settings (highest precedence in Claude's
+# settings hierarchy — cannot be overridden by user/project settings).
+# init-ssh-and-repo.sh may have already written this, but the ACP wrapper
+# ensures it's present even if init didn't run (e.g. container re-entry).
+if [ "${TEROK_UNRESTRICTED:-}" = "1" ] && [ -d /etc/claude-code ]; then
+    printf '{"permissions":{"defaultMode":"bypassPermissions"}}\n' \
+        > /etc/claude-code/managed-settings.json
+fi
+
+# Instructions: copy to ~/.claude/CLAUDE.md for ACP discovery
+_terok_install_claude_instructions
+
+exec claude-code-acp "$@"

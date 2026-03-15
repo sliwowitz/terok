@@ -77,11 +77,12 @@ RUN mkdir -p /etc/claude-code && chown dev:dev /etc/claude-code
 COPY scripts/setup-codex-auth.sh /usr/local/bin/setup-codex-auth.sh
 RUN chmod +x /usr/local/bin/setup-codex-auth.sh
 
-# Copy OpenCode session plugin for terok session resume
+# Copy OpenCode session plugin and shared helpers for terok session resume + ACP
 RUN mkdir -p /usr/local/share/terok
 COPY scripts/opencode-session-plugin.mjs /usr/local/share/terok/opencode-session-plugin.mjs
 COPY scripts/terok-git-identity.sh /usr/local/share/terok/terok-git-identity.sh
-RUN chmod +x /usr/local/share/terok/terok-git-identity.sh
+COPY scripts/terok-acp-env.sh /usr/local/share/terok/terok-acp-env.sh
+RUN chmod +x /usr/local/share/terok/terok-git-identity.sh /usr/local/share/terok/terok-acp-env.sh
 
 # Container help banner (available as `hilfe` command, also sourced on login)
 COPY scripts/hilfe /usr/local/bin/hilfe
@@ -93,6 +94,18 @@ COPY scripts/blablador-acp /usr/local/bin/blablador-acp
 COPY scripts/vibe-model-sync.sh /usr/local/bin/vibe-model-sync
 COPY scripts/mistral-model-sync.py /usr/local/bin/mistral-model-sync.py
 RUN chmod +x /usr/local/bin/blablador /usr/local/bin/blablador-acp /usr/local/bin/vibe-model-sync /usr/local/bin/mistral-model-sync.py
+
+# ACP wrappers: set up git identity, unrestricted mode, and instructions
+# before exec-ing the real ACP adapters (used by toad)
+COPY scripts/terok-claude-acp /usr/local/bin/terok-claude-acp
+COPY scripts/terok-codex-acp /usr/local/bin/terok-codex-acp
+COPY scripts/terok-opencode-acp /usr/local/bin/terok-opencode-acp
+COPY scripts/terok-copilot-acp /usr/local/bin/terok-copilot-acp
+COPY scripts/terok-vibe-acp /usr/local/bin/terok-vibe-acp
+COPY scripts/toad /usr/local/bin/toad
+RUN chmod +x /usr/local/bin/terok-claude-acp /usr/local/bin/terok-codex-acp \
+             /usr/local/bin/terok-opencode-acp /usr/local/bin/terok-copilot-acp \
+             /usr/local/bin/terok-vibe-acp /usr/local/bin/toad
 
 # update-all-the-things: refresh all packages without full image rebuild
 COPY scripts/allthethings.sh /usr/local/bin/allthethings.sh

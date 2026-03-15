@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2025 Jiri Vyskocil
+# SPDX-License-Identifier: Apache-2.0
+
+# ACP wrapper for Mistral Vibe.
+#
+# Sets up git identity and unrestricted mode via env var before
+# exec-ing the real vibe-acp adapter (installed via pipx).
+
+set -euo pipefail
+
+_AGENT_NAME="Vibe"
+_AGENT_EMAIL="noreply@mistral.ai"
+. /usr/local/share/terok/terok-acp-env.sh
+
+# Unrestricted mode: VIBE_AUTO_APPROVE env var overrides config via
+# pydantic-settings (case-insensitive, all fields overridable).
+if [ "${TEROK_UNRESTRICTED:-}" = "1" ]; then
+    export VIBE_AUTO_APPROVE=true
+fi
+
+exec vibe-acp "$@"

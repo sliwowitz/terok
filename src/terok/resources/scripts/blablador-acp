@@ -3,9 +3,24 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-# ACP wrapper for Blablador (OpenCode with Helmholtz Blablador config).
-# Points OpenCode's ACP server to Blablador's separate config which
-# includes the Helmholtz API endpoint, credentials, and terok's
-# system instructions (injected by prepare_agent_config_dir).
+# ACP wrapper for Blablador (OpenCode-based with Helmholtz backend).
+#
+# Sets up git identity, unrestricted mode, and Blablador's separate
+# OpenCode config path before exec-ing the opencode acp adapter.
 
-exec env OPENCODE_CONFIG="$HOME/.blablador/opencode/opencode.json" opencode acp "$@"
+set -euo pipefail
+
+_AGENT_NAME="Blablador"
+_AGENT_EMAIL="noreply@hzdr.de"
+. /usr/local/share/terok/terok-acp-env.sh
+
+# Unrestricted mode: same as opencode — env var merged on top of config.
+if [ "${TEROK_UNRESTRICTED:-}" = "1" ]; then
+    export OPENCODE_PERMISSION='{"*":"allow"}'
+fi
+
+# Point OpenCode at Blablador's separate config directory so it picks up
+# the Blablador provider, model list, and API key.
+export OPENCODE_CONFIG="$HOME/.blablador/opencode/opencode.json"
+
+exec opencode acp "$@"

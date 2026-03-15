@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2025 Jiri Vyskocil
+# SPDX-License-Identifier: Apache-2.0
+
+# ACP wrapper for OpenCode.
+#
+# Sets up git identity and unrestricted mode via env var before
+# exec-ing the native opencode acp adapter.
+
+set -euo pipefail
+
+_AGENT_NAME="OpenCode"
+_AGENT_EMAIL="noreply@opencode.ai"
+. /usr/local/share/terok/terok-acp-env.sh
+
+# Unrestricted mode: OPENCODE_PERMISSION env var is merged on top of all
+# config layers (no CLI flag exists for permissions).
+if [ "${TEROK_UNRESTRICTED:-}" = "1" ]; then
+    export OPENCODE_PERMISSION='{"*":"allow"}'
+fi
+
+exec opencode acp "$@"

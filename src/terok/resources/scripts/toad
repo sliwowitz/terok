@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+
+# SPDX-FileCopyrightText: 2025 Jiri Vyskocil
+# SPDX-License-Identifier: Apache-2.0
+
+# Toad launcher wrapper for terok containers.
+#
+# Seeds launcher.agents into toad.json, injects the Blablador agent TOML,
+# and patches all agent TOMLs to use terok ACP wrappers (which set up git
+# identity, unrestricted mode, and instructions) before launching toad.
+
+set -euo pipefail
+
+TOAD_CONFIG="${HOME}/.config/toad/toad.json"
+TOAD_REAL="${HOME}/.local/share/uv/tools/batrachian-toad/bin/toad"
+
+# Agents pre-installed in the container image (newline-separated identities).
+LAUNCHER_AGENTS="claude.com
+vibe.mistral.ai
+openai.com
+copilot.github.com
+opencode.ai
+blablador.helmholtz.de"
+
+# ---------------------------------------------------------------------------
+# Toad agent data directory (inside the toad package).
+# Resolve dynamically to avoid hardcoding the Python version.
+# ---------------------------------------------------------------------------
+_toad_venv="${HOME}/.local/share/uv/tools/batrachian-toad"
+TOAD_AGENTS_DIR=""
+for _candidate in "${_toad_venv}"/lib/python*/site-packages/toad/data/agents; do
+    [ -d "$_candidate" ] && TOAD_AGENTS_DIR="$_candidate" && break
+done
+unset _candidate _toad_venv
+
+# ---------------------------------------------------------------------------
+# Inject custom agent TOML for Blablador into Toad's package data.
+# Toad only reads agents from its bundled data dir — no user override dir yet.
+# ---------------------------------------------------------------------------
+_inject_blablador_toml() {
+    [[ -n "${TOAD_AGENTS_DIR}" ]] || return 0
+    local toml="${TOAD_AGENTS_DIR}/blablador.helmholtz.de.toml"
+    [[ -f "${toml}" ]] && return 0
+
+    local tmp
+    tmp=$(mktemp "${toml}.XXXXXX" 2>/dev/null) || return 0
+    cat > "${tmp}" << 'TOML_EOF'
+identity = "blablador.helmholtz.de"
+name = "Blablador"
+short_name = "blablador"
+url = "https://helmholtz-blablador.fz-juelich.de/"
+protocol = "acp"
+author_name = "Helmholtz / FZJ"
+author_url = "https://www.fz-juelich.de/"
+publisher_name = "terok"
+publisher_url = "https://github.com/terok-ai/terok"
+type = "coding"
+description = "OpenCode with Helmholtz Blablador — open-source LLMs for German academia."
+tags = []
+run_command."*" = "blablador-acp"
+
+help = '''
+# Blablador
+
+OpenCode powered by Helmholtz Blablador — open-source large language models
+hosted at Forschungszentrum Jülich for the German research community.
+
+Uses the same tools and capabilities as OpenCode, but routes through the
+Blablador API with models like alias-huge and alias-code.
+
+Requires BLABLADOR_API_KEY to be set.
+'''
+
+[actions."*".install]
+command = "echo 'Blablador is pre-installed in terok containers.'"
+description = "Already installed"
+TOML_EOF
+    mv -f "${tmp}" "${toml}" 2>/dev/null \
+        || { echo "Warning: could not install Blablador agent TOML" >&2; rm -f "${tmp}"; }
+}
+
+# ---------------------------------------------------------------------------
+# Patch agent TOMLs to use terok ACP wrappers.
+# Wrappers set up git identity, unrestricted mode, and instructions before
+# exec-ing the real ACP adapter.  Patching is idempotent.
+# ---------------------------------------------------------------------------
+_patch_toml() {
+    local file="$1" original="$2" patched="$3"
+    [ -f "$file" ] || return 0
+    # Skip if already patched
+    grep -qF "\"${patched}\"" "$file" 2>/dev/null && return 0
+    sed -i "s|run_command\\.\"\\*\" = \"${original}\"|run_command.\"*\" = \"${patched}\"|" "$file"
+}
+
+_patch_agent_tomls() {
+    [[ -n "${TOAD_AGENTS_DIR}" ]] || return 0
+
+    _patch_toml "${TOAD_AGENTS_DIR}/claude.com.toml" \
+        "claude-code-acp" "terok-claude-acp"
+
+    _patch_toml "${TOAD_AGENTS_DIR}/openai.com.toml" \
+        'npx @zed-industries/codex-acp' "terok-codex-acp"
+
+    _patch_toml "${TOAD_AGENTS_DIR}/opencode.ai.toml" \
+        "opencode acp" "terok-opencode-acp"
+
+    # blablador-acp: our wrapper is at /usr/local/bin/blablador-acp and the
+    # TOML already points to "blablador-acp" — no patching needed.
+
+    _patch_toml "${TOAD_AGENTS_DIR}/copilot.github.com.toml" \
+        'copilot --acp' "terok-copilot-acp"
+
+    _patch_toml "${TOAD_AGENTS_DIR}/vibe.mistral.ai.toml" \
+        "vibe-acp" "terok-vibe-acp"
+}
+
+# ---------------------------------------------------------------------------
+# Seed launcher.agents into toad.json (ensure all container agents are listed)
+# ---------------------------------------------------------------------------
+_seed_launcher_agents() {
+    command -v jq >/dev/null 2>&1 || return 0
+
+    mkdir -p "$(dirname "${TOAD_CONFIG}")"
+    local existing='{}'
+    if [[ -f "${TOAD_CONFIG}" ]]; then
+        local raw
+        raw=$(cat "${TOAD_CONFIG}" 2>/dev/null || true)
+        existing=$(printf '%s' "${raw}" | jq -e '.' 2>/dev/null) || existing='{}'
+    fi
+
+    local current missing=""
+    current=$(printf '%s' "${existing}" | jq -r '.launcher.agents // ""' 2>/dev/null)
+    while IFS= read -r agent; do
+        [[ -z "${agent}" ]] && continue
+        printf '%s' "${current}" | grep -qF "${agent}" || missing="${missing:+${missing}
+}${agent}"
+    done <<< "${LAUNCHER_AGENTS}"
+
+    if [[ -n "${missing}" ]]; then
+        local new_agents="${current:+${current}
+}${missing}"
+        local updated
+        updated=$(printf '%s' "${existing}" | jq --arg agents "${new_agents}" \
+            '.launcher.agents = $agents' 2>/dev/null) || return 0
+        [[ -n "${updated}" ]] || return 0
+        local tmp
+        tmp=$(mktemp "${TOAD_CONFIG}.XXXXXX") || return 0
+        printf '%s\n' "${updated}" > "${tmp}" && mv -f "${tmp}" "${TOAD_CONFIG}" \
+            || rm -f "${tmp}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+_inject_blablador_toml
+_patch_agent_tomls
+_seed_launcher_agents
+
+exec "${TOAD_REAL}" "$@"
