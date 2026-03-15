@@ -18,7 +18,66 @@ LAUNCHER_AGENTS="claude.com
 vibe.mistral.ai
 openai.com
 copilot.github.com
-opencode.ai"
+opencode.ai
+blablador.helmholtz.de"
+
+# Inject custom agent TOML for Blablador into Toad's package data.
+# Toad only reads agents from its bundled data dir — no user override dir yet.
+# Glob the python version to survive upgrades (e.g. 3.14 → 3.15).
+TOAD_AGENTS_DIR=""
+for _candidate in "${HOME}"/.local/share/uv/tools/batrachian-toad/lib/python*/site-packages/toad/data/agents; do
+  if [[ -d "${_candidate}" ]]; then
+    TOAD_AGENTS_DIR="${_candidate}"
+    break
+  fi
+done
+if [[ -z "${TOAD_AGENTS_DIR}" ]]; then
+  echo "Warning: Toad agents dir not found; Blablador TOML injection skipped" >&2
+fi
+BLABLADOR_TOML="${TOAD_AGENTS_DIR}/blablador.helmholtz.de.toml"
+if [[ -n "${TOAD_AGENTS_DIR}" ]] && [[ ! -f "${BLABLADOR_TOML}" ]]; then
+  _toml_tmp=$(mktemp "${BLABLADOR_TOML}.XXXXXX" 2>/dev/null) || true
+  if [[ -n "${_toml_tmp}" ]]; then
+    if cat > "${_toml_tmp}" << 'TOML_EOF'
+identity = "blablador.helmholtz.de"
+name = "Blablador"
+short_name = "blablador"
+url = "https://helmholtz-blablador.fz-juelich.de/"
+protocol = "acp"
+author_name = "Helmholtz / FZJ"
+author_url = "https://www.fz-juelich.de/"
+publisher_name = "terok"
+publisher_url = "https://github.com/terok-ai/terok"
+type = "coding"
+description = "OpenCode with Helmholtz Blablador — open-source LLMs for German academia."
+tags = []
+run_command."*" = "blablador-acp"
+
+help = '''
+# Blablador
+
+OpenCode powered by Helmholtz Blablador — open-source large language models
+hosted at Forschungszentrum Jülich for the German research community.
+
+Uses the same tools and capabilities as OpenCode, but routes through the
+Blablador API with models like alias-huge and alias-code.
+
+Requires BLABLADOR_API_KEY to be set.
+'''
+
+[actions."*".install]
+command = "echo 'Blablador is pre-installed in terok containers.'"
+description = "Already installed"
+TOML_EOF
+    then
+      mv -f "${_toml_tmp}" "${BLABLADOR_TOML}" 2>/dev/null \
+        || { echo "Warning: could not install Blablador agent TOML" >&2; rm -f "${_toml_tmp}"; }
+    else
+      echo "Warning: failed to write Blablador agent TOML" >&2
+      rm -f "${_toml_tmp}"
+    fi
+  fi
+fi
 
 if command -v jq >/dev/null 2>&1; then
   mkdir -p "$(dirname "${TOAD_CONFIG}")"
@@ -29,8 +88,21 @@ if command -v jq >/dev/null 2>&1; then
     existing=$(printf '%s' "${raw}" | jq -e '.' 2>/dev/null) || existing='{}'
   fi
 
-  if [[ -z "$(printf '%s' "${existing}" | jq -r '.launcher.agents // empty' 2>/dev/null)" ]]; then
-    updated=$(printf '%s' "${existing}" | jq --arg agents "${LAUNCHER_AGENTS}" \
+  # Ensure all expected agents are in the launcher (append missing ones).
+  current=$(printf '%s' "${existing}" | jq -r '.launcher.agents // ""' 2>/dev/null)
+  missing=""
+  while IFS= read -r agent; do
+    [[ -z "${agent}" ]] && continue
+    if ! printf '%s\n' "${current}" | grep -qxF -- "${agent}"; then
+      missing="${missing:+${missing}
+}${agent}"
+    fi
+  done <<< "${LAUNCHER_AGENTS}"
+
+  if [[ -n "${missing}" ]]; then
+    new_agents="${current:+${current}
+}${missing}"
+    updated=$(printf '%s' "${existing}" | jq --arg agents "${new_agents}" \
       '.launcher.agents = $agents' 2>/dev/null) || true
     if [[ -n "${updated}" ]]; then
       tmpfile=$(mktemp "${TOAD_CONFIG}.XXXXXX") || true
