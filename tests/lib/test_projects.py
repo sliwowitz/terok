@@ -145,7 +145,7 @@ class TestProject:
     def test_load_project_malformed_yaml(self) -> None:
         malformed = "project:\n  id: bad-yaml\n  foo: [invalid yaml\n"
         with project_env(malformed, project_id="bad-yaml"):
-            with pytest.raises(SystemExit, match="Failed to parse"):
+            with pytest.raises(SystemExit, match="Failed to read"):
                 load_project("bad-yaml")
 
     @pytest.mark.parametrize(

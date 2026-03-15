@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -117,7 +116,16 @@ def test_experimental_flag_roundtrip() -> None:
     ],
     ids=["default-false", "enabled", "explicit-false"],
 )
-def test_get_shield_bypass_firewall_no_protection(section: dict[str, bool], expected: bool) -> None:
-    with patch.object(cfg, "get_global_section", return_value=section) as mock_section:
-        assert cfg.get_shield_bypass_firewall_no_protection() is expected
-    mock_section.assert_called_once_with("shield")
+def test_get_shield_bypass_firewall_no_protection(
+    monkeypatch,
+    tmp_path: Path,
+    section: dict[str, bool],
+    expected: bool,
+) -> None:
+    config_text = (
+        ""
+        if not section
+        else f"shield:\n  bypass_firewall_no_protection: {str(section['bypass_firewall_no_protection']).lower()}\n"
+    )
+    monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, config_text)))
+    assert cfg.get_shield_bypass_firewall_no_protection() is expected

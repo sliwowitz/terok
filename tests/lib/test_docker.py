@@ -64,6 +64,7 @@ def build_commands(
         patch("subprocess.run", side_effect=mock_run),
         patch("terok.lib.containers.docker._check_podman_available"),
         image_exists_patch,
+        mock_git_config(),
     ):
         build_images(project_id, **build_kwargs)
     return commands

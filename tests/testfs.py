@@ -28,6 +28,9 @@ MOCK_CONFIG_ROOT = Path("/home/user/.config/terok")
 FAKE_GATE_DIR = MOCK_BASE / "gate"
 """Fake gate mirror path used by CLI and gate-server tests."""
 
+MOCK_GATE_PATH = str(FAKE_GATE_DIR / "mock.git")
+"""Fake git-gate path used by raw YAML schema validation tests."""
+
 FAKE_STATE_DIR = MOCK_BASE / "state"
 """Fake state root used by gate-server related tests."""
 
@@ -40,11 +43,20 @@ FAKE_PROJECT_ROOT = MOCK_BASE / "project-root"
 FAKE_PROJECT_TASKS_ROOT = FAKE_PROJECT_ROOT / "tasks"
 """Fake project tasks root used by container/project config tests."""
 
+MOCK_TASKS_ROOT = str(FAKE_PROJECT_TASKS_ROOT)
+"""Fake tasks root used by raw YAML schema validation tests."""
+
 FAKE_PROJECT_GATE_DIR = FAKE_PROJECT_ROOT / "gate"
 """Fake project gate path used by container/project config tests."""
 
 FAKE_SSH_DIR = MOCK_BASE / "ssh"
 """Fake SSH host directory used by mount-related tests."""
+
+MOCK_SSH_HOST_DIR = str(FAKE_SSH_DIR)
+"""Fake SSH host directory used by raw YAML schema validation tests."""
+
+MOCK_STAGING_ROOT = str(MOCK_BASE / "staging-root")
+"""Fake staging root used by raw YAML schema validation tests."""
 
 FAKE_TMUX_SOCKET = MOCK_BASE / "tmux-1000" / "default,12345,0"
 """Fake tmux socket path used by terminal-detection tests."""
