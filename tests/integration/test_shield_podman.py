@@ -14,7 +14,7 @@ import pytest
 terok_shield = pytest.importorskip("terok_shield")
 Shield = terok_shield.Shield
 
-from tests.testnet import EGRESS_DOMAIN, TEST_EGRESS_URL, TEST_IP_RFC5737
+from tests.testnet import ALLOWED_TARGET_DOMAIN, ALLOWED_TARGET_HTTP, TEST_IP_RFC5737
 
 from .conftest import nft_missing, podman_missing, skip_if_no_root
 from .helpers import assert_blocked, assert_reachable, inspect_container_json
@@ -72,9 +72,9 @@ class TestShieldEgress:
 
     def test_egress_blocked_by_default(self, shielded_container: str) -> None:
         """Container cannot reach an external host by default."""
-        assert_blocked(shielded_container, TEST_EGRESS_URL, timeout=5)
+        assert_blocked(shielded_container, ALLOWED_TARGET_HTTP, timeout=5)
 
     def test_egress_allowed_after_allow(self, shielded_container: str, real_shield: Shield) -> None:
         """Container can reach a host after shield.allow."""
-        real_shield.allow(shielded_container, EGRESS_DOMAIN)
-        assert_reachable(shielded_container, TEST_EGRESS_URL, timeout=10)
+        real_shield.allow(shielded_container, ALLOWED_TARGET_DOMAIN)
+        assert_reachable(shielded_container, ALLOWED_TARGET_HTTP, timeout=10)

@@ -27,11 +27,12 @@ import subprocess
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
 from tests.testfs import CONFIG_ROOT_NAME, HOME_DIR_NAME, STATE_ROOT_NAME, XDG_CONFIG_HOME_NAME
-from tests.testnet import EGRESS_DOMAIN, GATE_PORT, TEST_IP
+from tests.testnet import ALLOWED_TARGET_HTTP, GATE_PORT, TEST_IP
 
 from .helpers import (
     PODMAN_CONTAINER_PREFIX,
@@ -49,7 +50,6 @@ except ImportError:  # pragma: no cover - optional integration dependency
     _shield_find_nft = None
 
 SHIELD_MISSING_SKIP_REASON = "terok_shield not installed"
-EGRESS_HTTP_PORT = 80
 
 
 def _has(binary: str) -> bool:
@@ -70,6 +70,18 @@ def _image_available() -> bool:
         timeout=30,
     )
     return result.returncode == 0
+
+
+def _target_host_port(url: str) -> tuple[str, int]:
+    """Return the host and effective port for a URL used in connectivity checks."""
+    parsed = urlsplit(url)
+    if not parsed.hostname:
+        raise ValueError(f"URL missing hostname: {url!r}")
+    if parsed.port is not None:
+        return parsed.hostname, parsed.port
+    if parsed.scheme == "https":
+        return parsed.hostname, 443
+    return parsed.hostname, 80
 
 
 # ── Generic skip decorators ───────────────────────────────
@@ -161,12 +173,13 @@ def _pull_image() -> None:
 
 @pytest.fixture(scope="session")
 def _verify_connectivity() -> None:
-    """Fail fast when the host cannot reach the external egress test target."""
+    """Fail fast when the host cannot reach the real egress test target."""
+    host, port = _target_host_port(ALLOWED_TARGET_HTTP)
     try:
-        connection = socket.create_connection((EGRESS_DOMAIN, EGRESS_HTTP_PORT), timeout=5)
+        connection = socket.create_connection((host, port), timeout=5)
     except OSError as exc:
         pytest.fail(
-            f"Pre-flight: cannot reach {EGRESS_DOMAIN}:{EGRESS_HTTP_PORT} from the host.\n"
+            f"Pre-flight: cannot reach {host}:{port} from the host for {ALLOWED_TARGET_HTTP}.\n"
             "Fix host internet connectivity before running egress integration tests.\n"
             "Traffic-based tests would produce false positives when the host network is down.\n"
             f"Error: {exc}"
