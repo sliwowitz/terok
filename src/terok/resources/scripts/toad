@@ -28,7 +28,7 @@ BLABLADOR_TOML="${TOAD_AGENTS_DIR}/blablador.helmholtz.de.toml"
 if [[ -d "${TOAD_AGENTS_DIR}" ]] && [[ ! -f "${BLABLADOR_TOML}" ]]; then
   _toml_tmp=$(mktemp "${BLABLADOR_TOML}.XXXXXX" 2>/dev/null) || true
   if [[ -n "${_toml_tmp}" ]]; then
-    cat > "${_toml_tmp}" << 'TOML_EOF'
+    if cat > "${_toml_tmp}" << 'TOML_EOF'
 identity = "blablador.helmholtz.de"
 name = "Blablador"
 short_name = "blablador"
@@ -59,8 +59,13 @@ Requires BLABLADOR_API_KEY to be set.
 command = "echo 'Blablador is pre-installed in terok containers.'"
 description = "Already installed"
 TOML_EOF
-    mv -f "${_toml_tmp}" "${BLABLADOR_TOML}" 2>/dev/null \
-      || { echo "Warning: could not install Blablador agent TOML" >&2; rm -f "${_toml_tmp}"; }
+    then
+      mv -f "${_toml_tmp}" "${BLABLADOR_TOML}" 2>/dev/null \
+        || { echo "Warning: could not install Blablador agent TOML" >&2; rm -f "${_toml_tmp}"; }
+    else
+      echo "Warning: failed to write Blablador agent TOML" >&2
+      rm -f "${_toml_tmp}"
+    fi
   fi
 fi
 
@@ -78,7 +83,7 @@ if command -v jq >/dev/null 2>&1; then
   missing=""
   while IFS= read -r agent; do
     [[ -z "${agent}" ]] && continue
-    if ! printf '%s' "${current}" | grep -qF "${agent}"; then
+    if ! printf '%s\n' "${current}" | grep -qxF -- "${agent}"; then
       missing="${missing:+${missing}
 }${agent}"
     fi
