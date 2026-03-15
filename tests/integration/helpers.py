@@ -89,17 +89,21 @@ class TerokIntegrationEnv:
         self,
         *args: str,
         input_text: str | None = None,
+        extra_env: dict[str, str] | None = None,
         check: bool = True,
         timeout: int = 30,
     ) -> subprocess.CompletedProcess[str]:
         """Run the terok CLI in a subprocess and capture the result."""
+        env = self.cli_env
+        if extra_env:
+            env.update(extra_env)
         result = subprocess.run(
             [sys.executable, "-m", "terok.cli", "--no-emoji", *args],
             input=input_text,
             capture_output=True,
             text=True,
             cwd=ROOT,
-            env=self.cli_env,
+            env=env,
             timeout=timeout,
         )
         if check and result.returncode != 0:
@@ -277,3 +281,120 @@ def assert_reachable(container: str, url: str, timeout: int = 10) -> None:
     assert is_reachable(result), (
         f"Expected {url} to be reachable, but it was blocked: {result.stderr}"
     )
+
+
+def write_fake_podman(bin_dir: Path, state_path: Path) -> Path:
+    """Create a fake ``podman`` executable that records simple lifecycle state."""
+    script_path = bin_dir / "podman"
+    script_path.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env python3
+            import json
+            import sys
+            from pathlib import Path
+
+            state_path = Path({str(state_path)!r})
+
+            def load_state() -> dict:
+                if state_path.exists():
+                    return json.loads(state_path.read_text(encoding="utf-8"))
+                return {{"commands": [], "containers": {{}}}}
+
+            def save_state(state: dict) -> None:
+                state_path.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
+
+            def ready_marker(args: list[str]) -> str:
+                joined = " ".join(args)
+                if "toad --serve" in joined:
+                    return "Serving http://0.0.0.0:8080"
+                if any(":7860" in arg for arg in args):
+                    return "Terok Web UI started"
+                return "__CLI_READY__"
+
+            args = sys.argv[1:]
+            state = load_state()
+            state["commands"].append(args)
+
+            if args[:2] == ["info", "-f"]:
+                print("pasta")
+                save_state(state)
+                raise SystemExit(0)
+
+            if args[:2] == ["inspect", "-f"]:
+                fmt, name = args[2], args[3]
+                container = state["containers"].get(name)
+                if container is None:
+                    save_state(state)
+                    raise SystemExit(1)
+                if fmt == "{{{{.State.Status}}}}":
+                    print(container["status"])
+                elif fmt == "{{{{.State.Running}}}}":
+                    print("true" if container["status"] == "running" else "false")
+                save_state(state)
+                raise SystemExit(0)
+
+            if args[:2] == ["logs", "-f"]:
+                name = args[2]
+                container = state["containers"].get(name)
+                if container is None:
+                    save_state(state)
+                    raise SystemExit(1)
+                marker = container.get("marker", "")
+                if marker:
+                    print(marker)
+                save_state(state)
+                raise SystemExit(0)
+
+            if args[:2] == ["rm", "-f"]:
+                state["containers"].pop(args[2], None)
+                save_state(state)
+                raise SystemExit(0)
+
+            if args and args[0] == "run":
+                name = args[args.index("--name") + 1]
+                state["containers"][name] = {{
+                    "status": "running",
+                    "marker": ready_marker(args),
+                    "args": args,
+                }}
+                print("fake-container-id")
+                save_state(state)
+                raise SystemExit(0)
+
+            if args and args[0] == "start":
+                name = args[1]
+                container = state["containers"].setdefault(
+                    name,
+                    {{"args": [], "marker": "__CLI_READY__"}},
+                )
+                container["status"] = "running"
+                print(name)
+                save_state(state)
+                raise SystemExit(0)
+
+            if args and args[0] == "stop":
+                name = args[-1]
+                container = state["containers"].setdefault(
+                    name,
+                    {{"args": [], "marker": "__CLI_READY__"}},
+                )
+                container["status"] = "exited"
+                print(name)
+                save_state(state)
+                raise SystemExit(0)
+
+            if args and args[0] == "ps":
+                for name, container in state["containers"].items():
+                    print(f"{{name}} {{container.get('status', '')}}")
+                save_state(state)
+                raise SystemExit(0)
+
+            save_state(state)
+            raise SystemExit(0)
+            """
+        ),
+        encoding="utf-8",
+    )
+    script_path.chmod(0o755)
+    return script_path
