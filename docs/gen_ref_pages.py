@@ -21,8 +21,9 @@ def write_file(path: str, content: str) -> None:
 entries = generate_ref_pages(
     config, write_file=write_file, set_edit_path=mkdocs_gen_files.set_edit_path
 )
+prefix = config.output_prefix + "/"
 for parts, doc_path in entries:
-    nav[parts] = doc_path
+    nav[parts] = doc_path.removeprefix(prefix)
 
 with mkdocs_gen_files.open("reference/SUMMARY.md", "w") as f:
     f.writelines(nav.build_literate_nav())
