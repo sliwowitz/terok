@@ -23,18 +23,23 @@ export PATH="$HOME/.npm-packages/bin:$HOME/.local/bin:$HOME/.opencode/bin:$PATH"
 [ -r /usr/local/share/terok/terok-env-git-identity.sh ] && \
     . /usr/local/share/terok/terok-env-git-identity.sh
 
-# Git identity wrappers for non-agent CLIs.
-# Agent wrappers (claude, codex, vibe, …) are generated per-task in
-# terok-agent.sh and sourced via terok-env-wrappers.sh below.
+# gh/glab are human tools — always use the human identity directly.
+# No authorship policy dispatch needed (unlike agent wrappers).
 gh() {
   (
-    _terok_apply_git_identity "GitHub CLI" "gh@github.com"
+    export GIT_AUTHOR_NAME="${HUMAN_GIT_NAME:-Nobody}"
+    export GIT_AUTHOR_EMAIL="${HUMAN_GIT_EMAIL:-nobody@localhost}"
+    export GIT_COMMITTER_NAME="${HUMAN_GIT_NAME:-Nobody}"
+    export GIT_COMMITTER_EMAIL="${HUMAN_GIT_EMAIL:-nobody@localhost}"
     command gh "$@"
   )
 }
 glab() {
   (
-    _terok_apply_git_identity "GitLab CLI" "glab@gitlab.com"
+    export GIT_AUTHOR_NAME="${HUMAN_GIT_NAME:-Nobody}"
+    export GIT_AUTHOR_EMAIL="${HUMAN_GIT_EMAIL:-nobody@localhost}"
+    export GIT_COMMITTER_NAME="${HUMAN_GIT_NAME:-Nobody}"
+    export GIT_COMMITTER_EMAIL="${HUMAN_GIT_EMAIL:-nobody@localhost}"
     command glab "$@"
   )
 }
