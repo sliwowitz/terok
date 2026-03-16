@@ -122,31 +122,19 @@ class TestBuildInteractiveAgentCommand:
         provider.prompt_flag = "-p"
         assert build(provider, "") == "claude"
 
-    def test_with_prompt_flag(self) -> None:
+    def test_with_prompt(self) -> None:
         build = self._import_helper()
         provider = mock.Mock()
         provider.binary = "claude"
-        provider.prompt_flag = "-p"
         result = build(provider, "fix the bug")
-        assert result == "claude -p 'fix the bug'"
+        assert result == "claude 'fix the bug'"
 
-    def test_with_headless_subcommand(self) -> None:
+    def test_simple_prompt_no_quotes(self) -> None:
         build = self._import_helper()
         provider = mock.Mock()
         provider.binary = "codex"
-        provider.prompt_flag = ""
-        provider.headless_subcommand = "exec"
-        result = build(provider, "fix it")
-        assert result == "codex exec 'fix it'"
-
-    def test_fallback_to_dash_p(self) -> None:
-        build = self._import_helper()
-        provider = mock.Mock()
-        provider.binary = "agent"
-        provider.prompt_flag = ""
-        provider.headless_subcommand = None
         result = build(provider, "hello")
-        assert result == "agent -p hello"
+        assert result == "codex hello"
 
     def test_prompt_with_special_chars_is_quoted(self) -> None:
         import shlex
@@ -154,10 +142,9 @@ class TestBuildInteractiveAgentCommand:
         build = self._import_helper()
         provider = mock.Mock()
         provider.binary = "claude"
-        provider.prompt_flag = "-p"
         prompt = "fix 'the' bug"
         result = build(provider, prompt)
-        expected = f"claude -p {shlex.quote(prompt)}"
+        expected = f"claude {shlex.quote(prompt)}"
         assert result == expected
 
 

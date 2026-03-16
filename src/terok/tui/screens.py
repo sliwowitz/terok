@@ -1223,18 +1223,36 @@ class TaskLaunchScreen(screen.ModalScreen["tuple[str, str | None] | None"]):
         self._poll_timer = self.set_interval(1.5, self._poll_status)
 
     def _poll_status(self) -> None:
-        """Check container state and update UI when ready."""
+        """Check container state and task mode; enable Login only when fully ready.
+
+        A task is fully ready when both conditions are met:
+        1. The container is in "running" state (podman says so).
+        2. The task metadata has a ``mode`` set (the runner finished init).
+        This prevents premature Login attempts before init scripts complete.
+        """
         from ..lib.containers.runtime import get_container_state
+        from ..lib.containers.tasks import get_task_meta
 
         state = get_container_state(self._container_name)
         status_widget = self.query_one("#launch-status", Static)
         if state == "running":
-            status_widget.update("Status: Container running")
-            self._container_ready = True
-            self.query_one("#btn-login", Button).disabled = False
-            if self._poll_timer:
-                self._poll_timer.stop()
-                self._poll_timer = None
+            # Also check that mode is set in task metadata — this is written
+            # only after the runner's readiness marker fires.
+            try:
+                meta = get_task_meta(self._project_id, self._task_id)
+                has_mode = meta.mode is not None
+            except (SystemExit, Exception):
+                has_mode = False
+
+            if has_mode:
+                status_widget.update("Status: Container ready")
+                self._container_ready = True
+                self.query_one("#btn-login", Button).disabled = False
+                if self._poll_timer:
+                    self._poll_timer.stop()
+                    self._poll_timer = None
+            else:
+                status_widget.update("Status: Initializing\u2026")
         elif state:
             status_widget.update(f"Status: {state}")
 
@@ -1409,8 +1427,8 @@ class TaskDetailsScreen(screen.Screen[str | None]):
         yield detail_pane
 
         options: list[Option | None] = [
-            Option("Start CLI task  \\[N]  (new task + run CLI)", id="task_start_cli"),
-            Option("Start \\[T]oad task  (new task + browser TUI)", id="task_start_toad"),
+            Option("Start \\[c]li task  (new task + run CLI)", id="task_start_cli"),
+            Option("Start Toad task  \\[w]  (new task + browser TUI)", id="task_start_toad"),
         ]
         if is_experimental():
             options.append(Option("Start \\[W]eb task  (new task + run Web)", id="task_start_web"))
@@ -1422,8 +1440,6 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             if self._task_meta and self._task_meta.mode:
                 options.append(Option("view \\[f]ormatted logs", id="follow_logs"))
             options.append(None)
-            options.append(Option("run \\[c]li agent", id="cli"))
-            options.append(Option("run \\[w]eb Toad (browser)", id="toad"))
             options.append(Option("\\[r]estart container", id="restart"))
             if (
                 self._task_meta
@@ -1474,10 +1490,8 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             event.stop()
             return
 
-        # Shift keys (uppercase) — N/A always available, H/P/X/D require tasks
+        # Shift keys (uppercase) — A always available, H/P/X/D require tasks
         shift_map: dict[str, str] = {
-            "N": "task_start_cli",
-            "T": "task_start_toad",
             "A": "task_start_autopilot",
             "H": "diff_head",
             "P": "diff_prev",
@@ -1493,10 +1507,18 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             event.stop()
             return
 
-        # Lowercase keys — all require tasks to exist
+        # c/w — start new tasks (always available, same shortcuts as main screen)
+        start_map: dict[str, str] = {
+            "c": "task_start_cli",
+            "w": "task_start_toad",
+        }
+        if key in start_map:
+            self.dismiss(start_map[key])
+            event.stop()
+            return
+
+        # Lowercase keys — require tasks to exist
         lower_map: dict[str, str] = {
-            "c": "cli",
-            "w": "toad",
             "r": "restart",
             "l": "login",
             "u": "followup",

@@ -486,12 +486,12 @@ class TestTaskScreenKeyBinding:
     @pytest.mark.parametrize(
         ("key", "has_tasks", "expected", "mode", "should_stop"),
         [
-            pytest.param("N", False, "task_start_cli", None, True, id="shift-n"),
+            pytest.param("c", False, "task_start_cli", None, True, id="lower-c"),
+            pytest.param("w", False, "task_start_toad", None, True, id="lower-w"),
             pytest.param("A", False, "task_start_autopilot", None, True, id="shift-a"),
             pytest.param("H", True, "diff_head", None, None, id="shift-h"),
             pytest.param("P", True, "diff_prev", None, None, id="shift-p"),
             pytest.param("X", True, "delete", None, None, id="shift-x"),
-            pytest.param("c", True, "cli", None, None, id="lower-c"),
             pytest.param("r", True, "restart", None, None, id="lower-r"),
             pytest.param("D", True, "shield_down", None, None, id="shift-d"),
             pytest.param("s", True, "shield_up", None, None, id="lower-s"),
@@ -542,12 +542,6 @@ class TestTaskScreenKeyBinding:
             screen.dismiss.assert_not_called()
         finally:
             set_experimental(previous)
-
-    def test_lowercase_w_dispatches_toad(self) -> None:
-        screen = make_task_screen(has_tasks=True)
-        event = make_key_event("w")
-        screen.on_key(event)
-        screen.dismiss.assert_called_once_with("toad")
 
     @pytest.mark.parametrize("key", ["H", "d", "D", "s", "f"])
     def test_task_only_keys_are_blocked_without_tasks(self, key: str) -> None:

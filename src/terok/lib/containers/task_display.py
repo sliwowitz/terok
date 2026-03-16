@@ -129,7 +129,10 @@ def effective_status(task: TaskMeta) -> str:
     exit_code = task.exit_code
 
     if cs == "running":
-        return "running"
+        # Guard: only report "running" when the task runner has finished
+        # initialisation (mode is set in YAML).  If the container is live
+        # but mode is still None the task is still starting up.
+        return "running" if mode is not None else "created"
 
     if cs is not None:
         # Container exists but is not running

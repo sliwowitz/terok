@@ -52,14 +52,15 @@ from .widgets import TaskList
 
 
 def _build_interactive_agent_command(provider: object, prompt: str | None) -> str:
-    """Build shell command to launch an agent interactively with optional prompt."""
+    """Build shell command to launch an agent interactively with optional prompt.
+
+    Uses the binary as a positional command — the prompt is a first-turn
+    argument, NOT the headless ``-p`` flag.  The agent runs interactively
+    inside tmux so the user can re-attach later.
+    """
     if not prompt:
         return provider.binary
-    if provider.prompt_flag:
-        return f"{provider.binary} {provider.prompt_flag} {shlex.quote(prompt)}"
-    if provider.headless_subcommand:
-        return f"{provider.binary} {provider.headless_subcommand} {shlex.quote(prompt)}"
-    return f"{provider.binary} -p {shlex.quote(prompt)}"
+    return f"{provider.binary} {shlex.quote(prompt)}"
 
 
 class TaskActionsMixin:
@@ -164,21 +165,6 @@ class TaskActionsMixin:
 
     # ---------- Task lifecycle actions ----------
 
-    async def action_run_cli(self) -> None:
-        """Run the CLI agent for the currently selected task."""
-        if not self.current_project_id or not self.current_task:
-            self.notify("No task selected.")
-            return
-        pid = self.current_project_id
-        tid = self.current_task.task_id
-
-        def work() -> None:
-            """Launch the CLI container for this task."""
-            print(f"Running CLI for {pid}/{tid}...\n")
-            task_run_cli(pid, tid)
-
-        await self._run_suspended(work, refresh="tasks")
-
     async def action_run_web(self) -> None:
         """Public action for running web UI (delegates to _action_run_web)."""
         await self._action_run_web()
@@ -199,21 +185,6 @@ class TaskActionsMixin:
             backend = self._prompt_ui_backend()
             print(f"Starting Web UI for {pid}/{tid} (backend: {backend})...\n")
             task_run_web(pid, tid, backend=backend)
-
-        await self._run_suspended(work, refresh="tasks")
-
-    async def action_run_toad(self) -> None:
-        """Run Toad multi-agent TUI (browser access) for current task."""
-        if not self.current_project_id or not self.current_task:
-            self.notify("No task selected.")
-            return
-        pid = self.current_project_id
-        tid = self.current_task.task_id
-
-        def work() -> None:
-            """Launch Toad serve container."""
-            print(f"Starting Toad for {pid}/{tid}...\n")
-            task_run_toad(pid, tid)
 
         await self._run_suspended(work, refresh="tasks")
 
@@ -286,12 +257,17 @@ class TaskActionsMixin:
         cname = container_name(pid, mode, tid)
         task_name = self.current_task.name or tid
 
+        # All agents (including bash) launch interactively inside tmux so the
+        # user can re-attach later with 'login'.  The base command is always
+        # podman exec -it <cname> tmux new-session -A -s main [bash -lc <cmd>].
+        try:
+            base_cmd = get_login_command(pid, tid)
+        except SystemExit as e:
+            self.notify(str(e))
+            return
+
         if agent == "bash":
-            try:
-                cmd = get_login_command(pid, tid)
-            except SystemExit as e:
-                self.notify(str(e))
-                return
+            cmd = base_cmd
         else:
             from ..lib.containers.headless_providers import HEADLESS_PROVIDERS
 
@@ -300,20 +276,7 @@ class TaskActionsMixin:
                 self.notify(f"Unknown agent: {agent}")
                 return
             agent_cmd = _build_interactive_agent_command(provider, prompt)
-            cmd = [
-                "podman",
-                "exec",
-                "-it",
-                cname,
-                "tmux",
-                "new-session",
-                "-A",
-                "-s",
-                "main",
-                "bash",
-                "-lc",
-                agent_cmd,
-            ]
+            cmd = [*base_cmd, "bash", "-lc", agent_cmd]
 
         await self._launch_terminal_session(cmd, title=f"{pid}:{tid}:{task_name}", cname=cname)
 
