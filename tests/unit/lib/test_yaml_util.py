@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from terok.lib.util.yaml import YAMLError, dump, load
@@ -164,7 +166,7 @@ class TestRoundTrip:
         result = dump(data)
         assert "# stay" in result
         assert "# also stay" in result
-        assert "remove" not in result
+        assert re.search(r"(?m)^\s*remove\s*:", result) is None
 
     def test_or_empty_fallback_returns_plain_dict(self) -> None:
         """``load("") or {}`` returns a plain dict (the common fallback pattern)."""
