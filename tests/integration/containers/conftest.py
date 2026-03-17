@@ -63,10 +63,20 @@ def _copy_resource_tree(package: str, rel_path: str, dest: Path) -> None:
     _recurse(root, dest)
 
 
-def _podman_build(dockerfile: Path, tag: str, context: Path, *, timeout: int = 300) -> None:
+def _podman_build(
+    dockerfile: Path,
+    tag: str,
+    context: Path,
+    *,
+    build_args: dict[str, str] | None = None,
+    timeout: int = 300,
+) -> None:
     """Run ``podman build`` with clear error reporting."""
+    ba_flags: list[str] = []
+    for k, v in (build_args or {}).items():
+        ba_flags.extend(["--build-arg", f"{k}={v}"])
     result = subprocess.run(
-        ["podman", "build", "-f", str(dockerfile), "-t", tag, str(context)],
+        ["podman", "build", "-f", str(dockerfile), *ba_flags, "-t", tag, str(context)],
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -109,6 +119,7 @@ def shell_test_image(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
         shell_df,
         ITEST_SHELL_IMAGE,
         build_dir,
+        build_args={"BASE": ITEST_L0_IMAGE},
         timeout=120,
     )
 
