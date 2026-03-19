@@ -14,8 +14,7 @@
 # circuiting — if a snapshot set the env var but lost the functions,
 # re-sourcing repairs the shell.
 _terok_env_ready() {
-  declare -F _terok_apply_git_identity >/dev/null 2>&1 && \
-  declare -F gh >/dev/null 2>&1
+  declare -F _terok_apply_git_identity >/dev/null 2>&1
 }
 _terok_env_ready && return 0
 
