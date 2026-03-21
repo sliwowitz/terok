@@ -245,7 +245,15 @@ depends_on = [
 [[modules]]
 path = "terok.lib.orchestration.environment"
 layer = "orchestration"
-depends_on = ["terok.lib.core.config", "terok.lib.core.projects", "terok.lib.sandbox.gate_server", "terok.lib.sandbox.gate_tokens", "terok.lib.util.fs", "terok.lib.instrumentation.headless_providers", "terok.lib.util.host_cmd"]
+depends_on = [
+    "terok.lib.core.config",
+    "terok.lib.core.projects",
+    "terok.lib.instrumentation.headless_providers",
+    "terok.lib.sandbox.gate_server",
+    "terok.lib.sandbox.gate_tokens",
+    "terok.lib.util.fs",
+    "terok.lib.util.host_cmd",
+]
 
 # Dockerfile generation & image building
 [[modules]]
