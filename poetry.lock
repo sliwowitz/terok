@@ -2505,23 +2505,22 @@ tomli-w = ">=1.0,<2.0"
 
 [[package]]
 name = "terok-sandbox"
-version = "0.0.0.post8.dev0+1f76851"
+version = "0.0.3"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_sandbox-0.0.3-py3-none-any.whl", hash = "sha256:75331076c292857c858601c668148ce2fdffd2c341d0ebb07d787c4137558b04"},
+]
 
 [package.dependencies]
 platformdirs = ">=4.0"
-terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.4.0/terok_shield-0.4.0-py3-none-any.whl"}
+terok_shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.4.0/terok_shield-0.4.0-py3-none-any.whl"}
 
 [package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-sandbox.git"
-reference = "feat/port-tests-fix-gpu"
-resolved_reference = "1f768516342f8e24585719b280667fd9fb7fa149"
+type = "url"
+url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.3/terok_sandbox-0.0.3-py3-none-any.whl"
 
 [[package]]
 name = "terok-shield"
@@ -3009,4 +3008,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "6be0dbc28eee527eac9a0e06678979f5168540505ab42a84ce3d9bd7da5c6eb6"
+content-hash = "b41be73cf4fad719547d32d67700f888ae78362d2189801f14287ab3c190e09f"
