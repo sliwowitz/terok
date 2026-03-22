@@ -53,7 +53,7 @@ Module dependencies are enforced by [tach](https://github.com/gauge-sh/tach) via
 
 ```text
 Presentation (CLI, TUI)
-    └── depends on → lib.domain.facade (stable API boundary)
+    └── depends on → domain.facade (stable API boundary)
 
 Domain (facade, Project, Task)
     └── depends on → orchestration, terok_sandbox (re-exported for presentation)
