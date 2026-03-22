@@ -55,7 +55,7 @@ test-integration-host:
 	mkdir -p $(REPORTS_DIR)
 	poetry run pytest tests/integration/ -m "needs_host_features and not needs_internet and not needs_podman and not needs_hooks" -v --junitxml=$(INTEGRATION_HOST_JUNIT_XML) -o junit_family=legacy
 	@echo "--- installing global hooks ---"
-	poetry run terokctl shield setup --user 2>&1 || true
+	poetry run terokctl shield setup --user
 	@status=0; \
 	poetry run pytest tests/integration/ -m "needs_host_features and not needs_internet and not needs_podman and needs_hooks" -v --junitxml=$(REPORTS_DIR)/integration-host-hooks.junit.xml -o junit_family=legacy || status=$$?; \
 	test $$status -eq 0 -o $$status -eq 5
