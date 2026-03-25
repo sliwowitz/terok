@@ -27,6 +27,7 @@ import subprocess
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import pytest
@@ -332,3 +333,21 @@ def terok_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TerokIntegrati
     env.global_presets_root.mkdir(parents=True, exist_ok=True)
     env.system_projects_root.mkdir(parents=True, exist_ok=True)
     return env
+
+
+# ── Credential proxy bypass ──────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _bypass_credential_proxy() -> Iterator[None]:
+    """Bypass the credential proxy for integration tests.
+
+    Integration tests exercise shield/gate/container behavior, not the
+    credential proxy.  The proxy requires a running daemon which is not
+    part of the integration test environment.
+    """
+    with patch(
+        "terok.lib.core.config.get_credential_proxy_bypass",
+        return_value=True,
+    ):
+        yield
