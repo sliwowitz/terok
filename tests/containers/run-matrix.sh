@@ -24,7 +24,6 @@ IMAGE_PREFIX="terok-test"
 SOURCE_MOUNT="/src"
 WORKSPACE_DIR="/workspace"
 PYTHON_VERSION="3.12"
-DEFAULT_MARKER="needs_host_features"
 TEROK_DIAGNOSTIC_COMMAND="poetry run terokctl config"
 
 # Target distros: name -> Containerfile suffix
@@ -51,10 +50,11 @@ usage() {
     echo "Options:"
     echo "  --build-only   Build images without running tests"
     echo "  --list         List available distros"
-    echo "  --host-only    Run only needs_host_features tests (fast)"
-    echo "  --podman       Run only needs_podman tests"
-    echo "  --all-markers  Run the full integration suite"
+    echo "  --unit-only    Run only unit tests (fast)"
+    echo "  --integ-only   Run only integration tests"
     echo "  -h, --help     Show this help"
+    echo ""
+    echo "Default: install full infrastructure, run unit + integration tests."
     echo ""
     echo "Available distros: ${!DISTROS[*]}"
     return 0
@@ -74,20 +74,20 @@ build_image() {
 
 run_tests() {
     local name="$1"
-    local marker="${2:-$DEFAULT_MARKER}"
+    local test_scope="${2:-all}"
     local image="$IMAGE_PREFIX:$name"
     local ctr_name="$IMAGE_PREFIX-$name"
     local status
 
     echo ""
     echo "==> Testing $name (expected podman ${EXPECTED_VERSIONS[$name]})"
-    echo "    marker: ${marker:-<all>}"
+    echo "    scope: $test_scope"
     echo ""
 
-    # Three-phase flow:
-    #   Phase 1: tests that do NOT need hooks
-    #   Phase 2: install global hooks via terokctl shield setup --user
-    #   Phase 3: tests that need hooks
+    # The matrix runner is the full-quality environment:
+    # install ALL infrastructure, run ALL tests. The needs_* markers
+    # are for degraded environments (CI, dev machines) — here we want
+    # maximum coverage across distros and podman versions.
     podman run --rm --name "$ctr_name" \
         --privileged \
         --security-opt label=disable \
@@ -106,7 +106,8 @@ run_tests() {
                 . .venv/bin/activate
                 uv pip install poetry
             else
-                python3 -m venv .venv
+                python\${PYTHON_VERSION} -m venv .venv 2>/dev/null \
+                    || python3 -m venv .venv
                 . .venv/bin/activate
                 pip install --quiet --upgrade pip
                 pip install --quiet poetry
@@ -114,23 +115,40 @@ run_tests() {
 
             echo '--- python version ---'
             python --version
-            poetry install --with test --quiet 2>&1 | tail -3
+            poetry install --with test --no-interaction
+            echo '--- deps installed ---'
 
+            # ── Infrastructure setup ──
             echo ''
-            echo '--- phase 1: tests without hooks ---'
-            poetry run pytest tests/integration/ -v --tb=short -m '$marker and not needs_hooks'
-
-            echo ''
-            echo '--- phase 2: installing global hooks ---'
+            echo '--- installing shield hooks ---'
             poetry run terokctl shield setup --user
-
-            echo ''
-            echo '--- phase 3: tests with hooks ---'
-            poetry run pytest tests/integration/ -v --tb=short -m '$marker and needs_hooks'
 
             echo ''
             echo '--- terokctl config ---'
             $TEROK_DIAGNOSTIC_COMMAND 2>&1 || true
+
+            # ── Test execution ──
+            case '$test_scope' in
+                unit)
+                    echo ''
+                    echo '--- unit tests ---'
+                    poetry run pytest tests/unit/ -v --tb=short
+                    ;;
+                integ)
+                    echo ''
+                    echo '--- integration tests (all markers) ---'
+                    poetry run pytest tests/integration/ -v --tb=short
+                    ;;
+                all)
+                    echo ''
+                    echo '--- unit tests ---'
+                    poetry run pytest tests/unit/ -v --tb=short
+
+                    echo ''
+                    echo '--- integration tests (all markers) ---'
+                    poetry run pytest tests/integration/ -v --tb=short
+                    ;;
+            esac
         "
 
     status=$?
@@ -144,16 +162,15 @@ run_tests() {
 
 BUILD_ONLY=false
 LIST_ONLY=false
-MARKER="$DEFAULT_MARKER"
+TEST_SCOPE="all"
 TARGETS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --build-only) BUILD_ONLY=true ;;
         --list) LIST_ONLY=true ;;
-        --host-only) MARKER="$DEFAULT_MARKER" ;;
-        --podman) MARKER="needs_podman" ;;
-        --all-markers) MARKER="" ;;
+        --unit-only) TEST_SCOPE="unit" ;;
+        --integ-only) TEST_SCOPE="integ" ;;
         -h|--help) usage; exit 0 ;;
         *) TARGETS+=("$1") ;;
     esac
@@ -191,7 +208,7 @@ PASSED=()
 FAILED=()
 
 for target in "${TARGETS[@]}"; do
-    if run_tests "$target" "$MARKER"; then
+    if run_tests "$target" "$TEST_SCOPE"; then
         PASSED+=("$target")
     else
         FAILED+=("$target")
