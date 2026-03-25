@@ -229,12 +229,12 @@ def _credential_proxy_env_and_volumes(
 ) -> tuple[dict[str, str], list[str]]:
     """Return env vars and volumes for the credential proxy.
 
-    When the proxy is running and credentials are stored, injects phantom
-    API key env vars and base URL overrides pointing to the proxy socket,
-    and mounts the socket into the container.
+    Injects phantom API key env vars and base URL overrides pointing to
+    the proxy socket, and mounts the socket into the container.
 
-    When bypassed or the proxy isn't running, returns empty — shared mounts
-    carry credentials as before.
+    Raises ``SystemExit`` if the proxy is not running — no silent fallback.
+    The only way to skip the proxy is the explicit bypass flag
+    ``credential_proxy.bypass_no_secret_protection`` in global config.
     """
     from ..core.config import get_credential_proxy_bypass
 
@@ -242,12 +242,10 @@ def _credential_proxy_env_and_volumes(
         return {}, []
 
     from terok_agent.registry import get_registry
-    from terok_sandbox import CredentialDB, SandboxConfig, is_proxy_running
+    from terok_sandbox import CredentialDB, SandboxConfig, ensure_proxy_reachable
 
     cfg = SandboxConfig()
-
-    if not is_proxy_running():
-        return {}, []
+    ensure_proxy_reachable()
 
     db = CredentialDB(cfg.proxy_db_path)
     try:
@@ -257,30 +255,19 @@ def _credential_proxy_env_and_volumes(
     finally:
         db.close()
 
-    if not stored_providers:
-        return {}, []
-
     env: dict[str, str] = {}
-    volumes: list[str] = []
+    volumes: list[str] = [f"{cfg.proxy_socket_path}:/run/terok/credential-proxy.sock"]
 
-    # Mount the proxy socket into the container
-    sock_path = cfg.proxy_socket_path
-    if sock_path.exists():
-        volumes.append(f"{sock_path}:/run/terok/credential-proxy.sock")
-
-    # For each provider with a proxy route AND stored credentials,
-    # inject phantom env vars and base URL overrides
     registry = get_registry()
     for name, route in registry.proxy_routes.items():
         if name not in stored_providers:
             continue
-
         for env_var in route.phantom_env:
             env[env_var] = phantom_token
-
         if route.base_url_env:
-            proxy_base = f"http+unix:///run/terok/credential-proxy.sock/{route.route_prefix}"
-            env[route.base_url_env] = proxy_base
+            env[route.base_url_env] = (
+                f"http+unix:///run/terok/credential-proxy.sock/{route.route_prefix}"
+            )
 
     return env, volumes
 
