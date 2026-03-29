@@ -48,18 +48,18 @@ class SharedMount:
 
 
 def _build_shared_mounts() -> tuple[SharedMount, ...]:
-    """Derive shared mounts from the agent registry.
+    """Derive shared mounts from the agent roster.
 
-    The YAML agent registry is the single source of truth for all shared
+    The YAML agent roster is the single source of truth for all shared
     mounts — auth dirs, OpenCode state dirs, and Toad config.  Each entry's
     ``auth:`` section and ``mounts:`` section contribute mount definitions,
-    deduplicated by ``host_dir`` in the registry.
+    deduplicated by ``host_dir`` in the roster.
     """
-    from terok_agent import get_registry
+    from terok_agent import get_roster
 
     return tuple(
         SharedMount(m.host_dir, m.host_dir, m.label, m.container_path)
-        for m in get_registry().mounts
+        for m in get_roster().mounts
     )
 
 
@@ -241,7 +241,7 @@ def _credential_proxy_env_and_volumes(
     if get_credential_proxy_bypass():
         return {}, []
 
-    from terok_agent import get_registry
+    from terok_agent import get_roster
     from terok_sandbox import (
         CredentialDB,
         SandboxConfig,
@@ -252,8 +252,8 @@ def _credential_proxy_env_and_volumes(
     cfg = SandboxConfig()
     ensure_proxy_reachable()
 
-    registry = get_registry()
-    proxy_routes = registry.proxy_routes
+    roster = get_roster()
+    proxy_routes = roster.proxy_routes
 
     db = CredentialDB(cfg.proxy_db_path)
     try:
@@ -281,7 +281,7 @@ def _credential_proxy_env_and_volumes(
         # Override OpenCode base URL for proxied providers (the original
         # value from collect_opencode_provider_env points to the real upstream;
         # this override redirects through the proxy instead)
-        oc_provider = registry.providers.get(name)
+        oc_provider = roster.providers.get(name)
         if oc_provider and oc_provider.opencode_config:
             env[f"TEROK_OC_{name.upper()}_BASE_URL"] = f"{proxy_base}/v1"
         if name == "glab":

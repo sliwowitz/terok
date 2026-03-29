@@ -8,7 +8,7 @@ These tests run in the matrix runner's disposable containers where a
 real proxy daemon can be started.
 
 Stories use real sqlite DBs, real aiohttp proxy servers (via TestServer),
-and real route configs generated from the YAML registry.
+and real route configs generated from the YAML roster.
 """
 
 import json
@@ -63,7 +63,7 @@ class TestStoryAuthThroughProxy:
         phantom = db.create_proxy_token("proj", "task-1", "default", "vibe")
         db.close()
 
-        # 2. Write routes (simulates registry.generate_routes_json())
+        # 2. Write routes (simulates roster.generate_routes_json())
         routes_path = tmp_path / "routes.json"
         routes_path.write_text(
             json.dumps(

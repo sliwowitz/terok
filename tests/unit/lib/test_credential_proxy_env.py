@@ -137,11 +137,11 @@ class TestCredentialProxyEnv:
         db.close()
 
         # Create a leaked credential file in the shared mount
-        from terok_agent import get_registry
+        from terok_agent import get_roster
 
-        registry = get_registry()
-        auth = registry.auth_providers["claude"]
-        route = registry.proxy_routes["claude"]
+        roster = get_roster()
+        auth = roster.auth_providers["claude"]
+        route = roster.proxy_routes["claude"]
         cred_dir = tmp_path / "envs" / auth.host_dir_name
         cred_dir.mkdir(parents=True)
         (cred_dir / route.credential_file).write_text('{"leaked": true}')
