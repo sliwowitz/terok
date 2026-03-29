@@ -58,8 +58,7 @@ def _build_shared_mounts() -> tuple[SharedMount, ...]:
     from terok_agent import get_roster
 
     return tuple(
-        SharedMount(m.host_dir, m.host_dir, m.label, m.container_path)
-        for m in get_roster().mounts
+        SharedMount(m.host_dir, m.host_dir, m.label, m.container_path) for m in get_roster().mounts
     )
 
 
