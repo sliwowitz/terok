@@ -10,8 +10,23 @@ from unittest.mock import MagicMock, patch
 import pytest
 from terok_sandbox import GateServerStatus
 
-from terok.cli.commands.sickbay import _check_shield, _cmd_sickbay
+from terok.cli.commands.sickbay import _check_credential_proxy, _check_shield, _cmd_sickbay
+from tests.testfs import MOCK_BASE
 from tests.testgate import OUTDATED_UNITS_MESSAGE, make_gate_server_status
+
+MOCK_PROXY_SOCKET = MOCK_BASE / "run" / "credential-proxy.sock"
+MOCK_PROXY_DB = MOCK_BASE / "proxy" / "credentials.db"
+
+
+def _make_proxy_status(*, running: bool = True, mode: str = "systemd") -> MagicMock:
+    """Return a mock CredentialProxyStatus."""
+    s = MagicMock()
+    s.running = running
+    s.mode = mode
+    s.socket_path = MOCK_PROXY_SOCKET
+    s.db_path = MOCK_PROXY_DB
+    s.credentials_stored = ["claude", "gh"]
+    return s
 
 
 @pytest.mark.parametrize(
@@ -74,6 +89,8 @@ def test_cmd_sickbay_reports_health(
         patch("terok.cli.commands.sickbay.check_units_outdated", return_value=outdated),
         patch("terok.cli.commands.sickbay.is_systemd_available", return_value=systemd_available),
         patch("terok.cli.commands.sickbay.check_environment", return_value=mock_ec),
+        patch("terok.cli.commands.sickbay.get_proxy_status", return_value=_make_proxy_status()),
+        patch("terok.cli.commands.sickbay.is_proxy_systemd_available", return_value=False),
     ):
         if exit_code is None:
             _cmd_sickbay()
@@ -171,4 +188,81 @@ def test_check_shield_states(
 
     assert status == expected_status
     assert label == "Shield"
+    assert expected_detail in detail
+
+
+@pytest.mark.parametrize(
+    ("running", "mode", "systemd_avail", "side_effect", "expected_status", "expected_detail"),
+    [
+        pytest.param(
+            True,
+            "systemd",
+            False,
+            None,
+            "ok",
+            "2 credential(s)",
+            id="running-with-creds",
+        ),
+        pytest.param(
+            False,
+            "systemd",
+            True,
+            None,
+            "error",
+            "not active",
+            id="socket-inactive",
+        ),
+        pytest.param(
+            False,
+            "none",
+            True,
+            None,
+            "warn",
+            "install",
+            id="not-running-systemd-available",
+        ),
+        pytest.param(
+            False,
+            "none",
+            False,
+            None,
+            "warn",
+            "start",
+            id="not-running-no-systemd",
+        ),
+        pytest.param(
+            False,
+            "none",
+            False,
+            OSError("socket gone"),
+            "warn",
+            "check failed",
+            id="check-exception",
+        ),
+    ],
+)
+def test_check_credential_proxy_states(
+    running: bool,
+    mode: str,
+    systemd_avail: bool,
+    side_effect: Exception | None,
+    expected_status: str,
+    expected_detail: str,
+) -> None:
+    """_check_credential_proxy maps proxy states to the correct severity and message."""
+    with (
+        patch(
+            "terok.cli.commands.sickbay.get_proxy_status",
+            return_value=_make_proxy_status(running=running, mode=mode),
+            side_effect=side_effect,
+        ),
+        patch(
+            "terok.cli.commands.sickbay.is_proxy_systemd_available",
+            return_value=systemd_avail,
+        ),
+    ):
+        status, label, detail = _check_credential_proxy()
+
+    assert status == expected_status
+    assert label == "Credential proxy"
     assert expected_detail in detail
