@@ -27,7 +27,9 @@ from terok_sandbox import (
     check_environment,
     check_units_outdated,
     get_container_state,
+    get_proxy_status,
     get_server_status,
+    is_proxy_systemd_available,
     is_systemd_available,
 )
 
@@ -97,6 +99,27 @@ def _check_shield() -> _CheckResult:
         return ("warn", label, f"unexpected health: {ec.health}")
     dns = getattr(ec, "dns_tier", "unknown")
     return ("ok", label, f"active ({ec.hooks}, {dns} DNS)")
+
+
+def _check_credential_proxy() -> _CheckResult:
+    """Check credential proxy status."""
+    label = "Credential proxy"
+    try:
+        status = get_proxy_status()
+    except Exception as exc:  # noqa: BLE001
+        return ("warn", label, f"check failed — {exc}")
+    if status.running:
+        creds = len(status.credentials_stored) if status.credentials_stored else 0
+        return ("ok", label, f"{status.mode}, {creds} credential(s) stored")
+    if status.mode == "systemd":
+        return (
+            "error",
+            label,
+            "socket installed but not active — run 'terokctl credentials start'",
+        )
+    if is_proxy_systemd_available():
+        return ("warn", label, "not running — run 'terokctl credentials install'")
+    return ("warn", label, "not running — run 'terokctl credentials start'")
 
 
 def _check_task_hook(
@@ -187,6 +210,7 @@ def _check_unfired_hooks(
 _GLOBAL_CHECKS = [
     _check_gate_server,
     _check_shield,
+    _check_credential_proxy,
 ]
 
 _STATUS_MARKERS = {
