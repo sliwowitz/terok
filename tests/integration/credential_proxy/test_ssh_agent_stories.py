@@ -224,10 +224,10 @@ class TestStorySSHAgentEnvWiring:
         db.store_credential("default", "claude", {"type": "api_key", "key": "sk"})
         db.close()
 
-        # Write ssh-keys.json with the project's key registered
+        # Write ssh-keys.json with the project's key registered (list format)
         keys_json = tmp_path / "ssh-keys.json"
         keys_json.write_text(
-            json.dumps({"myproj": {"private_key": "/keys/id", "public_key": "/keys/id.pub"}})
+            json.dumps({"myproj": [{"private_key": "/keys/id", "public_key": "/keys/id.pub"}]})
         )
 
         sock_path = tmp_path / "proxy.sock"
