@@ -89,7 +89,9 @@ def _check_shield() -> _CheckResult:
     if ec.health == "stale-hooks":
         return ("warn", label, "hooks outdated — run 'terokctl shield setup --user'")
     if ec.health == "setup-needed":
-        hint = ec.setup_hint.splitlines()[0] if ec.setup_hint else "run 'terokctl shield setup --user'"
+        hint = (
+            ec.setup_hint.splitlines()[0] if ec.setup_hint else "run 'terokctl shield setup --user'"
+        )
         return ("warn", label, f"{ec.issues[0] if ec.issues else 'setup needed'} — {hint}")
     dns = getattr(ec, "dns_tier", "unknown")
     return ("ok", label, f"active ({ec.hooks}, {dns} DNS)")

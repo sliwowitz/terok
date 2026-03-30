@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from terok_sandbox import GateServerStatus
@@ -68,10 +68,12 @@ def test_cmd_sickbay_reports_health(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Sickbay exits with warning/error codes and prints useful remediation hints."""
+    mock_ec = MagicMock(health="ok", hooks="per-container", dns_tier="dnsmasq")
     with (
         patch("terok.cli.commands.sickbay.get_server_status", return_value=status),
         patch("terok.cli.commands.sickbay.check_units_outdated", return_value=outdated),
         patch("terok.cli.commands.sickbay.is_systemd_available", return_value=systemd_available),
+        patch("terok.cli.commands.sickbay.check_environment", return_value=mock_ec),
     ):
         if exit_code is None:
             _cmd_sickbay()
