@@ -39,7 +39,7 @@ class SharedMount:
     """Lookup key (e.g. ``"codex"``)."""
 
     host_dir_suffix: str
-    """Directory name under ``credentials_dir()`` (e.g. ``"_codex-config"``)."""
+    """Directory name under ``mounts_dir()`` (e.g. ``"_codex-config"``)."""
 
     label: str
     """Human-readable label for writable-check messages (e.g. ``"Codex config"``)."""

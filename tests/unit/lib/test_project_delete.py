@@ -168,6 +168,30 @@ class TestManagedRootGuard:
         monkeypatch.setenv("TEROK_CONFIG_FILE", str(tmp_path / "empty.yml"))
         assert _is_under_terok_root(tmp_path / "xdg" / "terok" / "projects" / "my-proj")
 
+    def test_projects_dir_is_managed(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Paths under projects_dir are recognized as managed."""
+        from terok.lib.domain.project import _is_under_terok_root
+
+        monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path / "state"))
+        monkeypatch.setenv("TEROK_CONFIG_DIR", str(tmp_path / "cfg"))
+        monkeypatch.setenv("TEROK_CREDENTIALS_DIR", str(tmp_path / "creds"))
+        monkeypatch.setenv("TEROK_CONFIG_FILE", str(tmp_path / "empty.yml"))
+        assert _is_under_terok_root(tmp_path / "cfg" / "projects" / "my-proj")
+
+    def test_build_dir_is_managed(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Paths under build_dir are recognized as managed."""
+        from terok.lib.domain.project import _is_under_terok_root
+
+        monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path / "state"))
+        monkeypatch.setenv("TEROK_CONFIG_DIR", str(tmp_path / "cfg"))
+        monkeypatch.setenv("TEROK_CREDENTIALS_DIR", str(tmp_path / "creds"))
+        monkeypatch.setenv("TEROK_CONFIG_FILE", str(tmp_path / "empty.yml"))
+        assert _is_under_terok_root(tmp_path / "state" / "build" / "some-image")
+
     def test_external_path_rejected(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Paths outside all managed roots are rejected."""
         from terok.lib.domain.project import _is_under_terok_root

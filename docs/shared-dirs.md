@@ -98,7 +98,7 @@ Agent email addresses are GitHub-recognized and display with avatars in commit h
 ## Quick Reference
 
 ```text
-/workspace                    ← <state_root>/tasks/<project>/<task>/workspace-dangerous:Z
+/workspace                    ← <state_dir>/tasks/<project>/<task>/workspace-dangerous:Z
 /home/dev/.codex              ← <mounts_dir>/_codex-config:z
 /home/dev/.claude             ← <mounts_dir>/_claude-config:z
 /home/dev/.vibe               ← <mounts_dir>/_vibe-config:z

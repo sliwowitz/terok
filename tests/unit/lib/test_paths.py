@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from terok.lib.core import paths
+from tests.testfs import MOCK_BASE
 
 
 class TestCredentialsRoot:
@@ -38,16 +39,16 @@ class TestCredentialsRoot:
         """Non-root with platformdirs delegates to user_data_dir."""
         monkeypatch.delenv("TEROK_CREDENTIALS_DIR", raising=False)
         monkeypatch.setattr(paths, "_is_root", lambda: False)
-        monkeypatch.setattr(paths, "_user_data_dir", lambda name: f"/mock/data/{name}")
-        assert paths.credentials_root() == Path("/mock/data/terok-credentials")
+        monkeypatch.setattr(paths, "_user_data_dir", lambda name: f"{MOCK_BASE}/data/{name}")
+        assert paths.credentials_root() == Path(f"{MOCK_BASE}/data/terok-credentials")
 
     def test_xdg_data_home_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Without platformdirs, XDG_DATA_HOME is honored."""
         monkeypatch.delenv("TEROK_CREDENTIALS_DIR", raising=False)
         monkeypatch.setattr(paths, "_is_root", lambda: False)
         monkeypatch.setattr(paths, "_user_data_dir", None)
-        monkeypatch.setenv("XDG_DATA_HOME", "/custom/data")
-        assert paths.credentials_root() == Path("/custom/data/terok-credentials")
+        monkeypatch.setenv("XDG_DATA_HOME", str(MOCK_BASE / "xdg-data"))
+        assert paths.credentials_root() == MOCK_BASE / "xdg-data" / "terok-credentials"
 
     def test_bare_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Last resort: ~/.local/share/terok-credentials."""
@@ -85,8 +86,8 @@ class TestConfigRoot:
         """Non-root with platformdirs delegates to user_config_dir."""
         monkeypatch.delenv("TEROK_CONFIG_DIR", raising=False)
         monkeypatch.setattr(paths, "_is_root", lambda: False)
-        monkeypatch.setattr(paths, "_user_config_dir", lambda name: f"/mock/config/{name}")
-        assert paths.config_root() == Path("/mock/config/terok")
+        monkeypatch.setattr(paths, "_user_config_dir", lambda name: f"{MOCK_BASE}/config/{name}")
+        assert paths.config_root() == Path(f"{MOCK_BASE}/config/terok")
 
     def test_bare_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Last resort: ~/.config/terok."""
@@ -115,8 +116,8 @@ class TestStateRoot:
         monkeypatch.delenv("TEROK_STATE_DIR", raising=False)
         monkeypatch.setattr(paths, "_is_root", lambda: False)
         monkeypatch.setattr(paths, "_user_data_dir", None)
-        monkeypatch.setenv("XDG_DATA_HOME", "/custom/data")
-        assert paths.state_root() == Path("/custom/data/terok")
+        monkeypatch.setenv("XDG_DATA_HOME", str(MOCK_BASE / "xdg-data"))
+        assert paths.state_root() == MOCK_BASE / "xdg-data" / "terok"
 
     def test_bare_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Last resort: ~/.local/share/terok."""

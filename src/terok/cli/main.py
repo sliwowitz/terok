@@ -146,6 +146,14 @@ def main() -> None:
 
         set_emoji_enabled(False)
 
+    # Post-parse tui handler: covers ``terok --no-emoji tui ...`` where the
+    # fast-path (argv[1] == "tui") doesn't fire because root flags come first.
+    if getattr(args, "cmd", None) == "tui":
+        import os
+
+        os.execlp("terok-tui", "terok-tui", *sys.argv[sys.argv.index("tui") + 1 :])
+        return  # pragma: no cover — execlp never returns
+
     for dispatch in _DISPATCHERS:
         if dispatch(args):
             return
