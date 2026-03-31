@@ -56,6 +56,7 @@ from terok_sandbox import (
     GateStalenessInfo,
     check_units_outdated,
     get_gate_base_path,
+    is_systemd_available,
 )
 
 from ..lib.core.projects import ProjectConfig
@@ -92,6 +93,19 @@ _DETAIL_SCREEN_CSS = """
         margin: 0 1;
     }
 """
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _disable_options(actions: OptionList, option_ids: frozenset[str]) -> None:
+    """Disable OptionList entries whose ``id`` is in *option_ids*."""
+    for idx in range(actions.option_count):
+        opt = actions.get_option_at_index(idx)
+        if opt.id in option_ids:
+            actions.disable_option_at_index(idx)
 
 
 # ---------------------------------------------------------------------------
@@ -188,10 +202,14 @@ class GateServerScreen(screen.Screen[str | None]):
             id="actions-list",
         )
 
+    _SYSTEMD_OPTIONS = frozenset({"gate_install", "gate_uninstall"})
+
     def on_mount(self) -> None:
         """Render gate server status and focus the action list."""
         self._render_status()
         actions = self.query_one("#actions-list", OptionList)
+        if not is_systemd_available():
+            _disable_options(actions, self._SYSTEMD_OPTIONS)
         actions.focus()
 
     def _render_status(self) -> None:
@@ -1949,10 +1967,14 @@ class CredentialProxyScreen(screen.Screen[str | None]):
             id="actions-list",
         )
 
+    _SYSTEMD_OPTIONS = frozenset({"proxy_install", "proxy_uninstall"})
+
     def on_mount(self) -> None:
         """Render proxy status and focus the action list."""
         self._render_status()
         actions = self.query_one("#actions-list", OptionList)
+        if not is_systemd_available():
+            _disable_options(actions, self._SYSTEMD_OPTIONS)
         actions.focus()
 
     def _render_status(self) -> None:
