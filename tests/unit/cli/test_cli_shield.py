@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from io import StringIO
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -285,3 +286,78 @@ def test_resolve_task_errors(
     mock_project.return_value = MagicMock(id="proj")
     with pytest.raises(ValueError, match="has never been run"):
         _resolve_task("proj", "1")
+
+
+# ── _persist_desired_state ───────────────────────────────
+
+
+class TestPersistDesiredState:
+    """Verify that shield up/down dispatch persists the desired state file."""
+
+    def test_up_persists(self, tmp_path: Path) -> None:
+        """``shield up`` writes 'up' to the desired state file."""
+        from terok.cli.commands.shield import _persist_desired_state
+
+        _persist_desired_state("up", tmp_path, {})
+        assert (tmp_path / "shield_desired_state").read_text().strip() == "up"
+
+    def test_down_persists(self, tmp_path: Path) -> None:
+        """``shield down`` writes 'down' to the desired state file."""
+        from terok.cli.commands.shield import _persist_desired_state
+
+        _persist_desired_state("down", tmp_path, {})
+        assert (tmp_path / "shield_desired_state").read_text().strip() == "down"
+
+    def test_down_all_persists(self, tmp_path: Path) -> None:
+        """``shield down --all`` writes 'down_all' to the desired state file."""
+        from terok.cli.commands.shield import _persist_desired_state
+
+        _persist_desired_state("down", tmp_path, {"allow_all": True})
+        assert (tmp_path / "shield_desired_state").read_text().strip() == "down_all"
+
+    def test_unrelated_command_noop(self, tmp_path: Path) -> None:
+        """Non up/down commands do not create a state file."""
+        from terok.cli.commands.shield import _persist_desired_state
+
+        _persist_desired_state("rules", tmp_path, {})
+        assert not (tmp_path / "shield_desired_state").exists()
+
+    def test_oserror_swallowed(self, tmp_path: Path) -> None:
+        """OSError during write is logged to stderr but does not raise."""
+        from terok.cli.commands.shield import _persist_desired_state
+
+        bad_dir = tmp_path / "no" / "such" / "dir"
+        # Should not raise — the error is printed to stderr
+        _persist_desired_state("up", bad_dir, {})
+
+    @patch("terok.cli.commands.shield._resolve_task")
+    @patch("terok.cli.commands.shield.make_shield")
+    def test_dispatch_up_persists_state(
+        self, mock_make: MagicMock, mock_resolve: MagicMock, tmp_path: Path
+    ) -> None:
+        """Full dispatch of ``shield up`` persists the desired state."""
+        mock_resolve.return_value = ("proj-cli-1", tmp_path)
+        mock_shield = MagicMock()
+        mock_make.return_value = mock_shield
+
+        args = argparse.Namespace(cmd="shield", shield_cmd="up", project_id="proj", task_id="1")
+        assert dispatch(args)
+        mock_shield.up.assert_called_once()
+        assert (tmp_path / "shield_desired_state").read_text().strip() == "up"
+
+    @patch("terok.cli.commands.shield._resolve_task")
+    @patch("terok.cli.commands.shield.make_shield")
+    def test_dispatch_down_persists_state(
+        self, mock_make: MagicMock, mock_resolve: MagicMock, tmp_path: Path
+    ) -> None:
+        """Full dispatch of ``shield down`` persists the desired state."""
+        mock_resolve.return_value = ("proj-cli-1", tmp_path)
+        mock_shield = MagicMock()
+        mock_make.return_value = mock_shield
+
+        args = argparse.Namespace(
+            cmd="shield", shield_cmd="down", project_id="proj", task_id="1", allow_all=False
+        )
+        assert dispatch(args)
+        mock_shield.down.assert_called_once()
+        assert (tmp_path / "shield_desired_state").read_text().strip() == "down"

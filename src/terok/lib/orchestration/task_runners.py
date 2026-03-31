@@ -208,21 +208,79 @@ def _print_detached_summary(summary: DetachedSummary) -> None:
     )
 
 
-def _maybe_drop_shield(project: ProjectConfig, cname: str, task_dir: Path) -> None:
-    """Best-effort shield drop if ``shield.drop_on_task_start`` is enabled."""
-    if not project.shield_drop_on_task_start:
-        return
-    if get_shield_bypass_firewall_no_protection():
+_DESIRED_SHIELD_STATE_FILENAME = "shield_desired_state"
+_VALID_SHIELD_STATES = frozenset({"up", "down", "down_all"})
+
+
+def _read_desired_shield_state(task_dir: Path) -> str | None:
+    """Read the persisted shield state from the task directory."""
+    path = task_dir / _DESIRED_SHIELD_STATE_FILENAME
+    if not path.is_file():
+        return None
+    value = path.read_text().strip()
+    return value if value in _VALID_SHIELD_STATES else None
+
+
+def _write_desired_shield_state(task_dir: Path, state: str) -> None:
+    """Persist the desired shield state to the task directory."""
+    (task_dir / _DESIRED_SHIELD_STATE_FILENAME).write_text(f"{state}\n")
+
+
+def _restore_shield_state(cname: str, task_dir: Path) -> None:
+    """Restore the persisted shield state on container restart (``retain`` policy)."""
+    desired = _read_desired_shield_state(task_dir)
+    if not desired or not desired.startswith("down"):
         return
     try:
+        _shield_down_impl(cname, task_dir, allow_all=(desired == "down_all"))
+    except Exception as exc:
+        import warnings
+
+        warnings.warn(f"shield restore: {exc}", stacklevel=2)
+
+
+def _drop_shield_on_creation(cname: str, task_dir: Path) -> None:
+    """Drop the shield after fresh container creation and persist the state."""
+    try:
         _shield_down_impl(cname, task_dir)
+        _write_desired_shield_state(task_dir, "down")
         audit_path = task_dir / "shield" / "audit.jsonl"
         print(f"Shield dropped (bypass mode). Audit log: {audit_path}")
         print(SHIELD_SECURITY_HINT)
     except Exception as exc:
         import warnings
 
-        warnings.warn(f"shield.drop_on_task_start: failed to drop shield: {exc}", stacklevel=2)
+        warnings.warn(f"shield drop: {exc}", stacklevel=2)
+
+
+def _apply_shield_policy(
+    project: ProjectConfig, cname: str, task_dir: Path, *, is_restart: bool
+) -> None:
+    """Apply shield policy after container start (creation or restart).
+
+    On fresh creation, honours ``shield.drop_on_task_run``.  On restart,
+    honours ``shield.on_task_restart`` (``retain`` restores the last known
+    state, ``up`` leaves the deny-all ruleset from the OCI hook).
+    """
+    if get_shield_bypass_firewall_no_protection():
+        return
+
+    if is_restart:
+        policy = project.shield_on_task_restart
+        if policy == "retain":
+            _restore_shield_state(cname, task_dir)
+        elif policy == "up":
+            pass  # already UP from OCI hook
+        else:
+            raise ValueError(
+                f"Unknown shield.on_task_restart value: {policy!r} (expected 'retain' or 'up')"
+            )
+        return
+
+    if project.shield_drop_on_task_run:
+        _drop_shield_on_creation(cname, task_dir)
+    else:
+        _write_desired_shield_state(task_dir, "up")
 
 
 def _run_container(
@@ -309,6 +367,7 @@ def task_run_cli(
         print(f"Starting existing container {_green(cname, color_enabled)}...")
         _podman_start(cname)
         _assert_running(cname)
+        task_dir = project.tasks_root / str(task_id)
         run_hook(
             "post_start",
             project.hook_post_start,
@@ -316,9 +375,10 @@ def task_run_cli(
             task_id=task_id,
             mode="cli",
             cname=cname,
-            task_dir=project.tasks_root / str(task_id),
+            task_dir=task_dir,
             meta_path=meta_path,
         )
+        _apply_shield_policy(project, cname, task_dir, is_restart=True)
         meta["mode"] = "cli"
         meta["ready_at"] = datetime.now(UTC).isoformat()
         meta_path.write_text(_yaml_dump(meta))
@@ -372,7 +432,7 @@ def task_run_cli(
         # init-ssh-and-repo.sh now prints a readiness marker we can watch for
         command=["bash", "-lc", "init-ssh-and-repo.sh && echo __CLI_READY__; tail -f /dev/null"],
     )
-    _maybe_drop_shield(project, cname, task_dir)
+    _apply_shield_policy(project, cname, task_dir, is_restart=False)
     run_hook(
         "post_start",
         project.hook_post_start,
@@ -452,6 +512,7 @@ def task_run_toad(
             print(f"Toad: {_blue(url, color_enabled)}")
             return
         print(f"Starting existing container {_green(cname, color_enabled)}...")
+        task_dir = project.tasks_root / str(task_id)
         _podman_start(cname)
         _assert_running(cname)
         run_hook(
@@ -462,9 +523,10 @@ def task_run_toad(
             mode="toad",
             cname=cname,
             web_port=port,
-            task_dir=project.tasks_root / str(task_id),
+            task_dir=task_dir,
             meta_path=meta_path,
         )
+        _apply_shield_policy(project, cname, task_dir, is_restart=True)
         print("Container started.")
         print(f"Toad: {_blue(url, color_enabled)}")
         return
@@ -526,7 +588,7 @@ def task_run_toad(
         extra_args=["-p", f"{bind_addr}:{port}:{_TOAD_CONTAINER_PORT}"],
         command=["bash", "-lc", toad_cmd],
     )
-    _maybe_drop_shield(project, cname, task_dir)
+    _apply_shield_policy(project, cname, task_dir, is_restart=False)
     run_hook(
         "post_start",
         project.hook_post_start,
@@ -735,7 +797,7 @@ def task_run_headless(request: HeadlessRunRequest) -> str:
         task_dir=task_dir,
         command=["bash", "-lc", headless_cmd],
     )
-    _maybe_drop_shield(project, cname, task_dir)
+    _apply_shield_policy(project, cname, task_dir, is_restart=False)
     run_hook(
         "post_start",
         project.hook_post_start,
@@ -878,6 +940,7 @@ def task_followup_headless(
         task_dir=task_dir,
         meta_path=meta_path,
     )
+    _apply_shield_policy(project, cname, task_dir, is_restart=True)
 
     # Clear previous exit_code so effective_status shows "running" until new exit
     meta["exit_code"] = None
@@ -959,6 +1022,7 @@ def task_restart(project_id: str, task_id: str) -> None:
 
     if container_state is not None:
         # Container exists (stopped/exited, or just stopped above) - start it
+        task_dir = project.tasks_root / str(task_id)
         _podman_start(cname)
         _assert_running(cname)
         run_hook(
@@ -968,9 +1032,10 @@ def task_restart(project_id: str, task_id: str) -> None:
             task_id=task_id,
             mode=mode,
             cname=cname,
-            task_dir=project.tasks_root / str(task_id),
+            task_dir=task_dir,
             meta_path=meta_path,
         )
+        _apply_shield_policy(project, cname, task_dir, is_restart=True)
 
         color_enabled = _supports_color()
         print(f"Restarted task {task_id}: {_green(cname, color_enabled)}")

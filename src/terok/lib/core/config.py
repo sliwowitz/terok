@@ -1,5 +1,4 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
-# SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
 """Global configuration, directory helpers, and preset/image path resolution."""
@@ -351,6 +350,16 @@ def get_shield_bypass_firewall_no_protection() -> bool:
           bypass_firewall_no_protection: true
     """
     return _load_validated().shield.bypass_firewall_no_protection
+
+
+def get_shield_drop_on_task_run() -> bool:
+    """Return the global default for ``shield.drop_on_task_run``."""
+    return _load_validated().shield.drop_on_task_run
+
+
+def get_shield_on_task_restart() -> str:
+    """Return the global default for ``shield.on_task_restart``."""
+    return _load_validated().shield.on_task_restart
 
 
 def get_public_host() -> str:

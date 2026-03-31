@@ -67,6 +67,32 @@ def _extract_handler_kwargs(args: argparse.Namespace, cmd_def: CommandDef) -> di
     return kwargs
 
 
+_DESIRED_STATE_FILENAME = "shield_desired_state"
+
+
+def _persist_desired_state(cmd_name: str, task_dir: Path, kwargs: dict) -> None:
+    """Write desired shield state after a successful ``up`` or ``down`` command.
+
+    Persists the operator's intent so ``on_task_restart: retain`` can
+    restore the correct state after a container stop/start cycle.
+    Best-effort: OSError is logged but swallowed so the shield command
+    itself stays successful.
+    """
+    if cmd_name == "up":
+        value = "up"
+    elif cmd_name == "down":
+        value = "down_all" if kwargs.get("allow_all") else "down"
+    else:
+        return
+    try:
+        (task_dir / _DESIRED_STATE_FILENAME).write_text(f"{value}\n")
+    except OSError as exc:
+        print(
+            f"Warning: could not persist {_DESIRED_STATE_FILENAME} to {task_dir}: {exc}",
+            file=sys.stderr,
+        )
+
+
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Register the ``shield`` subcommand group from the registry."""
     p = subparsers.add_parser("shield", help="Manage egress firewall (terok-shield)")
@@ -133,6 +159,7 @@ def dispatch(args: argparse.Namespace) -> bool:
             kwargs = _extract_handler_kwargs(args, cmd_def)
             if cmd_def.needs_container:
                 cmd_def.handler(shield, cname, **kwargs)
+                _persist_desired_state(cmd_name, task_dir, kwargs)
             else:
                 # Optional container arg (e.g. ``status <project> <task>``)
                 kwargs["container"] = cname
