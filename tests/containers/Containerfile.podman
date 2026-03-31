@@ -11,6 +11,9 @@ RUN dnf install -y \
     git curl bind-utils openssh-clients \
     && dnf clean all
 
+# Disable per-container kernel keyring — prevents keyring leak / EDQUOT
+RUN printf '\n[containers]\nkeyring = false\n' >> /etc/containers/containers.conf
+
 # Ensure runtime dir exists for the pre-existing 'podman' user
 RUN mkdir -p /run/user/$(id -u podman) && chown podman:podman /run/user/$(id -u podman)
 

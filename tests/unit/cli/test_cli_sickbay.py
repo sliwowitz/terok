@@ -11,7 +11,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from terok_sandbox import GateServerStatus
 
-from terok.cli.commands.sickbay import _check_credential_proxy, _check_shield, _cmd_sickbay
+from terok.cli.commands.sickbay import (
+    _check_credential_proxy,
+    _check_keyring,
+    _check_shield,
+    _cmd_sickbay,
+)
 from tests.testfs import MOCK_BASE
 from tests.testgate import OUTDATED_UNITS_MESSAGE, make_gate_server_status
 
@@ -96,6 +101,10 @@ def test_cmd_sickbay_reports_health(
         json.dumps({"p": {"private_key": str(dummy_key), "public_key": str(tmp_path / "id.pub")}})
     )
 
+    # Keyring check needs a containers.conf with keyring = false
+    keyring_conf = tmp_path / "containers.conf"
+    keyring_conf.write_text("[containers]\nkeyring = false\n")
+
     mock_ec = MagicMock(health="ok", hooks="per-container", dns_tier="dnsmasq")
     mock_cfg = MagicMock()
     mock_cfg.return_value.ssh_keys_json_path = ssh_keys
@@ -107,6 +116,7 @@ def test_cmd_sickbay_reports_health(
         patch("terok.cli.commands.sickbay.get_proxy_status", return_value=_make_proxy_status()),
         patch("terok.cli.commands.sickbay.is_proxy_systemd_available", return_value=False),
         patch("terok.cli.commands.sickbay.make_sandbox_config", mock_cfg),
+        patch("terok.cli.commands.sickbay._find_containers_conf", return_value=keyring_conf),
     ):
         if exit_code is None:
             _cmd_sickbay()
@@ -282,3 +292,51 @@ def test_check_credential_proxy_states(
     assert status == expected_status
     assert label == "Credential proxy"
     assert expected_detail in detail
+
+
+class TestCheckKeyring:
+    """Verify _check_keyring diagnostics."""
+
+    def test_disabled(self, tmp_path: Path) -> None:
+        """keyring = false → ok."""
+        conf = tmp_path / "containers.conf"
+        conf.write_text("[containers]\nkeyring = false\n")
+        with patch("terok.cli.commands.sickbay._find_containers_conf", return_value=conf):
+            sev, label, detail = _check_keyring()
+        assert sev == "ok"
+        assert label == "Keyring"
+        assert "disabled" in detail
+
+    def test_enabled_explicitly(self, tmp_path: Path) -> None:
+        """keyring = true → warn with docs link."""
+        conf = tmp_path / "containers.conf"
+        conf.write_text("[containers]\nkeyring = true\n")
+        with patch("terok.cli.commands.sickbay._find_containers_conf", return_value=conf):
+            sev, label, detail = _check_keyring()
+        assert sev == "warn"
+        assert "kernel-keyring" in detail
+
+    def test_absent_defaults_to_warn(self, tmp_path: Path) -> None:
+        """No [containers] section → warn (default is true)."""
+        conf = tmp_path / "containers.conf"
+        conf.write_text("[engine]\nevents_logger = 'file'\n")
+        with patch("terok.cli.commands.sickbay._find_containers_conf", return_value=conf):
+            sev, _, detail = _check_keyring()
+        assert sev == "warn"
+        assert "not disabled" in detail
+
+    def test_no_conf_file(self) -> None:
+        """No containers.conf found → warn."""
+        with patch("terok.cli.commands.sickbay._find_containers_conf", return_value=None):
+            sev, _, detail = _check_keyring()
+        assert sev == "warn"
+        assert "no containers.conf" in detail
+
+    def test_corrupt_toml(self, tmp_path: Path) -> None:
+        """Corrupt TOML → warn with parse error."""
+        conf = tmp_path / "containers.conf"
+        conf.write_text("[bad toml\n")
+        with patch("terok.cli.commands.sickbay._find_containers_conf", return_value=conf):
+            sev, _, detail = _check_keyring()
+        assert sev == "warn"
+        assert "cannot parse" in detail

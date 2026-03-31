@@ -20,7 +20,9 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tomllib
 from pathlib import Path
 
 from terok_sandbox import (
@@ -257,6 +259,48 @@ def _check_ssh_agent() -> _CheckResult:
     return ("ok", label, f"{total} project(s) registered, all keys present")
 
 
+_KEYRING_DOC_URL = "https://terok-ai.github.io/terok/kernel-keyring/"
+
+# Podman containers.conf lookup order (rootless).  The first existing file wins.
+_CONTAINERS_CONF_PATHS = (
+    Path.home() / ".config" / "containers" / "containers.conf",
+    Path("/etc/containers/containers.conf"),
+)
+
+
+def _find_containers_conf() -> Path | None:
+    """Return the effective containers.conf path, respecting ``$CONTAINERS_CONF``."""
+    env = os.environ.get("CONTAINERS_CONF")
+    if env:
+        p = Path(env)
+        return p if p.is_file() else None
+    return next((p for p in _CONTAINERS_CONF_PATHS if p.is_file()), None)
+
+
+def _check_keyring() -> _CheckResult:
+    """Check that the kernel keyring is disabled in containers.conf."""
+    label = "Keyring"
+    conf = _find_containers_conf()
+    if conf is None:
+        return (
+            "warn",
+            label,
+            f"no containers.conf found — add keyring = false, see {_KEYRING_DOC_URL}",
+        )
+    try:
+        data = tomllib.loads(conf.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        return ("warn", label, f"cannot parse {conf} — {exc}")
+    keyring = data.get("containers", {}).get("keyring", True)
+    if keyring is False:
+        return ("ok", label, f"disabled in {conf}")
+    return (
+        "warn",
+        label,
+        f"not disabled — add [containers] keyring = false to {conf}, see {_KEYRING_DOC_URL}",
+    )
+
+
 def _check_containers(
     project_id: str | None,
     task_id: str | None,
@@ -304,6 +348,7 @@ _GLOBAL_CHECKS = [
     _check_shield,
     _check_credential_proxy,
     _check_ssh_agent,
+    _check_keyring,
 ]
 
 _STATUS_MARKERS = {
