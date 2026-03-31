@@ -111,7 +111,7 @@ class TerokIntegrationEnv:
         if check and result.returncode != 0:
             raise AssertionError(
                 "CLI command failed:\n"
-                f"  command: terokctl {' '.join(args)}\n"
+                f"  command: terok {' '.join(args)}\n"
                 f"  exit: {result.returncode}\n"
                 f"  stdout:\n{result.stdout}\n"
                 f"  stderr:\n{result.stderr}"

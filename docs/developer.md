@@ -125,7 +125,7 @@ When a task container starts, terok mounts:
 | `/home/dev/.claude` | `<envs_base>/_claude-config` | Claude Code credentials |
 | `/home/dev/.vibe` | `<envs_base>/_vibe-config` | Mistral Vibe credentials |
 | `/home/dev/.blablador` | `<envs_base>/_blablador-config` | Blablador credentials + isolated OpenCode config (via `OPENCODE_CONFIG`) |
-| `/home/dev/.config/opencode` | `<envs_base>/_opencode-config` | Plain OpenCode config (use `terokctl config import-opencode`) |
+| `/home/dev/.config/opencode` | `<envs_base>/_opencode-config` | Plain OpenCode config (use `terok config import-opencode`) |
 | `/home/dev/.local/share/opencode` | `<envs_base>/_opencode-data` | OpenCode data (shared by Blablador and plain OpenCode) |
 | `/home/dev/.local/state` | `<envs_base>/_opencode-state` | OpenCode/Bun state (shared by both) |
 | `/home/dev/.config/gh` | `<envs_base>/_gh-config` | GitHub CLI config |
@@ -423,7 +423,7 @@ panel edges misalign — and **cannot be fixed by padding alone**.
    natively 2 cells wide — adding a VS16 emoji will fail CI.  Tests also
    verify that all emoji dicts have non-empty labels for `--no-emoji` mode.
 7. Emojis are **on by default**.  Pass `--no-emoji` to `terok` (TUI) or
-   `terokctl` (CLI) to replace all emojis with `[label]` text badges.
+   `terok` (CLI) to replace all emojis with `[label]` text badges.
 
 See `src/terok/lib/util/emoji.py` module docstring for full background,
 references, and future terminal developments to watch (Kitty text sizing

@@ -92,8 +92,8 @@ gatekeeping:
 
 ## Gate Lifecycle
 
-1. `terokctl ssh-init <project>` — generate a per-project SSH key (optional for public HTTPS repos). The key is only useful if the user registers it as a deploy key on the upstream remote.
-2. `terokctl gate-sync <project>` — initialize or update the gate mirror (`--force-reinit` to recreate)
+1. `terok ssh-init <project>` — generate a per-project SSH key (optional for public HTTPS repos). The key is only useful if the user registers it as a deploy key on the upstream remote.
+2. `terok gate-sync <project>` — initialize or update the gate mirror (`--force-reinit` to recreate)
 3. Run tasks — online containers clone from gate then talk to upstream; gatekeeping containers use the gate as their default origin
 
 ---

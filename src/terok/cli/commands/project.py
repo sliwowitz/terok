@@ -73,8 +73,8 @@ def dispatch(args: argparse.Namespace) -> bool:
         print(f"Derived project '{args.new_id}' from '{args.source_id}' at {target}")
         print("Next steps:")
         print(f"  1. Edit {target / 'project.yml'} (customize agent: section)")
-        print(f"  2. Initialize: terokctl project-init {args.new_id}")
-        print("  Tip: global presets are shared across projects (see terokctl config)")
+        print(f"  2. Initialize: terok project-init {args.new_id}")
+        print("  Tip: global presets are shared across projects (see terok config)")
         return True
     if args.cmd == "project-delete":
         _cmd_project_delete(args.project_id, force=args.force)

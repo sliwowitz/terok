@@ -118,7 +118,7 @@ def _security_mode_env_and_volumes(
             raise SystemExit(
                 f"Git gate missing for project '{project.id}'.\n"
                 f"Expected at: {gate_repo}\n"
-                f"Run 'terokctl gate-sync {project.id}' to create/update the local mirror."
+                f"Run 'terok gate-sync {project.id}' to create/update the local mirror."
             )
         ensure_server_reachable(cfg)
         port = get_gate_server_port(cfg)

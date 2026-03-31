@@ -247,8 +247,8 @@ def run_wizard(init_fn: Callable[[str], None] | None = None) -> Path | None:
                 print(f"\nProject '{project_id}' is ready.")
                 return config_path
 
-        print(f"Next step: terokctl project-init {project_id}")
+        print(f"Next step: terok project-init {project_id}")
     except (KeyboardInterrupt, EOFError):
-        print(f"\nSkipped. Run manually: terokctl project-init {project_id}")
+        print(f"\nSkipped. Run manually: terok project-init {project_id}")
 
     return config_path

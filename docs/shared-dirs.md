@@ -28,7 +28,7 @@ All shared directories are created automatically if missing. Base dir defaults t
 | `_claude-config` | `/home/dev/.claude` | Claude Code credentials (`CLAUDE_CONFIG_DIR` is set) |
 | `_vibe-config` | `/home/dev/.vibe` | Mistral Vibe credentials |
 | `_blablador-config` | `/home/dev/.blablador` | Blablador credentials (includes isolated OpenCode config via `OPENCODE_CONFIG`) |
-| `_opencode-config` | `/home/dev/.config/opencode` | Plain OpenCode config (use `terokctl config import-opencode`) |
+| `_opencode-config` | `/home/dev/.config/opencode` | Plain OpenCode config (use `terok config import-opencode`) |
 | `_opencode-data` | `/home/dev/.local/share/opencode` | OpenCode data/caches (shared by Blablador and plain OpenCode) |
 | `_opencode-state` | `/home/dev/.local/state` | OpenCode/Bun state (shared by both) |
 | `_gh-config` | `/home/dev/.config/gh` | GitHub CLI config |
@@ -44,7 +44,7 @@ The SSH directory is optional — public HTTPS repos don't need it.
 ### Auto-Setup
 
 ```bash
-terokctl ssh-init <project_id> [--key-type ed25519|rsa] [--key-name NAME] [--force]
+terok ssh-init <project_id> [--key-type ed25519|rsa] [--key-name NAME] [--force]
 ```
 
 This generates an ed25519 keypair and SSH config with:
@@ -99,4 +99,4 @@ Agent email addresses are GitHub-recognized and display with avatars in commit h
 /home/dev/.ssh (optional)     ← <envs_base>/_ssh-config-<project>:z
 ```
 
-Run `terokctl config` to see resolved paths on your system.
+Run `terok config` to see resolved paths on your system.

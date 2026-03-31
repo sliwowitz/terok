@@ -773,7 +773,7 @@ if _HAS_TEXTUAL:
                 else:
                     self.notify(
                         f"Deleted task {task_label}.\n"
-                        f"Archive: terokctl task archive list {project_id}",
+                        f"Archive: terok task archive list {project_id}",
                     )
 
                 if project_id != self.current_project_id:
@@ -1129,7 +1129,7 @@ if _HAS_TEXTUAL:
         """
         import argparse
 
-        parser = argparse.ArgumentParser(prog="terok")
+        parser = argparse.ArgumentParser(prog="terok-tui")
         parser.add_argument(
             "--tmux",
             action="store_true",

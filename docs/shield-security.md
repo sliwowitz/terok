@@ -21,7 +21,7 @@ This page explains **what you lose** when the shield is weakened or absent.
 
 ## Shield Down (Bypass Mode)
 
-When the shield is **down** — whether via `terokctl shield down`, the TUI
+When the shield is **down** — whether via `terok shield down`, the TUI
 toggle, or the `shield.drop_on_task_run` config — the nftables rules switch
 to allow-all but the OCI hook infrastructure remains in place.  **Audit
 logging continues.**
@@ -58,7 +58,7 @@ into installing backdoored dependencies.
 - **Audit logging** — connection attempts are still logged to
   `{task_dir}/shield/audit.jsonl`.
 - **OCI hook infrastructure** — the shield can be raised again at any time
-  via `terokctl shield up` or the TUI.
+  via `terok shield up` or the TUI.
 - **Gate server** — the git gate still directs agent pushes to the
   host-side mirror for human review (in gatekeeping mode), though it
   does not prevent outbound network connections on its own.
@@ -81,7 +81,7 @@ all**.  This is the most dangerous state.
     forensics become significantly harder.
 
     **No ability to raise the shield.**
-    The `terokctl shield up` command and TUI toggle have no effect — there
+    The `terok shield up` command and TUI toggle have no effect — there
     are no nftables rules to activate.  The only way to restore protection is
     to remove the bypass config, fix the underlying podman/nft issue, and
     start a new task.

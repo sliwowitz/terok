@@ -5,7 +5,7 @@
 #  - /etc/terok/config.yml (system-wide default)
 #
 # Notes:
-#  - The CLI command `terokctl config` shows which paths and files are used.
+#  - The CLI command `terok config` shows which paths and files are used.
 
 ui:
   # Default first task port for UI mode (subsequent tasks will auto-increment
@@ -69,7 +69,7 @@ tui:
 # terok converts per-project sub-agent YAML definitions (in project.yml)
 # to JSON for the --agents flag at task runtime. See project.yml for examples.
 #
-# Run `terokctl config` to see the actual paths on your system.
+# Run `terok config` to see the actual paths on your system.
 #
 # TODO: future — support global agent definitions here (agent.subagents)
 # that would be merged with per-project subagents. Use a generic merge

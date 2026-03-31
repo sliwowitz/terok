@@ -84,7 +84,7 @@ class ProjectActionsMixin:
                 print("Public key file exists but is empty.")
         else:
             print(f"Public key file not found at {pub_key_path}.")
-            print(f"Run 'terokctl ssh-init {project_id}' to generate it.")
+            print(f"Run 'terok ssh-init {project_id}' to generate it.")
 
     async def _run_suspended(
         self,

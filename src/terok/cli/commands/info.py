@@ -281,5 +281,5 @@ def _print_config() -> None:
     comp_installed = _is_completion_installed()
     print(
         f"Shell completions: {_yes_no(comp_installed, color_enabled)}"
-        + ("" if comp_installed else "  (run: terokctl completions install)")
+        + ("" if comp_installed else "  (run: terok completions install)")
     )

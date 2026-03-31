@@ -350,7 +350,7 @@ def _task_new(project: ProjectConfig, *, name: str | None = None) -> str:
     marker_path = workspace_dir / ".new-task-marker"
     marker_path.write_text(
         "# This marker signals that the workspace should be reset to the latest remote HEAD.\n"
-        "# It is created by 'terokctl task new' and removed by init-ssh-and-repo.sh after reset.\n"
+        "# It is created by 'terok task new' and removed by init-ssh-and-repo.sh after reset.\n"
         "# If you see this file in an initialized workspace, something went wrong.\n",
         encoding="utf-8",
     )
@@ -776,7 +776,7 @@ def _validate_login(project: ProjectConfig, task_id: str) -> tuple[str, str]:
     if not mode:
         raise SystemExit(
             f"Task {task_id} has never been run (no mode set). "
-            f"Start it first via 'terokctl task run-cli {project.id} {task_id}'."
+            f"Start it first via 'terok task run-cli {project.id} {task_id}'."
         )
 
     cname = container_name(project.id, mode, task_id)
@@ -784,12 +784,12 @@ def _validate_login(project: ProjectConfig, task_id: str) -> tuple[str, str]:
     if state is None:
         raise SystemExit(
             f"Container {cname} does not exist. "
-            f"Run 'terokctl task restart {project.id} {task_id}' first."
+            f"Run 'terok task restart {project.id} {task_id}' first."
         )
     if state != "running":
         raise SystemExit(
             f"Container {cname} is not running (state: {state}). "
-            f"Run 'terokctl task restart {project.id} {task_id}' first."
+            f"Run 'terok task restart {project.id} {task_id}' first."
         )
     return cname, mode
 
@@ -869,7 +869,7 @@ def _task_stop(project: ProjectConfig, task_id: str, *, timeout: int | None = No
 
     color_enabled = _supports_color()
     print(f"Stopped task {task_id}: {_green(cname, color_enabled)}")
-    print(f"Restart with: terokctl task restart {project.id} {task_id}")
+    print(f"Restart with: terok task restart {project.id} {task_id}")
 
 
 def get_login_command(project_id: str, task_id: str) -> list[str]:
