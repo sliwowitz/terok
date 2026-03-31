@@ -120,7 +120,7 @@ def main() -> None:
     wire_group(sub, "credential-proxy", AGENT_PROXY_COMMANDS, help="Credential proxy commands")
     wire_group(sub, "ssh", SSH_COMMANDS, help="SSH key management")
 
-    # TUI launcher — delegates to terok-tui entry point
+    # TUI launcher — delegates to terok-tui entry point (dispatched before argparse)
     sub.add_parser("tui", help="Launch the Textual TUI (same as terok-tui)")
 
     # Enable bash completion if argcomplete is present and activated
@@ -130,6 +130,14 @@ def main() -> None:
         except (TypeError, AttributeError):
             pass
 
+    # Fast-path: ``terok tui [args...]`` bypasses argparse and execs terok-tui.
+    # This avoids argparse rejecting TUI-specific flags like --tmux.
+    if len(sys.argv) >= 2 and sys.argv[1] == "tui":
+        import os
+
+        os.execlp("terok-tui", "terok-tui", *sys.argv[2:])
+        return  # pragma: no cover — execlp never returns
+
     args = parser.parse_args()
     set_experimental(args.experimental)
 
@@ -137,11 +145,6 @@ def main() -> None:
         from ..lib.util.emoji import set_emoji_enabled
 
         set_emoji_enabled(False)
-
-    if args.cmd == "tui":
-        import os
-
-        os.execlp("terok-tui", "terok-tui", *sys.argv[sys.argv.index("tui") + 1 :])
 
     for dispatch in _DISPATCHERS:
         if dispatch(args):
