@@ -826,6 +826,37 @@ class TestGateServerScreen:
         screen.dismiss.assert_called_once_with(expected)
 
 
+class TestDisableOptions:
+    """Tests for the _disable_options helper used by systemd-dependent screens."""
+
+    def test_disable_options_disables_matching_ids(self) -> None:
+        """Options whose id is in the frozenset are disabled."""
+        screens, _ = import_screens()
+        option_list = mock.Mock()
+        opts = [mock.Mock(id="a"), mock.Mock(id="b"), mock.Mock(id="c")]
+        option_list.option_count = len(opts)
+        option_list.get_option_at_index = lambda idx: opts[idx]
+
+        screens._disable_options(option_list, frozenset({"a", "c"}))
+
+        option_list.disable_option_at_index.assert_any_call(0)
+        option_list.disable_option_at_index.assert_any_call(2)
+        assert option_list.disable_option_at_index.call_count == 2
+
+    def test_gate_server_systemd_option_ids(self) -> None:
+        """GateServerScreen declares the correct systemd option ids."""
+        screens, _ = import_screens()
+        assert {"gate_install", "gate_uninstall"} == screens.GateServerScreen._SYSTEMD_OPTIONS
+
+    def test_credential_proxy_systemd_option_ids(self) -> None:
+        """CredentialProxyScreen declares the correct systemd option ids."""
+        screens, _ = import_screens()
+        assert {
+            "proxy_install",
+            "proxy_uninstall",
+        } == screens.CredentialProxyScreen._SYSTEMD_OPTIONS
+
+
 class TestCommandPalette:
     """Tests for command palette customization."""
 
