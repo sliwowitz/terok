@@ -22,6 +22,7 @@ def _enable_proxy() -> Iterator[None]:
     """Override the autouse bypass to test the proxy-enabled path."""
     with (
         patch("terok.lib.core.config.get_credential_proxy_bypass", return_value=False),
+        patch("terok_sandbox.credential_proxy_lifecycle._wait_for_ready", return_value=True),
         patch("terok_sandbox.credential_proxy_lifecycle._wait_for_tcp_port", return_value=True),
     ):
         yield
@@ -49,7 +50,7 @@ class TestCredentialProxyEnv:
         with (
             patch("terok_sandbox.credential_proxy_lifecycle.is_socket_active", return_value=False),
             patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=False),
-            pytest.raises(SystemExit, match="not running"),
+            pytest.raises(SystemExit, match="not reachable"),
         ):
             _credential_proxy_env_and_volumes(project, "task-1")
 
