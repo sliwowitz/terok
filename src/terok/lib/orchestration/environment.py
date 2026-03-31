@@ -341,7 +341,7 @@ def build_task_env_and_volumes(project: ProjectConfig, task_id: str) -> tuple[di
 
     - Mount per-task workspace subdir to /workspace (host-explorable).
     - Mount all shared config dirs from ``SHARED_MOUNTS`` (read-write).
-    - Optionally mount per-project SSH config dir to /home/dev/.ssh (read-write).
+    - Inject credential proxy and SSH agent proxy env vars.
     - Provide REPO_ROOT and git info for the init script.
     """
     task_dir = project.tasks_root / str(task_id)

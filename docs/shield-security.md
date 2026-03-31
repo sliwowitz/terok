@@ -117,8 +117,8 @@ If you must operate without the shield, consider these compensating controls:
    directs agent pushes to the host-side mirror instead of upstream.
    This is a configuration default, not a hard barrier — see
    [Security Modes](git-gate-and-security-modes.md) for details.
-2. **Don't mount sensitive credentials** — avoid mounting SSH keys, API
-   tokens, or cloud credentials into the container.
+2. **Protect credentials** — SSH keys are served via the agent proxy
+   (never mounted). Avoid placing raw API tokens in shared config dirs.
 3. **Monitor container traffic externally** — use host-level firewall
    rules or network monitoring tools.
 4. **Limit task duration** — shorter tasks reduce the window of exposure.

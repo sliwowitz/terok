@@ -2,7 +2,7 @@
 
 ## Overview
 
-When a task starts, terok mounts host directories into the container for workspace access, shared credentials, and SSH configuration.
+When a task starts, terok mounts host directories into the container for workspace access and shared agent configuration.
 
 ## Per-Task Workspace
 
@@ -18,9 +18,13 @@ When a task starts, terok mounts host directories into the container for workspa
 > the **git gate** — a host-controlled bare repo where agents push their
 > changes for human review before promotion to upstream.
 
-## Shared Credential Directories
+## Shared Agent Configuration Directories
 
-All shared directories are created automatically if missing. Base dir defaults to `~/.local/share/terok-credentials` (or `/var/lib/terok-credentials` if root). Override via `credentials.dir` in `config.yml` or the `TEROK_CREDENTIALS_DIR` environment variable.
+These directories are bind-mounted into every task container so that agents and
+tools find their config/credentials on startup.  They are created automatically
+on first task launch.  The base dir defaults to
+`~/.local/share/terok-credentials/envs` (derived from `credentials.dir` in
+`config.yml` or `TEROK_CREDENTIALS_DIR`).
 
 | Host Dir | Container Mount | Purpose |
 |----------|----------------|---------|
@@ -33,24 +37,27 @@ All shared directories are created automatically if missing. Base dir defaults t
 | `_opencode-state` | `/home/dev/.local/state` | OpenCode/Bun state (shared by both) |
 | `_gh-config` | `/home/dev/.config/gh` | GitHub CLI config |
 | `_glab-config` | `/home/dev/.config/glab-cli` | GitLab CLI config |
-| `_ssh-config-<project>` | `/home/dev/.ssh` | SSH keys/config (optional, per-project) |
 
 All shared dirs use `:z` (shared SELinux label); the workspace uses `:Z` (private label).
 
-## SSH Configuration
+> **Note:** SSH keys are **not** mounted into containers.  The credential
+> proxy's SSH agent serves keys over TCP — private keys never enter the
+> container.  See `terok ssh-init` for key generation.
 
-The SSH directory is optional — public HTTPS repos don't need it.
+## SSH Key Management
 
-### Auto-Setup
+SSH keys are generated and stored on the **host only** — they are served to
+containers via the credential proxy's SSH agent (TCP-based, phantom-token
+authenticated).  Public HTTPS repos don't need SSH setup at all.
+
+### Setup
 
 ```bash
 terok ssh-init <project_id> [--key-type ed25519|rsa] [--key-name NAME] [--force]
 ```
 
-This generates an ed25519 keypair and SSH config with:
-- `IdentitiesOnly yes` and `StrictHostKeyChecking accept-new` (avoids interactive prompts)
-- `IdentityFile` pointing to the generated key
-- A `github.com` host section with `User git`
+This generates an ed25519 keypair stored at `<state_dir>/ssh-keys/<project_id>/`
+and registers it in `ssh-keys.json` for the SSH agent proxy.
 
 Use the printed `.pub` key to register a deploy key on your Git host.
 
@@ -96,7 +103,6 @@ Agent email addresses are GitHub-recognized and display with avatars in commit h
 /home/dev/.config/opencode    ← <envs_base>/_opencode-config:z
 /home/dev/.local/share/opencode ← <envs_base>/_opencode-data:z
 /home/dev/.local/state        ← <envs_base>/_opencode-state:z
-/home/dev/.ssh (optional)     ← <envs_base>/_ssh-config-<project>:z
 ```
 
 Run `terok config` to see resolved paths on your system.
