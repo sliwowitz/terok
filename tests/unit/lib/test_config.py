@@ -155,3 +155,24 @@ def test_get_shield_bypass_firewall_no_protection(
     )
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, config_text)))
     assert cfg.get_shield_bypass_firewall_no_protection() is expected
+
+
+@pytest.mark.parametrize(
+    ("config_yaml", "expected_drop", "expected_restart"),
+    [
+        ("", True, "retain"),
+        ("shield:\n  drop_on_task_run: false\n  on_task_restart: up\n", False, "up"),
+    ],
+    ids=["defaults", "explicit"],
+)
+def test_get_shield_policy_accessors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    config_yaml: str,
+    expected_drop: bool,
+    expected_restart: str,
+) -> None:
+    """Shield policy accessors read from the global config file."""
+    monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, config_yaml)))
+    assert cfg.get_shield_drop_on_task_run() is expected_drop
+    assert cfg.get_shield_on_task_restart() == expected_restart

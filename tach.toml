@@ -578,6 +578,8 @@ expose = [
     "get_global_hooks",
     "get_credential_proxy_bypass",
     "get_shield_bypass_firewall_no_protection",
+    "get_shield_drop_on_task_run",
+    "get_shield_on_task_restart",
     "get_public_host",
     "SHIELD_SECURITY_HINT",
 ]
