@@ -22,7 +22,7 @@ class TestProxyEnvIntegration:
     """Verify _credential_proxy_env_and_volumes with real DB."""
 
     def test_phantom_tokens_injected_for_stored_provider(self, tmp_path: Path) -> None:
-        """Stored credentials produce phantom env vars and proxy volumes."""
+        """Stored API key credentials produce phantom env vars (direct transport)."""
         from terok_sandbox import CredentialDB
 
         from terok.lib.orchestration.environment import _credential_proxy_env_and_volumes
@@ -45,6 +45,9 @@ class TestProxyEnvIntegration:
                 return_value=True,
             ),
             patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
+            patch(
+                "terok.lib.core.config.get_credential_proxy_transport", return_value="direct"
+            ),
         ):
             mock_cfg = mock_cfg_cls.return_value
             mock_cfg.proxy_db_path = db_path
@@ -88,6 +91,9 @@ class TestProxyEnvIntegration:
                 return_value=True,
             ),
             patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
+            patch(
+                "terok.lib.core.config.get_credential_proxy_transport", return_value="direct"
+            ),
         ):
             mock_cfg = mock_cfg_cls.return_value
             mock_cfg.proxy_db_path = db_path
@@ -140,6 +146,10 @@ class TestProxyEnvIntegration:
                     return_value=True,
                 ),
                 patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
+                patch(
+                    "terok.lib.core.config.get_credential_proxy_transport",
+                    return_value="direct",
+                ),
             ):
                 mock_cfg = mock_cfg_cls.return_value
                 mock_cfg.proxy_db_path = db_path
@@ -151,6 +161,44 @@ class TestProxyEnvIntegration:
 
         assert tokens[0] != tokens[1]
         assert len(tokens[0]) == 32
+
+    def test_oauth_credential_uses_oauth_phantom_env(self, tmp_path: Path) -> None:
+        """OAuth credentials inject CLAUDE_CODE_OAUTH_TOKEN, not ANTHROPIC_API_KEY."""
+        from terok_sandbox import CredentialDB
+
+        from terok.lib.orchestration.environment import _credential_proxy_env_and_volumes
+
+        db_path = tmp_path / "proxy" / "credentials.db"
+        db = CredentialDB(db_path)
+        db.store_credential("default", "claude", {"type": "oauth", "access_token": "tok"})
+        db.close()
+
+        sock_path = tmp_path / "proxy.sock"
+        sock_path.touch()
+
+        project = MagicMock()
+        project.id = "test-project"
+
+        with (
+            patch(
+                "terok_sandbox.credential_proxy_lifecycle.is_daemon_running",
+                return_value=True,
+            ),
+            patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
+            patch(
+                "terok.lib.core.config.get_credential_proxy_transport", return_value="socket"
+            ),
+        ):
+            mock_cfg = mock_cfg_cls.return_value
+            mock_cfg.proxy_db_path = db_path
+            mock_cfg.proxy_socket_path = sock_path
+
+            env, _ = _credential_proxy_env_and_volumes(project, "task-1")
+
+        assert "CLAUDE_CODE_OAUTH_TOKEN" in env
+        assert len(env["CLAUDE_CODE_OAUTH_TOKEN"]) == 32
+        assert "ANTHROPIC_API_KEY" not in env
+        assert env["ANTHROPIC_UNIX_SOCKET"] == "/tmp/terok-claude-proxy.sock"
 
 
 class TestProxyBypassConfig:

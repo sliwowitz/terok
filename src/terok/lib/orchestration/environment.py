@@ -233,19 +233,33 @@ def _load_ssh_keys_json(path: Path) -> dict[str, list[dict[str, str]]]:
 # ---------- Credential proxy ----------
 
 
+def _credential_type(cred: dict) -> str:
+    """Determine credential type, handling legacy rows without a ``type`` field."""
+    ctype = cred.get("type", "")
+    if not ctype and "access_token" in cred:
+        return "oauth"
+    return ctype or "api_key"
+
+
 def _credential_proxy_env_and_volumes(
     project: ProjectConfig, task_id: str
 ) -> tuple[dict[str, str], list[str]]:
     """Return env vars and volumes for the credential proxy.
 
-    Injects phantom API key env vars and base URL overrides pointing to
-    the proxy socket, and mounts the socket into the container.
+    Injects phantom token env vars and transport overrides (HTTP base URL or
+    Unix socket path) pointing to the proxy.  The choice of env vars depends
+    on two orthogonal dimensions:
+
+    - **Auth**: stored credential type (``api_key`` → :attr:`phantom_env`,
+      ``oauth`` → :attr:`oauth_phantom_env`).
+    - **Transport**: global config ``credential_proxy.transport``
+      (``direct`` → :attr:`base_url_env`, ``socket`` → :attr:`socket_env`).
 
     Raises ``SystemExit`` if the proxy is not running — no silent fallback.
     The only way to skip the proxy is the explicit bypass flag
     ``credential_proxy.bypass_no_secret_protection`` in global config.
     """
-    from ..core.config import get_credential_proxy_bypass
+    from ..core.config import get_credential_proxy_bypass, get_credential_proxy_transport
 
     if get_credential_proxy_bypass():
         return {}, []
@@ -263,16 +277,19 @@ def _credential_proxy_env_and_volumes(
 
     roster = get_roster()
     proxy_routes = roster.proxy_routes
+    use_socket = get_credential_proxy_transport() == "socket"
 
     db = CredentialDB(cfg.proxy_db_path)
     try:
         credential_set = "default"
         stored_providers = set(db.list_credentials(credential_set))
         routed = stored_providers & proxy_routes.keys()
-        tokens = {
-            name: db.create_proxy_token(project.id, task_id, credential_set, name)
-            for name in routed
-        }
+        tokens: dict[str, str] = {}
+        credential_types: dict[str, str] = {}
+        for name in routed:
+            tokens[name] = db.create_proxy_token(project.id, task_id, credential_set, name)
+            cred = db.load_credential(credential_set, name)
+            credential_types[name] = _credential_type(cred) if cred else "api_key"
 
         # SSH agent: create phantom token if project has at least one valid key registered
         ssh_keys = _load_ssh_keys_json(cfg.ssh_keys_json_path)
@@ -293,10 +310,19 @@ def _credential_proxy_env_and_volumes(
     for name, route in proxy_routes.items():
         if name not in routed:
             continue
-        for env_var in route.phantom_env:
+
+        # Auth dimension: select phantom env vars by credential type
+        is_oauth = credential_types[name] == "oauth"
+        token_vars = route.oauth_phantom_env if (is_oauth and route.oauth_phantom_env) else route.phantom_env
+        for env_var in token_vars:
             env[env_var] = tokens[name]
-        if route.base_url_env:
+
+        # Transport dimension: Unix socket or HTTP base URL
+        if use_socket and route.socket_path and route.socket_env:
+            env[route.socket_env] = route.socket_path
+        elif route.base_url_env:
             env[route.base_url_env] = proxy_base
+
         # Override OpenCode base URL for proxied providers (the original
         # value from collect_opencode_provider_env points to the real upstream;
         # this override redirects through the proxy instead)
