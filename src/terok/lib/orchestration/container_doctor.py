@@ -31,6 +31,8 @@ from .tasks import container_name, load_task_meta, tasks_meta_dir
 _CheckResult = tuple[str, str, str]
 
 _SHIELD_STATE_FILENAME = "shield_desired_state"
+_CONTAINER_WORKSPACE = "/workspace"  # nosec B108 — standard workspace mount point
+_SHIELD_STATE_LABEL = "Shield state"
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +86,9 @@ def _git_identity_check(
     return DoctorCheck(
         category="git",
         label=f"Git {git_key}",
-        probe_cmd=["git", "-C", "/workspace", "config", git_key],
+        probe_cmd=["git", "-C", _CONTAINER_WORKSPACE, "config", git_key],
         evaluate=_eval,
-        fix_cmd=["git", "-C", "/workspace", "config", git_key, fix_value],
+        fix_cmd=["git", "-C", _CONTAINER_WORKSPACE, "config", git_key, fix_value],
         fix_description=f"Set git {git_key} to {fix_value!r}.",
     )
 
@@ -120,14 +122,13 @@ def _git_remote_check(security_class: str, gate_port: int | None) -> DoctorCheck
     return DoctorCheck(
         category="git",
         label="Git remote URL",
-        probe_cmd=["git", "-C", "/workspace", "remote", "get-url", "origin"],
+        probe_cmd=["git", "-C", _CONTAINER_WORKSPACE, "remote", "get-url", "origin"],
         evaluate=_eval,
     )
 
 
 def _terok_doctor_checks(
     project_id: str,
-    task_id: str,
 ) -> list[DoctorCheck]:
     """Build terok-level health checks from project config."""
     project = load_project(project_id)
@@ -169,18 +170,73 @@ def _check_shield_state(task_dir: Path, cname: str) -> _CheckResult | None:
     """Run the host-side shield state check."""
     desired = _read_desired_shield_state(task_dir)
     if desired is None:
-        return ("ok", "Shield state", "no desired state — not managed")
+        return ("ok", _SHIELD_STATE_LABEL, "no desired state — not managed")
 
     try:
         shield = make_shield(task_dir)
         actual_status = shield.status(cname)
         actual = "up" if actual_status.get("active", False) else "down"
     except Exception as exc:  # noqa: BLE001
-        return ("warn", "Shield state", f"status check failed: {exc}")
+        return ("warn", _SHIELD_STATE_LABEL, f"status check failed: {exc}")
 
     if actual == desired or (desired == "down_all" and actual == "down"):
-        return ("ok", "Shield state", f"matches desired ({desired})")
-    return ("warn", "Shield state", f"mismatch: actual={actual!r}, desired={desired!r}")
+        return ("ok", _SHIELD_STATE_LABEL, f"matches desired ({desired})")
+    return ("warn", _SHIELD_STATE_LABEL, f"mismatch: actual={actual!r}, desired={desired!r}")
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator helpers
+# ---------------------------------------------------------------------------
+
+
+def _collect_all_checks(
+    project_id: str,
+    task_dir: Path,
+) -> list[DoctorCheck]:
+    """Gather health checks from sandbox, agent, and terok layers."""
+    cfg = make_sandbox_config()
+    proxy_port = get_proxy_port(cfg)
+    ssh_agent_port = get_ssh_agent_port(cfg)
+    desired_shield = _read_desired_shield_state(task_dir)
+
+    checks: list[DoctorCheck] = []
+    checks.extend(
+        sandbox_doctor_checks(
+            proxy_port=proxy_port,
+            ssh_agent_port=ssh_agent_port,
+            desired_shield_state=desired_shield,
+        )
+    )
+    checks.extend(agent_doctor_checks(get_roster(), proxy_port=proxy_port))
+    checks.extend(_terok_doctor_checks(project_id))
+    return checks
+
+
+def _run_probe(cname: str, check: DoctorCheck) -> CheckVerdict:
+    """Execute a single probe inside *cname* and evaluate the result."""
+    try:
+        proc = _exec_in_container(cname, check.probe_cmd)
+    except subprocess.TimeoutExpired:
+        return CheckVerdict("warn", f"{check.label}: probe timed out")
+    except OSError as exc:
+        return CheckVerdict("warn", f"{check.label}: exec failed — {exc}")
+
+    try:
+        return check.evaluate(proc.returncode, proc.stdout, proc.stderr)
+    except Exception as exc:  # noqa: BLE001
+        return CheckVerdict("warn", f"{check.label}: evaluate failed — {exc}")
+
+
+def _apply_fix(cname: str, check: DoctorCheck) -> _CheckResult:
+    """Attempt to apply a fix command and return the result tuple."""
+    _log_debug(f"container_doctor: fixing {check.label}")
+    try:
+        fix_proc = _exec_in_container(cname, check.fix_cmd)  # type: ignore[arg-type]
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return ("warn", f"  fix: {check.label}", f"fix failed: {exc}")
+    if fix_proc.returncode == 0:
+        return ("ok", f"  fix: {check.label}", check.fix_description)
+    return ("warn", f"  fix: {check.label}", f"fix failed (rc={fix_proc.returncode})")
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +257,6 @@ def run_container_doctor(
 
     Returns a list of ``(severity, label, detail)`` tuples for display.
     """
-    # Load task metadata
     meta_dir = tasks_meta_dir(project_id)
     meta_path = meta_dir / f"{task_id}.yml"
     if not meta_path.is_file():
@@ -217,36 +272,13 @@ def run_container_doctor(
     if state != "running":
         return [("info", f"Task {project_id}/{task_id}", f"not running ({state}) — skipped")]
 
-    # Collect checks from all layers
-    cfg = make_sandbox_config()
-    proxy_port = get_proxy_port(cfg)
-    ssh_agent_port = get_ssh_agent_port(cfg)
-
     project = load_project(project_id)
     task_dir = project.tasks_root / str(task_id)
-    desired_shield = _read_desired_shield_state(task_dir)
-
-    all_checks: list[DoctorCheck] = []
-    all_checks.extend(
-        sandbox_doctor_checks(
-            proxy_port=proxy_port,
-            ssh_agent_port=ssh_agent_port,
-            desired_shield_state=desired_shield,
-        )
-    )
-    all_checks.extend(
-        agent_doctor_checks(
-            get_roster(),
-            proxy_port=proxy_port,
-        )
-    )
-    all_checks.extend(_terok_doctor_checks(project_id, task_id))
+    all_checks = _collect_all_checks(project_id, task_dir)
 
     results: list[_CheckResult] = []
-
     for check in all_checks:
-        # Host-side checks require custom handling because they need host
-        # Python APIs (e.g. shield) rather than podman exec.
+        # Host-side checks need host Python APIs, not podman exec
         if check.host_side:
             if check.category == "shield":
                 shield_result = _check_shield_state(task_dir, cname)
@@ -256,33 +288,10 @@ def run_container_doctor(
                 results.append(("warn", check.label, "unknown host-side check — skipped"))
             continue
 
-        # Execute probe inside container
-        try:
-            proc = _exec_in_container(cname, check.probe_cmd)
-        except subprocess.TimeoutExpired:
-            verdict = CheckVerdict("warn", f"{check.label}: probe timed out")
-        except (FileNotFoundError, OSError) as exc:
-            verdict = CheckVerdict("warn", f"{check.label}: exec failed — {exc}")
-        else:
-            try:
-                verdict = check.evaluate(proc.returncode, proc.stdout, proc.stderr)
-            except Exception as exc:  # noqa: BLE001
-                verdict = CheckVerdict("warn", f"{check.label}: evaluate failed — {exc}")
-
+        verdict = _run_probe(cname, check)
         results.append((verdict.severity, check.label, verdict.detail))
 
-        # Apply fix if requested and available
         if fix and verdict.fixable and check.fix_cmd:
-            _log_debug(f"container_doctor: fixing {check.label}")
-            try:
-                fix_proc = _exec_in_container(cname, check.fix_cmd)
-                if fix_proc.returncode == 0:
-                    results.append(("ok", f"  fix: {check.label}", check.fix_description))
-                else:
-                    results.append(
-                        ("warn", f"  fix: {check.label}", f"fix failed (rc={fix_proc.returncode})")
-                    )
-            except (subprocess.TimeoutExpired, OSError) as exc:
-                results.append(("warn", f"  fix: {check.label}", f"fix failed: {exc}"))
+            results.append(_apply_fix(cname, check))
 
     return results
