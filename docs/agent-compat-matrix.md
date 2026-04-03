@@ -14,7 +14,7 @@ local LLM via OpenCode; Tier-3: Copilot.
 
 | Agent | CLI flag | Env var | Config file | ACP adapter | terok uses (per-task) |
 |-------|----------|---------|-------------|-------------|----------------------|
-| Claude | `--dangerously-skip-permissions` | — | `permissions.defaultMode: bypassPermissions` in settings.json | `claude-code-acp` (npm) | `/etc/claude-code/managed-settings.json` |
+| Claude | `--dangerously-skip-permissions` | — | `permissions.defaultMode: bypassPermissions` in settings.json | `claude-agent-acp` (npm) | `/etc/claude-code/managed-settings.json` |
 | Vibe | `--agent auto-approve` | `VIBE_AUTO_APPROVE=true` | `auto_approve = true` in TOML | `vibe-acp` (bundled) | `VIBE_AUTO_APPROVE` env var |
 | Blablador | (inherits OpenCode) | `OPENCODE_PERMISSION='{"*":"allow"}'` | `"permission": {"*":"allow"}` in opencode.json | needs wrapper (#410) | `OPENCODE_PERMISSION` env var |
 | OpenCode | — | `OPENCODE_PERMISSION='{"*":"allow"}'` | `"permission": {"*":"allow"}` in opencode.json | `opencode acp` (native) | `OPENCODE_PERMISSION` env var |
