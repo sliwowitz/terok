@@ -273,7 +273,9 @@ def _find_containers_conf() -> Path | None:
     env = os.environ.get("CONTAINERS_CONF")
     if env:
         p = Path(env)
-        return p if p.is_file() else None
+        if p.is_file():
+            return p
+        # Invalid env var — fall through to standard paths
     return next((p for p in _CONTAINERS_CONF_PATHS if p.is_file()), None)
 
 
@@ -291,7 +293,10 @@ def _check_keyring() -> _CheckResult:
         data = tomllib.loads(conf.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         return ("warn", label, f"cannot parse {conf} — {exc}")
-    keyring = data.get("containers", {}).get("keyring", True)
+    containers_section = data.get("containers")
+    keyring = (
+        containers_section.get("keyring", True) if isinstance(containers_section, dict) else True
+    )
     if keyring is False:
         return ("ok", label, f"disabled in {conf}")
     return (

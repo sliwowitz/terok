@@ -4,7 +4,7 @@
 
 After starting and stopping many containers, `podman run` fails with:
 
-```
+```text
 crun: create keyring `<container>`: Disk quota exceeded: OCI runtime error
 ```
 

@@ -16,6 +16,7 @@ from terok.cli.commands.sickbay import (
     _check_keyring,
     _check_shield,
     _cmd_sickbay,
+    _find_containers_conf,
 )
 from tests.testfs import MOCK_BASE
 from tests.testgate import OUTDATED_UNITS_MESSAGE, make_gate_server_status
@@ -340,3 +341,43 @@ class TestCheckKeyring:
             sev, _, detail = _check_keyring()
         assert sev == "warn"
         assert "cannot parse" in detail
+
+    def test_non_dict_containers_section(self, tmp_path: Path) -> None:
+        """Non-table [containers] value → warn (treated as keyring enabled)."""
+        conf = tmp_path / "containers.conf"
+        conf.write_text('containers = "not a table"\n')
+        with patch("terok.cli.commands.sickbay._find_containers_conf", return_value=conf):
+            sev, _, detail = _check_keyring()
+        assert sev == "warn"
+        assert "not disabled" in detail
+
+
+class TestFindContainersConf:
+    """Verify _find_containers_conf lookup logic."""
+
+    def test_env_var_valid(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """$CONTAINERS_CONF pointing to a real file → returns that path."""
+        conf = tmp_path / "custom.conf"
+        conf.write_text("[containers]\n")
+        monkeypatch.setenv("CONTAINERS_CONF", str(conf))
+        assert _find_containers_conf() == conf
+
+    def test_env_var_missing_falls_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """$CONTAINERS_CONF pointing to non-existent file → falls back to standard paths."""
+        monkeypatch.setenv("CONTAINERS_CONF", str(tmp_path / "ghost.conf"))
+        fallback = tmp_path / "containers.conf"
+        fallback.write_text("[containers]\nkeyring = false\n")
+        with patch("terok.cli.commands.sickbay._CONTAINERS_CONF_PATHS", (fallback,)):
+            result = _find_containers_conf()
+        assert result == fallback
+
+    def test_no_env_no_files(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """No env var, no standard files → None."""
+        monkeypatch.delenv("CONTAINERS_CONF", raising=False)
+        with patch(
+            "terok.cli.commands.sickbay._CONTAINERS_CONF_PATHS",
+            (tmp_path / "missing1.conf", tmp_path / "missing2.conf"),
+        ):
+            assert _find_containers_conf() is None
