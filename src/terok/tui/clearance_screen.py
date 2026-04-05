@@ -147,7 +147,7 @@ class ClearanceScreen(screen.Screen[None]):
         pending = ListView(id="pending-list")
         pending.border_title = "Pending (0)"
         yield pending
-        yield RichLog(auto_scroll=True, id="event-log")
+        yield RichLog(auto_scroll=True, max_lines=1000, id="event-log")
         yield Static(
             " \\[a] Allow  \\[x] Deny  \\[Esc/q] Back",
             id="clearance-footer",
@@ -195,7 +195,7 @@ class ClearanceScreen(screen.Screen[None]):
             # New blocked connection — add to pending
             req = _PendingRequest(nid=message.nid, summary=message.summary, body=message.body)
             self._pending[message.nid] = req
-            label = Static(f"[{message.nid}]  {message.summary}  {message.body}")
+            label = Static(f"[{message.nid}]  {message.summary}  {message.body}", markup=False)
             item = ListItem(label)
             item.clearance_nid = message.nid  # type: ignore[attr-defined]
             pending_list.append(item)
@@ -262,7 +262,7 @@ class ClearanceApp(App):
 
     def on_mount(self) -> None:
         """Push the clearance screen on startup."""
-        self.push_screen(ClearanceScreen())
+        self.push_screen(ClearanceScreen(), callback=lambda _: self.exit())
 
 
 def main() -> None:
