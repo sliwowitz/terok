@@ -350,7 +350,12 @@ release_repo() {
     local deps_str="${DEPS[$repo]}"
     if [[ -n "$deps_str" ]]; then
         for dep in $deps_str; do
-            log "Dep update: ${dep} -> v${RELEASED_VERSIONS[$dep]:-$(upstream_version "$dep")}"
+            local dep_ver="${RELEASED_VERSIONS[$dep]:-}"
+            if [[ -n "$dep_ver" ]]; then
+                log "Dep update: ${dep} -> v${dep_ver}"
+            else
+                log "Dep unchanged: ${dep}"
+            fi
         done
     fi
 
@@ -365,14 +370,16 @@ release_repo() {
     push_and_create_pr "$repo_dir" "$gh_repo" "$branch" "chore: release ${title}" \
         "Automated release bump to v${new_version}."
 
+    local merged_sha=""
     if [[ -n "$PR_URL" ]]; then
         wait_for_checks "$PR_URL" "$gh_repo"
         log "Merging PR..."
         gh pr merge "$PR_URL" --squash --delete-branch --admin
-        success "PR merged."
+        merged_sha=$(gh pr view "$PR_URL" --repo "$gh_repo" --json mergeCommit --jq '.mergeCommit.oid')
+        success "PR merged (${merged_sha:0:12})."
     fi
 
-    tag_and_release "$repo_dir" "$gh_repo" "$tag" "$title"
+    tag_and_release "$repo_dir" "$gh_repo" "$tag" "$title" "$merged_sha"
     wait_for_wheel "$repo" "$new_version"
 
     success "${repo} v${new_version} released!"
@@ -429,7 +436,10 @@ update_sibling_deps() {
     [[ -n "$deps_str" ]] || return 0
     for dep in $deps_str; do
         local dep_ver="${RELEASED_VERSIONS[$dep]:-}"
-        [[ -n "$dep_ver" ]] || die "No released version recorded for ${dep}"
+        if [[ -z "$dep_ver" ]]; then
+            log "Skipping ${dep} (not released in this run)"
+            continue
+        fi
         update_dep_url "$repo_dir" "$dep" "$dep_ver"
     done
 }
@@ -463,10 +473,14 @@ push_and_create_pr() {
 }
 
 tag_and_release() {
-    local repo_dir="$1" gh_repo="$2" tag="$3" title="$4"
-    log "Tagging ${tag} on upstream/master..."
-    run git -C "$repo_dir" fetch upstream
-    run git -C "$repo_dir" tag -f "$tag" upstream/master
+    local repo_dir="$1" gh_repo="$2" tag="$3" title="$4" target="${5:-}"
+    if [[ -z "$target" ]]; then
+        # Fallback for pretend mode — no merge SHA available
+        run git -C "$repo_dir" fetch upstream
+        target="upstream/master"
+    fi
+    log "Tagging ${tag} on ${target:0:12}..."
+    run git -C "$repo_dir" tag -f "$tag" "$target"
     run git -C "$repo_dir" push upstream "$tag"
     log "Creating GitHub release..."
     run gh release create "$tag" \
@@ -520,10 +534,22 @@ wait_for_checks() {
     log "Waiting for PR checks (timeout ${CHECK_TIMEOUT}s)..."
     local elapsed=0 timeout="$CHECK_TIMEOUT" grace=30 poll=2 registered=false
     while (( elapsed < timeout )); do
-        local json
-        json=$(gh pr checks "$pr_url" --repo "$gh_repo" --json name,bucket 2>/dev/null || echo "[]")
+        local json="" gh_exit=0
+        json=$(gh pr checks "$pr_url" --repo "$gh_repo" --json name,bucket 2>/dev/null) \
+            && gh_exit=0 || gh_exit=$?
 
-        if [[ "$json" == "[]" ]]; then
+        # exit 0 = all passed, exit 8 = pending — both have valid JSON output
+        # Any other non-zero exit with empty output is an API/network error
+        if (( gh_exit != 0 && gh_exit != 8 )) && [[ -z "$json" ]]; then
+            if (( elapsed < grace )); then
+                sleep "$poll"
+                elapsed=$((elapsed + poll))
+                continue
+            fi
+            die "gh pr checks failed (exit ${gh_exit}) — check network/auth"
+        fi
+
+        if [[ "$json" == "[]" || -z "$json" ]]; then
             if (( elapsed < grace )); then
                 printf "  ... waiting for checks to register (%ds)\r" "$elapsed"
                 sleep "$poll"
