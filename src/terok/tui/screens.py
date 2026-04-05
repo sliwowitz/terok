@@ -1504,6 +1504,7 @@ class TaskDetailsScreen(screen.Screen[str | None]):
                 Option("shield \\[i]nteractive (verdict handler)", id="shield_interactive")
             )
             options.append(Option("shield \\[W]atch (event stream)", id="shield_watch"))
+            options.append(Option("shield \\[C]learance (live D-Bus)", id="show_clearance"))
 
         yield OptionList(*options, id="actions-list")
 
@@ -1543,9 +1544,10 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             "X": "delete",
             "D": "shield_down_all",
             "W": "shield_watch",
+            "C": "show_clearance",
         }
         if key in shift_map:
-            if key in ("H", "P", "X", "D", "W") and not self._has_tasks:
+            if key in ("H", "P", "X", "D", "W", "C") and not self._has_tasks:
                 return
             self.dismiss(shift_map[key])
             event.stop()

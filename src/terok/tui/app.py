@@ -162,6 +162,7 @@ if _HAS_TEXTUAL:
         "shield_up": "_action_shield_up",
         "shield_interactive": "_action_shield_interactive",
         "shield_watch": "_action_shield_watch",
+        "show_clearance": "action_show_clearance",
     }
 
     class TerokTUI(PollingMixin, ProjectActionsMixin, TaskActionsMixin, App):
@@ -1024,6 +1025,11 @@ if _HAS_TEXTUAL:
                 "Manage credential proxy status and operations",
                 self.action_show_proxy,
             )
+            yield SystemCommand(
+                "Shield Clearance (live)",
+                "Monitor blocked connections and send verdicts via D-Bus",
+                self.action_show_clearance,
+            )
 
         async def action_show_gate_server(self) -> None:
             """Open the gate server management screen."""
@@ -1073,6 +1079,16 @@ if _HAS_TEXTUAL:
             handler = PROXY_ACTION_HANDLERS.get(result)
             if handler:
                 await getattr(self, handler)()
+
+        async def action_show_clearance(self) -> None:
+            """Open the live clearance screen for D-Bus shield notifications."""
+            from .clearance_screen import ClearanceScreen
+
+            await self.push_screen(ClearanceScreen())
+
+        async def action_show_clearance_from_main(self) -> None:
+            """Open the clearance screen from the main screen."""
+            await self.action_show_clearance()
 
     def _launch_in_tmux() -> None:
         """Launch the TUI inside a managed tmux session.
