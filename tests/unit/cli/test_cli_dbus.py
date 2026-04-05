@@ -6,9 +6,10 @@
 from __future__ import annotations
 
 import argparse
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+from terok_dbus._registry import CommandDef
 
 from terok.cli.commands.dbus import dispatch, register
 
@@ -67,29 +68,47 @@ def test_dispatch_returns_false_for_non_dbus_commands() -> None:
     assert not dispatch(argparse.Namespace(cmd="project"))
 
 
-@patch("terok.cli.commands.dbus.asyncio.run")
-def test_dispatch_notify(mock_run: MagicMock) -> None:
+def _real_args(name: str) -> tuple:
+    """Return the ArgDef tuple for a real COMMANDS entry by name."""
+    from terok_dbus._registry import COMMANDS as REAL_COMMANDS
+
+    return next(c.args for c in REAL_COMMANDS if c.name == name)
+
+
+def test_dispatch_notify() -> None:
     """``dbus notify`` dispatches to the notify handler with correct kwargs."""
+    calls: list[dict] = []
+
+    async def stub_notify(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    stub_commands = (
+        CommandDef(name="notify", handler=stub_notify, args=_real_args("notify")),
+        CommandDef(name="subscribe", handler=None),
+    )
     args = argparse.Namespace(
         cmd="dbus", dbus_cmd="notify", summary="Test", body="Body", timeout=5000
     )
-    assert dispatch(args)
-    mock_run.assert_called_once()
-    coro = mock_run.call_args[0][0]
-    # Coroutine was created from the notify handler
-    assert coro.cr_code.co_qualname == "_handle_notify"
-    coro.close()
+    with patch("terok.cli.commands.dbus.COMMANDS", stub_commands):
+        assert dispatch(args)
+    assert calls == [{"summary": "Test", "body": "Body", "timeout": 5000}]
 
 
-@patch("terok.cli.commands.dbus.asyncio.run")
-def test_dispatch_subscribe(mock_run: MagicMock) -> None:
+def test_dispatch_subscribe() -> None:
     """``dbus subscribe`` dispatches to the subscribe handler."""
+    calls: list[dict] = []
+
+    async def stub_subscribe(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    stub_commands = (
+        CommandDef(name="notify", handler=None),
+        CommandDef(name="subscribe", handler=stub_subscribe, args=_real_args("subscribe")),
+    )
     args = argparse.Namespace(cmd="dbus", dbus_cmd="subscribe")
-    assert dispatch(args)
-    mock_run.assert_called_once()
-    coro = mock_run.call_args[0][0]
-    assert coro.cr_code.co_qualname == "_handle_subscribe"
-    coro.close()
+    with patch("terok.cli.commands.dbus.COMMANDS", stub_commands):
+        assert dispatch(args)
+    assert calls == [{}]
 
 
 def test_dispatch_unknown_subcommand_returns_false() -> None:

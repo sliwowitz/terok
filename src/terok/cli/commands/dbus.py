@@ -56,7 +56,7 @@ def dispatch(args: argparse.Namespace) -> bool:
     # Build kwargs from ArgDef definitions
     kwargs: dict = {}
     for arg in cmd_def.args:
-        key = arg.dest or arg.name.lstrip("-").replace("-", "_")
+        key = arg.dest or arg.name.split("/")[-1].lstrip("-").replace("-", "_")
         if hasattr(args, key):
             kwargs[key] = getattr(args, key)
 
