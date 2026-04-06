@@ -106,46 +106,44 @@ run() {
 # before how it works — the Reading Flow's layer 4 at file scope.
 
 usage() {
-    cat <<'USAGE'
-Usage: terok-release-chain [options] <start-repo> [<end-repo>]
+    printf '%b\n' "$(cat <<USAGE
+${BOLD}Usage:${RESET} terok-release-chain [options] <start-repo> [<end-repo>]
 
-Releases packages bottom-up through the dependency chain.
-When end-repo is specified, packages from start through end-1 are fully
-released; end-repo gets its deps bumped with a PR opened for review.
+  Releases packages bottom-up through the dependency chain.
+  When end-repo is given, packages from start through end-1 are fully
+  released; end-repo gets a deps-only PR opened for review.
 
-Uses a dedicated clone cache (~/.cache/terok-release/) — never touches
-your dev working trees.
+  Uses a dedicated clone cache — never touches your dev working trees.
 
-Arguments:
-  start-repo    Lowest repo to release: dbus | shield | sandbox | agent | terok
-  end-repo      Stop here with deps-only PR (not merged, not released)
+${BOLD}Arguments:${RESET}
+  ${CYAN}start-repo${RESET}              First repo to release (dbus|shield|sandbox|agent)
+  ${CYAN}end-repo${RESET}                Stop here with deps-only PR (not released)
 
-Options:
-  --version-step <level>  Semver segment to increment: major, minor, or patch
-                          (default: patch). Applies to the leaf repo only unless
-                          --version-step-uniform is also set.
-  --version-step-uniform  Apply the version step to every repo in the chain,
-                          not just the leaf.
-  -n, --name <name>       Release name suffix (prompted interactively if omitted)
-  -y, --yes               Auto-approve normal confirmations (per-repo proceed, start chain)
-  -Y, --yes-all           Auto-approve everything, including risky actions (CI failures)
-  --check-timeout <secs>  Timeout for waiting on PR checks (default: 1800)
-  --skip-checks           Merge PRs immediately without waiting for CI
-  -p, --pretend           Show what would happen without making changes
-  -h, --help              Show this help
+${BOLD}Options:${RESET}
+  ${GREEN}--version-step${RESET} LEVEL    Semver segment: major | minor | patch (default: patch)
+                          Applies to leaf repo only; combine with
+                          ${GREEN}--version-step-uniform${RESET} for all repos.
+  ${GREEN}-n, --name${RESET} NAME         Release name suffix (prompted if omitted)
+  ${GREEN}-y, --yes${RESET}               Auto-approve normal confirmations
+  ${GREEN}-Y, --yes-all${RESET}           Auto-approve everything incl. risky actions
+  ${GREEN}--check-timeout${RESET} SECS    PR check timeout (default: 1800)
+  ${GREEN}--skip-checks${RESET}           Merge PRs without waiting for CI
+  ${GREEN}-p, --pretend${RESET}           Dry run — show what would happen
+  ${GREEN}-h, --help${RESET}              Show this help
 
-Environment:
-  TEROK_RELEASE_DIR  Clone cache directory (default: ~/.cache/terok-release)
-  TEROK_GH_ORG       GitHub org for upstream (default: terok-ai)
-  TEROK_GH_FORK      GitHub fork owner (default: sliwowitz)
+${BOLD}Environment:${RESET}
+  ${YELLOW}TEROK_RELEASE_DIR${RESET}       Clone cache dir (~/.cache/terok-release)
+  ${YELLOW}TEROK_GH_ORG${RESET}            Upstream GitHub org (terok-ai)
+  ${YELLOW}TEROK_GH_FORK${RESET}           Fork owner (sliwowitz)
 
-Examples:
-  terok-release-chain dbus                                       # patch all
-  terok-release-chain dbus terok                                 # release dbus..agent, deps-only PR on terok
-  terok-release-chain --version-step minor dbus                  # minor dbus, patch rest
-  terok-release-chain --version-step minor --version-step-uniform dbus  # minor everything
-  terok-release-chain -n "COMMANDS registry" dbus terok -p
+${BOLD}Examples:${RESET}
+  terok-release-chain dbus              ${CYAN}# patch-release entire chain${RESET}
+  terok-release-chain dbus terok        ${CYAN}# release dbus..agent, PR on terok${RESET}
+  terok-release-chain --version-step minor dbus
+                                        ${CYAN}# minor bump on dbus, patch rest${RESET}
+  terok-release-chain -n "Refurbished Comms" dbus terok -p
 USAGE
+)"
     exit 1
 }
 
