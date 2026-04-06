@@ -925,6 +925,7 @@ if _HAS_TEXTUAL:
                 panic_result = worker.result
                 if not panic_result:
                     return
+                self._last_panic_result = panic_result
                 report = format_panic_report(panic_result)
                 severity = "error" if panic_result.has_errors else "warning"
                 self.notify(report, severity=severity, timeout=30)
@@ -1001,7 +1002,13 @@ if _HAS_TEXTUAL:
         async def _on_panic_stop_confirmed(self, confirmed: bool) -> None:
             """Handle the container-stop confirmation after panic lockdown."""
             if not confirmed:
-                self.notify("Containers left running (shields are up)")
+                pr = getattr(self, "_last_panic_result", None)
+                if pr and pr.shield_bypassed:
+                    self.notify("Containers left running (shields BYPASSED — no firewall)")
+                elif pr and pr.shield_errors:
+                    self.notify("Containers left running (some shields failed)")
+                else:
+                    self.notify("Containers left running (shields are up)")
                 return
             from ..lib.domain.panic import panic_stop_containers
 

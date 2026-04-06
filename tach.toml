@@ -566,7 +566,7 @@ expose = ["list_images", "find_orphaned_images", "cleanup_images", "ImageInfo", 
 from = ["terok.lib.domain.image_cleanup"]
 
 [[interfaces]]
-expose = ["PanicResult", "ContainerInfo", "execute_panic", "discover_running_containers", "panic_stop_containers", "is_panicked", "clear_panic_lock", "format_panic_report"]
+expose = ["PanicResult", "execute_panic", "panic_stop_containers", "is_panicked", "clear_panic_lock", "format_panic_report"]
 from = ["terok.lib.domain.panic"]
 
 [[interfaces]]

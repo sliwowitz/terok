@@ -67,7 +67,6 @@ class PanicResult:
 def execute_panic(
     *,
     stop_containers: bool = False,
-    timeout: int = 10,
 ) -> PanicResult:
     """Execute the full panic sequence.
 
@@ -80,34 +79,7 @@ def execute_panic(
     result.total_running = len(targets)
     result.shield_bypassed = get_shield_bypass_firewall_no_protection()
 
-    # Phase 1: parallel lockdown
-    with ThreadPoolExecutor(max_workers=max(len(targets) + 2, 4)) as pool:
-        futs = {}
-
-        if not result.shield_bypassed:
-            for t in targets:
-                futs[pool.submit(_raise_shield, t)] = ("shield", t[3])
-
-        futs[pool.submit(_stop_proxy)] = ("proxy", "")
-        futs[pool.submit(_stop_gate)] = ("gate", "")
-
-        for fut in as_completed(futs):
-            kind, label = futs[fut]
-            try:
-                res = fut.result(timeout=60)
-            except Exception as exc:
-                res = (label or False, str(exc))
-
-            if kind == "shield":
-                cname, err = res
-                (result.shield_errors if err else result.shields_raised).append(
-                    (cname, err) if err else cname
-                )
-            elif kind == "proxy":
-                result.proxy_stopped, result.proxy_error = res
-            else:
-                result.gate_stopped, result.gate_error = res
-
+    _phase1_lockdown(result, targets)
     _write_panic_lock()
 
     # Phase 2: optional container stop
@@ -129,40 +101,23 @@ def is_panicked() -> bool:
 
 def clear_panic_lock() -> None:
     """Remove the panic lock file if it exists."""
-    path = state_root() / _LOCK_FILENAME
-    if path.is_file():
-        path.unlink()
+    (state_root() / _LOCK_FILENAME).unlink(missing_ok=True)
 
 
 def format_panic_report(result: PanicResult) -> str:
     """Format a human-readable summary of the panic result."""
-    lines = [f"Containers found: {result.total_running}"]
-
-    if result.shield_bypassed:
-        lines.append("Shields: BYPASSED (firewall protection disabled)")
-    else:
-        s = f"Shields raised: {len(result.shields_raised)}"
-        if result.shield_errors:
-            s += f" ({len(result.shield_errors)} failed)"
-        lines.append(s)
-
-    lines.append(f"Proxy: {'stopped' if result.proxy_stopped else 'FAILED'}")
-    lines.append(f"Gate:  {'stopped' if result.gate_stopped else 'FAILED'}")
+    lines = [
+        f"Containers found: {result.total_running}",
+        _format_shield_status(result),
+        f"Proxy: {'stopped' if result.proxy_stopped else 'FAILED'}",
+        f"Gate:  {'stopped' if result.gate_stopped else 'FAILED'}",
+    ]
 
     if result.containers_stopped:
         lines.append(f"Containers stopped: {len(result.containers_stopped)}")
 
     if result.has_errors:
-        lines.append("")
-        lines.append("Errors:")
-        for cname, err in result.shield_errors:
-            lines.append(f"  shield {cname}: {err}")
-        if result.proxy_error:
-            lines.append(f"  proxy: {result.proxy_error}")
-        if result.gate_error:
-            lines.append(f"  gate: {result.gate_error}")
-        for cname, err in result.container_stop_errors:
-            lines.append(f"  stop {cname}: {err}")
+        lines += ["", "Errors:", *_format_errors(result)]
 
     return "\n".join(lines)
 
@@ -172,18 +127,74 @@ def format_panic_report(result: PanicResult) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _phase1_lockdown(result: PanicResult, targets: list[_Target]) -> None:
+    """Run Phase 1: shields + proxy/gate stop in parallel."""
+    with ThreadPoolExecutor(max_workers=max(len(targets) + 2, 4)) as pool:
+        futs: dict = {}
+
+        if not result.shield_bypassed:
+            for t in targets:
+                futs[pool.submit(_raise_shield, t)] = ("shield", t[3])
+
+        futs[pool.submit(_stop_proxy)] = ("proxy", "")
+        futs[pool.submit(_stop_gate)] = ("gate", "")
+
+        for fut in as_completed(futs):
+            kind, label = futs[fut]
+            _collect_phase1_result(result, kind, label, fut)
+
+
+def _collect_phase1_result(result: PanicResult, kind: str, label: str, fut) -> None:
+    """Collect a single Phase 1 future result into the PanicResult."""
+    try:
+        res = fut.result(timeout=60)
+    except Exception as exc:
+        res = (label or False, str(exc))
+
+    if kind == "shield":
+        cname, err = res
+        (result.shield_errors if err else result.shields_raised).append(
+            (cname, err) if err else cname
+        )
+    elif kind == "proxy":
+        result.proxy_stopped, result.proxy_error = res
+    else:
+        result.gate_stopped, result.gate_error = res
+
+
+def _format_shield_status(result: PanicResult) -> str:
+    """Format the shield status line for the panic report."""
+    if result.shield_bypassed:
+        return "Shields: BYPASSED (firewall protection disabled)"
+    s = f"Shields raised: {len(result.shields_raised)}"
+    if result.shield_errors:
+        s += f" ({len(result.shield_errors)} failed)"
+    return s
+
+
+def _format_errors(result: PanicResult) -> list[str]:
+    """Collect all error lines for the panic report."""
+    lines = [f"  shield {cname}: {err}" for cname, err in result.shield_errors]
+    if result.proxy_error:
+        lines.append(f"  proxy: {result.proxy_error}")
+    if result.gate_error:
+        lines.append(f"  gate: {result.gate_error}")
+    lines += [f"  stop {cname}: {err}" for cname, err in result.container_stop_errors]
+    return lines
+
+
 def _discover_targets() -> list[_Target]:
     """Find every running or paused container across all projects."""
     targets: list[_Target] = []
     for cfg in list_projects():
         try:
             tasks = get_tasks(cfg.id)
+            if not tasks:
+                continue
+            states = get_all_task_states(cfg.id, tasks)
         except Exception:
             logger.debug("panic: failed to list tasks for %s", cfg.id, exc_info=True)
             continue
-        if not tasks:
-            continue
-        states = get_all_task_states(cfg.id, tasks)
         targets.extend(
             (
                 cfg.id,

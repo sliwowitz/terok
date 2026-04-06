@@ -42,12 +42,6 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         action="store_true",
         help="Clear panic state",
     )
-    p.add_argument(
-        "--timeout",
-        type=int,
-        default=10,
-        help="Seconds to wait per container stop (default: 10)",
-    )
 
 
 def dispatch(args: argparse.Namespace) -> bool:
@@ -58,10 +52,7 @@ def dispatch(args: argparse.Namespace) -> bool:
     if getattr(args, "clear", False):
         _cmd_clear()
     else:
-        _cmd_panic(
-            stop=getattr(args, "stop", False),
-            timeout=getattr(args, "timeout", 10),
-        )
+        _cmd_panic(stop=getattr(args, "stop", False))
     return True
 
 
@@ -71,26 +62,17 @@ def _cmd_clear() -> None:
         clear_panic_lock()
         print("Panic state cleared.")
         print("Note: shields are still raised and services remain stopped.")
-        print("Restart services manually: terok gate start / credential-proxy start")
+        print("Restart services manually: terok gate start / terok credential-proxy start")
     else:
         print("No panic state to clear.")
 
 
-def _progress(message: str) -> None:
-    """Print a progress message to stderr."""
-    print(f"  {message}", file=sys.stderr)
-
-
-def _cmd_panic(*, stop: bool, timeout: int) -> None:
+def _cmd_panic(*, stop: bool) -> None:
     """Execute the full panic sequence."""
     print("PANIC — cutting all resource access", file=sys.stderr)
     print(file=sys.stderr)
 
-    result = execute_panic(
-        stop_containers=stop,
-        timeout=timeout,
-        on_progress=_progress,
-    )
+    result = execute_panic(stop_containers=stop)
 
     print()
     print(format_panic_report(result))
