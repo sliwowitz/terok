@@ -29,7 +29,7 @@ from cryptography.hazmat.primitives.serialization import (
     PublicFormat,
 )
 from terok_sandbox import CredentialDB
-from terok_sandbox.credential_proxy.ssh_agent import (
+from terok_sandbox.credentials.proxy.ssh_agent import (
     SSH_AGENT_IDENTITIES_ANSWER,
     SSH_AGENT_SIGN_RESPONSE,
     SSH_AGENTC_REQUEST_IDENTITIES,
@@ -238,7 +238,7 @@ class TestStorySSHAgentEnvWiring:
 
         with (
             patch(
-                "terok_sandbox.credential_proxy_lifecycle.is_daemon_running",
+                "terok_sandbox.credentials.lifecycle.is_daemon_running",
                 return_value=True,
             ),
             patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
@@ -276,7 +276,7 @@ class TestStorySSHAgentEnvWiring:
 
         with (
             patch(
-                "terok_sandbox.credential_proxy_lifecycle.is_daemon_running",
+                "terok_sandbox.credentials.lifecycle.is_daemon_running",
                 return_value=True,
             ),
             patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,

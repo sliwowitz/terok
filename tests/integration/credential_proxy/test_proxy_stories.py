@@ -54,7 +54,7 @@ class TestStoryAuthThroughProxy:
     async def test_api_key_auth_to_proxy_forwarding(self, tmp_path: Path) -> None:
         """API key stored → phantom token → proxy → real key in upstream."""
         import aiohttp
-        from terok_sandbox.credential_proxy.server import _build_app
+        from terok_sandbox.credentials.proxy.server import _build_app
 
         # 1. Store credential (simulates terok-agent auth vibe --api-key ...)
         db_path = tmp_path / "proxy" / "credentials.db"
@@ -120,7 +120,7 @@ class TestStoryAuthThroughProxy:
     async def test_oauth_auth_to_proxy_forwarding(self, tmp_path: Path) -> None:
         """OAuth token stored → phantom → proxy → Bearer token in upstream."""
         import aiohttp
-        from terok_sandbox.credential_proxy.server import _build_app
+        from terok_sandbox.credentials.proxy.server import _build_app
 
         # 1. Store OAuth credential
         db_path = tmp_path / "proxy" / "credentials.db"
@@ -187,7 +187,7 @@ class TestStoryTokenRevocation:
     async def test_revoked_phantom_rejected(self, tmp_path: Path) -> None:
         """After revocation, the same phantom token gets 401."""
         import aiohttp
-        from terok_sandbox.credential_proxy.server import _build_app
+        from terok_sandbox.credentials.proxy.server import _build_app
 
         db_path = tmp_path / "proxy" / "credentials.db"
         db = CredentialDB(db_path)
@@ -252,7 +252,7 @@ class TestStoryEnvWiring:
 
         with (
             patch(
-                "terok_sandbox.credential_proxy_lifecycle.is_daemon_running",
+                "terok_sandbox.credentials.lifecycle.is_daemon_running",
                 return_value=True,
             ),
             patch("terok_sandbox.SandboxConfig") as mock_cfg_cls,
