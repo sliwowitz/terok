@@ -514,7 +514,8 @@ push_and_create_pr() {
         --base master \
         --head "${GH_FORK}:${branch}" \
         --title "$title" \
-        --body "$body")
+        --body "$body" \
+        --label "automated-release")
     log "PR created: ${PR_URL}"
 }
 
