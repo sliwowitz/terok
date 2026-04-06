@@ -158,6 +158,16 @@ def _build_project_config(
 
     ssh_host_dir = Path(raw.ssh.host_dir).expanduser().resolve() if raw.ssh.host_dir else None
 
+    match raw.shared_dir:
+        case True:
+            from ..util.host_cmd import SHARED_DIRNAME
+
+            shared_dir: Path | None = tasks_root / SHARED_DIRNAME
+        case str() as s:
+            shared_dir = Path(s).expanduser().resolve()
+        case _:
+            shared_dir = None
+
     agent_cfg = dict(raw.agent)
     _resolve_subagent_files(agent_cfg.get("subagents", []), root)
 
@@ -198,6 +208,7 @@ def _build_project_config(
         docker_base_image=raw.docker.base_image,
         docker_snippet_inline=raw.docker.user_snippet_inline,
         docker_snippet_file=raw.docker.user_snippet_file,
+        shared_dir=shared_dir,
     )
 
 
