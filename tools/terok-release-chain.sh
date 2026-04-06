@@ -56,6 +56,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
@@ -63,6 +64,18 @@ log()     { printf "${CYAN}>>>${RESET} %s\n" "$*"; }
 success() { printf "${GREEN}>>>${RESET} %s\n" "$*"; }
 warn()    { printf "${YELLOW}>>>${RESET} %s\n" "$*" >&2; }
 die()     { printf "${RED}ERROR:${RESET} %s\n" "$*" >&2; exit 1; }
+
+format_elapsed() {
+    local secs="$1"
+    local h=$((secs / 3600)) m=$(((secs % 3600) / 60)) s=$((secs % 60))
+    if ((h > 0)); then
+        printf '%dh %dm %ds' "$h" "$m" "$s"
+    elif ((m > 0)); then
+        printf '%dm %ds' "$m" "$s"
+    else
+        printf '%ds' "$s"
+    fi
+}
 
 # Ask for confirmation.  Normal-flow defaults to Y; risky defaults to N.
 # --yes auto-approves normal, --yes-all auto-approves both.
@@ -159,6 +172,11 @@ USAGE
 # → sync clones → compute versions → preview → execute each repo in turn.
 
 main() {
+    local chain_start_ts
+    chain_start_ts=$(date +%s)
+    printf "\n${MAGENTA}─── ${BOLD}Release chain started${RESET} ${MAGENTA}· %s ──────────────────────${RESET}\n\n" \
+        "$(date '+%a %b %-d %H:%M:%S %Y')"
+
     preflight
     parse_args "$@"
 
@@ -177,7 +195,7 @@ main() {
     ask "Start the release chain?"
 
     execute_chain release_chain versions
-    print_summary release_chain versions
+    print_summary release_chain versions "$chain_start_ts"
 }
 
 # ── Main steps ─────────────────────────────────────────────────────────────
@@ -316,6 +334,7 @@ execute_chain() {
 
 print_summary() {
     local -n _chain=$1 _versions=$2
+    local _start_ts=$3
     local prefix=""
     $DRY_RUN && prefix="${YELLOW}[pretend]${RESET} "
     printf "\n${prefix}${GREEN}${BOLD}All releases complete!${RESET}\n\n"
@@ -328,6 +347,13 @@ print_summary() {
         fi
     done
     printf "\n"
+
+    local end_ts elapsed_str
+    end_ts=$(date +%s)
+    elapsed_str=$(format_elapsed $((end_ts - _start_ts)))
+    printf "${MAGENTA}─── ${BOLD}Release chain finished${RESET} ${MAGENTA}· %s ─────────────────────${RESET}\n" \
+        "$(date '+%a %b %-d %H:%M:%S %Y')"
+    printf "${MAGENTA}    ${BOLD}Elapsed:${RESET} %s\n\n" "$elapsed_str"
 }
 
 # ── Per-repo workflows ─────────────────────────────────────────────────────
