@@ -377,10 +377,20 @@ release_repo() {
     if [[ -n "$PR_URL" ]]; then
         local check_rc=0
         wait_for_checks "$PR_URL" "$gh_repo" || check_rc=$?
+        # Resolve PR state — it may have been merged externally during
+        # the check wait or in the brief gap after it returned.
+        local state
         if (( check_rc == 2 )); then
-            # PR was merged externally — retrieve the merge commit
+            state="MERGED"
+        else
+            state=$(pr_state "$PR_URL" "$gh_repo")
+        fi
+
+        if [[ "$state" == "MERGED" ]]; then
             merged_sha=$(gh pr view "$PR_URL" --repo "$gh_repo" --json mergeCommit --jq '.mergeCommit.oid')
             success "Using external merge (${merged_sha:0:12})."
+        elif [[ "$state" == "CLOSED" ]]; then
+            die "PR was closed without merging — aborting."
         else
             log "Merging PR..."
             gh pr merge "$PR_URL" --squash --delete-branch --admin
