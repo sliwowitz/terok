@@ -48,6 +48,7 @@ VERSION_STEP="patch"
 VERSION_STEP_UNIFORM=false
 CHECK_TIMEOUT=1800
 SKIP_CHECKS=false
+BUMP_DEPS=false
 WHEEL_TIMEOUT=300
 
 # ── Output primitives ─────────────────────────────────────────────────────
@@ -144,6 +145,8 @@ ${BOLD}Options:${RESET}
   ${GREEN}-Y, --yes-all${RESET}           Auto-approve everything incl. risky actions
   ${GREEN}--check-timeout${RESET} SECS    PR check timeout (default: 1800)
   ${GREEN}--skip-checks${RESET}           Merge PRs without waiting for CI
+  ${GREEN}--bump-deps${RESET}             Bump outside-chain deps to latest release
+                          (default: keep current pins from master)
   ${GREEN}-p, --pretend${RESET}           Dry run — show what would happen
   ${GREEN}-h, --help${RESET}              Show this help
 
@@ -159,6 +162,8 @@ ${BOLD}Examples:${RESET}
                                      ${CYAN}# minor bump on dbus, patch rest${RESET}
   terok-release-chain --version-step minor --version-step-uniform dbus
                                      ${CYAN}# minor bump on every repo${RESET}
+  terok-release-chain --bump-deps agent
+                                     ${CYAN}# also bump outside-chain deps to latest${RESET}
   terok-release-chain -n "Comms" dbus terok -p
                                      ${CYAN}# named dry run, PR on terok${RESET}
 USAGE
@@ -230,6 +235,7 @@ parse_args() {
             --check-timeout)         [[ $# -ge 2 ]] || die "--check-timeout requires seconds"
                                      CHECK_TIMEOUT="$2"; shift 2 ;;
             --skip-checks)           SKIP_CHECKS=true; shift ;;
+            --bump-deps)             BUMP_DEPS=true; shift ;;
             --help|-h)               usage ;;
             --)                      shift; positionals+=("$@"); break ;;
             -*)                      die "Unknown option: $1" ;;
@@ -548,12 +554,11 @@ update_sibling_deps() {
 #
 # Prefers siblings released in this run (via PLANNED_PINS, which
 # reflects the resolved version even in pretend mode where file edits
-# are skipped), then falls back to any sibling that pins it, then
-# preserves the current pin unchanged.
+# are skipped), then falls back to any sibling that pins it.
 #
-# Outside-chain deps are never auto-bumped — the chain releases what's
-# on master.  If a stale pin would cause a Poetry conflict, pretend mode
-# catches it and the operator should bump deps separately first.
+# When no sibling provides a version:
+#   default       — keep the current pin (release what's on master)
+#   --bump-deps   — upgrade to the latest GitHub release
 _resolve_required_version() {
     local repo_dir="$1" deps_str="$2" target_dep="$3"
     local ver=""
@@ -574,9 +579,14 @@ _resolve_required_version() {
         ver=$(pinned_dep_version "$other_dir" "$target_dep" 2>/dev/null) || true
         [[ -n "$ver" ]] && { echo "$ver"; return; }
     done
-    # No sibling provides a version — keep the current pin unchanged.
-    # Don't auto-bump to latest: outside-chain dep updates are opt-in.
-    pinned_dep_version "$repo_dir" "$target_dep"
+    # No sibling provides a version.
+    if $BUMP_DEPS; then
+        # --bump-deps: upgrade outside-chain deps to their latest release.
+        latest_release_version "$target_dep"
+    else
+        # Default: keep the current pin — release what's on master.
+        pinned_dep_version "$repo_dir" "$target_dep"
+    fi
 }
 
 lock_and_commit() {
@@ -831,6 +841,13 @@ normalise_repo() {
         terok-dbus|terok-shield|terok-sandbox|terok-agent) echo "$1" ;;
         *) die "Unknown repo: $1. Use: dbus, shield, sandbox, agent, or terok" ;;
     esac
+}
+
+latest_release_version() {
+    local tag
+    tag=$(gh release view --repo "${GH_ORG}/$1" --json tagName --jq '.tagName' 2>/dev/null) \
+        || die "No releases found for $1"
+    echo "${tag#v}"
 }
 
 set_version() {
