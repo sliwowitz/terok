@@ -474,9 +474,10 @@ push_and_create_pr() {
 
 tag_and_release() {
     local repo_dir="$1" gh_repo="$2" tag="$3" title="$4" target="${5:-}"
+    # Always fetch — the squash-merge commit only exists on the remote
+    # until we pull it into the local clone.
+    run git -C "$repo_dir" fetch upstream
     if [[ -z "$target" ]]; then
-        # Fallback for pretend mode — no merge SHA available
-        run git -C "$repo_dir" fetch upstream
         target="upstream/master"
     fi
     log "Tagging ${tag} on ${target:0:12}..."
