@@ -548,8 +548,12 @@ update_sibling_deps() {
 #
 # Prefers siblings released in this run (via PLANNED_PINS, which
 # reflects the resolved version even in pretend mode where file edits
-# are skipped), then falls back to any sibling that pins it, then to
-# the latest GitHub release tag.
+# are skipped), then falls back to any sibling that pins it, then
+# preserves the current pin unchanged.
+#
+# Outside-chain deps are never auto-bumped — the chain releases what's
+# on master.  If a stale pin would cause a Poetry conflict, pretend mode
+# catches it and the operator should bump deps separately first.
 _resolve_required_version() {
     local repo_dir="$1" deps_str="$2" target_dep="$3"
     local ver=""
@@ -570,8 +574,9 @@ _resolve_required_version() {
         ver=$(pinned_dep_version "$other_dir" "$target_dep" 2>/dev/null) || true
         [[ -n "$ver" ]] && { echo "$ver"; return; }
     done
-    # No sibling pins it — fall back to latest release
-    latest_release_version "$target_dep"
+    # No sibling provides a version — keep the current pin unchanged.
+    # Don't auto-bump to latest: outside-chain dep updates are opt-in.
+    pinned_dep_version "$repo_dir" "$target_dep"
 }
 
 lock_and_commit() {
@@ -834,13 +839,6 @@ set_version() {
     run sed -i "s/^version = \".*\"/version = \"${new_ver}\"/" "${repo_dir}/pyproject.toml"
 }
 
-latest_release_version() {
-    local tag
-    tag=$(gh release view --repo "${GH_ORG}/$1" --json tagName --jq '.tagName' 2>/dev/null) \
-        || die "No releases found for $1"
-    echo "${tag#v}"
-}
-
 pinned_dep_version() {
     local repo_dir="$1" dep_repo="$2" ver
     ver=$(grep -m1 "${GH_ORG}/${dep_repo}/releases/download/" "${repo_dir}/pyproject.toml" \
@@ -855,6 +853,9 @@ pinned_dep_version() {
 
 verify_wheel_exists() {
     local dep_repo="$1" version="$2"
+    # Skip for versions "released" in this pretend run — the wheel doesn't exist yet.
+    # All other versions (external deps, prior releases) are checked even in pretend mode.
+    if $DRY_RUN && [[ "${RELEASED_VERSIONS[$dep_repo]:-}" == "$version" ]]; then return 0; fi
     local pkg gh_repo="${GH_ORG}/${dep_repo}"
     pkg=$(pkg_name "$dep_repo")
     local expected="${pkg}-${version}-py3-none-any.whl"
