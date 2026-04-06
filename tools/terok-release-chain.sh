@@ -34,7 +34,7 @@ declare -A DEPS=(
 
 RELEASE_DIR="${TEROK_RELEASE_DIR:-$HOME/.cache/terok-release}"
 GH_ORG="${TEROK_GH_ORG:-terok-ai}"
-GH_FORK="${TEROK_GH_FORK:-sliwowitz}"
+GH_FORK="${TEROK_GH_FORK:-}"
 
 DRY_RUN=false
 AUTO_YES=false
@@ -134,7 +134,7 @@ ${BOLD}Options:${RESET}
 ${BOLD}Environment:${RESET}
   ${YELLOW}TEROK_RELEASE_DIR${RESET}       Clone cache dir (~/.cache/terok-release)
   ${YELLOW}TEROK_GH_ORG${RESET}            Upstream GitHub org (terok-ai)
-  ${YELLOW}TEROK_GH_FORK${RESET}           Fork owner (sliwowitz)
+  ${YELLOW}TEROK_GH_FORK${RESET}           Fork owner ${BOLD}(required)${RESET}
 
 ${BOLD}Examples:${RESET}
   terok-release-chain dbus           ${CYAN}# patch-release entire chain${RESET}
@@ -180,6 +180,8 @@ main() {
 # ── Main steps ─────────────────────────────────────────────────────────────
 
 preflight() {
+    [[ -n "$GH_FORK" ]] \
+        || die "TEROK_GH_FORK is not set (e.g. TEROK_GH_FORK=sliwowitz)"
     for tool in git gh jq; do
         command -v "$tool" >/dev/null 2>&1 || die "${tool} is required but not found"
     done
