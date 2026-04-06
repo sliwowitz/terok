@@ -17,7 +17,7 @@ from terok_sandbox import (
     create_token,
     revoke_token_for_task,
 )
-from terok_sandbox.gate_tokens import (
+from terok_sandbox.gate.tokens import (
     _read_tokens,
     _write_tokens,
     token_file_path,
@@ -32,7 +32,7 @@ def patched_token_file(path: Path | None = None) -> Iterator[Path]:
     if path is not None:
         token_path = path
         with unittest.mock.patch(
-            "terok_sandbox.gate_tokens.token_file_path", return_value=token_path
+            "terok_sandbox.gate.tokens.token_file_path", return_value=token_path
         ):
             yield token_path
         return
@@ -40,7 +40,7 @@ def patched_token_file(path: Path | None = None) -> Iterator[Path]:
     with tempfile.TemporaryDirectory() as td:
         token_path = Path(td) / "tokens.json"
         with unittest.mock.patch(
-            "terok_sandbox.gate_tokens.token_file_path", return_value=token_path
+            "terok_sandbox.gate.tokens.token_file_path", return_value=token_path
         ):
             yield token_path
 

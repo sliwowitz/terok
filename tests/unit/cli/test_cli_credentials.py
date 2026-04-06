@@ -37,7 +37,7 @@ class TestCredentialProxyServeDispatch:
         assert dispatch(args) is True
         mock_serve.assert_called_once_with(args)
 
-    @patch("terok_sandbox.credential_proxy.server.main")
+    @patch("terok_sandbox.credentials.proxy.server.main")
     def test_serve_passes_through_to_server_main(self, mock_main: MagicMock) -> None:
         """_cmd_serve strips argv prefix and delegates to server.main()."""
         captured_argv: list[str] = []

@@ -22,8 +22,8 @@ def _enable_proxy() -> Iterator[None]:
     """Override the autouse bypass to test the proxy-enabled path."""
     with (
         patch("terok.lib.core.config.get_credential_proxy_bypass", return_value=False),
-        patch("terok_sandbox.credential_proxy_lifecycle._wait_for_ready", return_value=True),
-        patch("terok_sandbox.credential_proxy_lifecycle._wait_for_tcp_port", return_value=True),
+        patch("terok_sandbox.credentials.lifecycle._wait_for_ready", return_value=True),
+        patch("terok_sandbox.credentials.lifecycle._wait_for_tcp_port", return_value=True),
     ):
         yield
 
@@ -48,8 +48,8 @@ class TestCredentialProxyEnv:
 
         project = MagicMock()
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_socket_active", return_value=False),
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=False),
+            patch("terok_sandbox.credentials.lifecycle.is_socket_active", return_value=False),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=False),
             pytest.raises(SystemExit, match="not reachable"),
         ):
             _credential_proxy_env_and_volumes(project, "task-1")
@@ -74,7 +74,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok.lib.core.config.get_credential_proxy_transport", return_value="direct"),
@@ -115,7 +115,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok.lib.core.config.get_credential_proxy_transport", return_value="direct"),
@@ -152,7 +152,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok.lib.core.config.get_credential_proxy_transport", return_value="direct"),
@@ -191,7 +191,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok.lib.core.config.get_credential_proxy_transport", return_value="direct"),
@@ -227,7 +227,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok.lib.core.config.get_credential_proxy_transport", return_value="socket"),
@@ -265,7 +265,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok.lib.core.config.get_credential_proxy_transport", return_value="socket"),
@@ -312,7 +312,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
             patch("terok_agent.mounts_dir", return_value=mounts_base),
@@ -353,7 +353,7 @@ class TestCredentialProxyEnv:
         project.id = "test-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
         ):
@@ -386,7 +386,7 @@ class TestCredentialProxyEnv:
         project.id = "no-ssh-project"
 
         with (
-            patch("terok_sandbox.credential_proxy_lifecycle.is_daemon_running", return_value=True),
+            patch("terok_sandbox.credentials.lifecycle.is_daemon_running", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
             patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
         ):
