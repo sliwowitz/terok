@@ -487,10 +487,10 @@ class ProjectActionsMixin:
         lines.append("Project config, task data, and build artifacts will be archived at:")
         lines.append(f"{archive_path}")
 
-        from .screens import ConfirmDeleteScreen
+        from .screens import ConfirmDestructiveScreen
 
         await self.push_screen(
-            ConfirmDeleteScreen(
+            ConfirmDestructiveScreen(
                 message="\n".join(lines),
                 title=f"Delete Project: {pid}",
             ),
