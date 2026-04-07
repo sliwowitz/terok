@@ -163,17 +163,18 @@ class ClearanceScreen(screen.Screen[None]):
 
     async def on_mount(self) -> None:
         """Connect to the D-Bus session bus and start the event subscriber."""
-        from terok_dbus import CallbackNotifier, EventSubscriber
-
-        self._notifier = CallbackNotifier(on_notify=self._on_notify)
         log = self.query_one(_ID_EVENT_LOG, RichLog)
         try:
+            from terok_dbus import CallbackNotifier, EventSubscriber
+
+            self._notifier = CallbackNotifier(on_notify=self._on_notify)
             self._subscriber = EventSubscriber(self._notifier)
             await self._subscriber.start()
             log.write(Text("Listening on session bus...", style=_STYLE_INFO))
         except Exception as exc:
             _log.debug("D-Bus connection failed: %s", exc)
             log.write(Text(f"D-Bus unavailable: {exc}", style=_STYLE_ERROR))
+            self._notifier = None
             self._subscriber = None
 
     async def on_unmount(self) -> None:
