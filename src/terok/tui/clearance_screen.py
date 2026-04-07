@@ -178,10 +178,17 @@ class ClearanceScreen(screen.Screen[None]):
 
     async def on_unmount(self) -> None:
         """Stop the subscriber and release resources."""
-        if self._subscriber:
-            await self._subscriber.stop()
-        if self._notifier:
-            await self._notifier.disconnect()
+        try:
+            if self._subscriber:
+                await self._subscriber.stop()
+        except Exception as exc:
+            _log.debug("Failed to stop EventSubscriber: %s", exc)
+        finally:
+            if self._notifier:
+                try:
+                    await self._notifier.disconnect()
+                except Exception as exc:
+                    _log.debug("Failed to disconnect CallbackNotifier: %s", exc)
 
     # -- message handler --
 
@@ -251,7 +258,11 @@ class ClearanceScreen(screen.Screen[None]):
         nid = getattr(item, "clearance_nid", None)
         if nid is None or nid not in self._pending:
             return
-        self._notifier.invoke_action(nid, action)
+        try:
+            self._notifier.invoke_action(nid, action)
+        except Exception as exc:
+            _log.debug("Failed to send %s verdict for %s: %s", action, nid, exc)
+            self.app.notify(f"Failed to send verdict: {exc}")
 
     def action_dismiss_screen(self) -> None:
         """Close the clearance screen."""

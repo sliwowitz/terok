@@ -4,7 +4,7 @@
 """Dockerfile generation, image building, and build-context hashing.
 
 L0 (base dev) and L1 (agent CLI) image builds are delegated to
-``terok_agent.build``.  This module owns L2 (project customisation)
+``terok_agent.container.build``.  This module owns L2 (project customisation)
 rendering and the project-level build orchestration that ties all
 three layers together.
 """
