@@ -90,7 +90,7 @@ if _HAS_TEXTUAL:
     from .polling import PollingMixin
     from .project_actions import ProjectActionsMixin
     from .screens import (
-        ConfirmDeleteScreen,
+        ConfirmDestructiveScreen,
         CredentialProxyScreen,
         GateServerScreen,
         ProjectDetailsScreen,
@@ -99,6 +99,7 @@ if _HAS_TEXTUAL:
     )
     from .task_actions import TaskActionsMixin
     from .widgets import (
+        PanicButton,
         ProjectList,
         ProjectState,
         TaskDetails,
@@ -304,6 +305,7 @@ if _HAS_TEXTUAL:
                     project_state = ProjectState(id="project-state")
                     project_state.border_title = "Project Details"
                     yield project_state
+                    yield PanicButton(id="panic-button")
                 # Right pane: tasks + task details
                 with Vertical(id="right-pane"):
                     task_list = TaskList(id="task-list")
@@ -933,7 +935,7 @@ if _HAS_TEXTUAL:
                 self._refresh_project_state()
                 if panic_result.total_running > 0:
                     await self.push_screen(
-                        ConfirmDeleteScreen(
+                        ConfirmDestructiveScreen(
                             "Resource access has been cut.\n\n"
                             "Also stop all containers?\n"
                             "(This may be slow on some platforms.)",
@@ -970,25 +972,23 @@ if _HAS_TEXTUAL:
             await self._action_show_default_instructions()
 
         async def action_panic(self) -> None:
-            """Emergency panic: cut all resource access immediately."""
-            await self.push_screen(
-                ConfirmDeleteScreen(
-                    "Cut ALL resource access for ALL running containers?\n\n"
-                    "This will:\n"
-                    "  - Raise shields (deny all network)\n"
-                    "  - Stop credential proxy\n"
-                    "  - Stop gate server\n\n"
-                    "Tokens are preserved for easy resume after investigation.",
-                    title="EMERGENCY PANIC",
-                    confirm_label="PANIC",
-                ),
-                self._on_panic_confirmed,
-            )
-
-        async def _on_panic_confirmed(self, confirmed: bool) -> None:
-            """Handle the panic confirmation result."""
-            if not confirmed:
+            """Emergency panic: arm the button (or fire if already armed)."""
+            try:
+                btn = self.query_one("#panic-button", PanicButton)
+            except Exception:
+                self.notify("Panic button not found — resize terminal?")
                 return
+            if btn._armed:
+                btn.fire()
+            else:
+                btn.arm()
+
+        async def on_panic_button_fired(self, _event: PanicButton.Fired) -> None:
+            """Handle the panic button completing its arm-then-fire sequence."""
+            await self._execute_panic_phase1()
+
+        async def _execute_panic_phase1(self) -> None:
+            """Launch Phase 1 panic: shields up, stop proxy and gate."""
             from ..lib.domain.panic import execute_panic
 
             self.run_worker(

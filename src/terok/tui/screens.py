@@ -1349,7 +1349,7 @@ class TaskLaunchScreen(screen.ModalScreen["tuple[str, str, str, str, str, str | 
 # ---------------------------------------------------------------------------
 
 
-class ConfirmDeleteScreen(screen.ModalScreen[bool]):
+class ConfirmDestructiveScreen(screen.ModalScreen[bool]):
     """Modal confirmation dialog for destructive operations.
 
     Dismisses with ``True`` if the user confirms, ``False`` otherwise.
@@ -1360,7 +1360,7 @@ class ConfirmDeleteScreen(screen.ModalScreen[bool]):
     ]
 
     CSS = """
-    ConfirmDeleteScreen {
+    ConfirmDestructiveScreen {
         align: center middle;
     }
 
