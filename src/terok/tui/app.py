@@ -976,7 +976,7 @@ if _HAS_TEXTUAL:
             try:
                 btn = self.query_one("#panic-button", PanicButton)
             except Exception:
-                await self._execute_panic_phase1()
+                self.notify("Panic button not found — resize terminal?")
                 return
             if btn._armed:
                 btn.fire()
