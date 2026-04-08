@@ -176,7 +176,7 @@ def make_git_gate(config: ProjectConfig) -> GitGate:
     Injects ``validate_gate_upstream_match`` as the gate validation callback.
     """
     return GitGate(
-        project_id=config.id,
+        scope=config.id,
         gate_path=config.gate_path,
         upstream_url=config.upstream_url,
         default_branch=config.default_branch,
@@ -190,7 +190,7 @@ def make_ssh_manager(config: ProjectConfig) -> SSHManager:
     """Construct an :class:`SSHManager` from a :class:`ProjectConfig` (adapter factory)."""
     ssh_dir = config.ssh_host_dir or (make_sandbox_config().ssh_keys_dir / config.id)
     return SSHManager(
-        project_id=config.id,
+        scope=config.id,
         ssh_host_dir=ssh_dir,
         ssh_key_name=config.ssh_key_name,
         ssh_config_template=config.ssh_config_template,
