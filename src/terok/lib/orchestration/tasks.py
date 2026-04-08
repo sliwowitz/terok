@@ -21,7 +21,7 @@ from pathlib import Path
 
 from terok_sandbox import (
     get_container_state,
-    get_project_container_states,
+    get_container_states,
     stop_task_containers,
 )
 
@@ -507,7 +507,7 @@ def get_all_task_states(
     Returns:
         ``{task_id: container_state_or_None}`` dict.
     """
-    container_states = get_project_container_states(project_id)
+    container_states = get_container_states(project_id)
     result: dict[str, str | None] = {}
     for t in tasks:
         if t.mode:

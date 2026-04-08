@@ -127,7 +127,7 @@ def gate_env(tmp_path: Path) -> dict:
     token = uuid.uuid4().hex
     token_file = tmp_path / "tokens.json"
     token_file.write_text(
-        json.dumps({token: {"project": project_id, "task": "1"}}),
+        json.dumps({token: {"scope": project_id, "task": "1"}}),
         encoding="utf-8",
     )
 
