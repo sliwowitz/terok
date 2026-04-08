@@ -174,6 +174,16 @@ class ClearanceScreen(screen.Screen[None]):
         except Exception as exc:
             _log.debug("D-Bus connection failed: %s", exc)
             log.write(Text(f"D-Bus unavailable: {exc}", style=_STYLE_ERROR))
+            if self._subscriber:
+                try:
+                    await self._subscriber.stop()
+                except Exception:
+                    _log.debug("Failed to stop subscriber during error cleanup", exc_info=True)
+            if self._notifier:
+                try:
+                    await self._notifier.disconnect()
+                except Exception:
+                    _log.debug("Failed to disconnect notifier during error cleanup", exc_info=True)
             self._notifier = None
             self._subscriber = None
 
