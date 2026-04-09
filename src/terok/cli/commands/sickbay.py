@@ -239,7 +239,7 @@ def _check_ssh_agent() -> _CheckResult:
     def _keys_healthy(entry: object) -> bool:
         """Check whether all key files in a scope entry exist on disk."""
         keys = entry if isinstance(entry, list) else [entry]
-        return all(
+        return bool(keys) and all(
             isinstance(k, dict)
             and Path(k.get("private_key", "")).is_file()
             and Path(k.get("public_key", "")).is_file()

@@ -173,6 +173,25 @@ class TestCheckSshAgent:
         assert sev == "ok"
         assert "1/1" in detail
 
+    def test_empty_key_list_not_healthy(self, tmp_path: Path) -> None:
+        """Project with an empty key list is not treated as healthy."""
+        import json
+
+        kf = tmp_path / "ssh-keys.json"
+        kf.write_text(json.dumps({"proj": []}))
+        with (
+            unittest.mock.patch("terok.cli.commands.sickbay.make_sandbox_config") as mock_cfg,
+            unittest.mock.patch(
+                "terok.cli.commands.sickbay.list_projects",
+                return_value=[self._mock_project("proj")],
+            ),
+        ):
+            mock_cfg.return_value.ssh_keys_json_path = kf
+            sev, _, detail = _check_ssh_agent()
+        assert sev == "error"
+        assert "proj" in detail
+        assert "missing key files" in detail
+
     def test_corrupt_json(self, tmp_path: Path) -> None:
         """Corrupt JSON → error."""
         kf = tmp_path / "ssh-keys.json"
