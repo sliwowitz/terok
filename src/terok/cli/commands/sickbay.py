@@ -229,10 +229,20 @@ def _keys_healthy(entry: object) -> bool:
     )
 
 
+def _sanitize_id(value: str) -> str:
+    """Strip C0/C1 control characters from a project ID for safe terminal output."""
+    import unicodedata
+
+    return "".join(
+        " " if ch in "\n\r\t" else f"\\x{ord(ch):02x}" if unicodedata.category(ch)[0] == "C" else ch
+        for ch in value
+    )
+
+
 def _abbreviate(ids: list[str], limit: int = 3) -> str:
     """Join project IDs with a '+N more' suffix when the list is long."""
     suffix = f" (+{len(ids) - limit} more)" if len(ids) > limit else ""
-    return ", ".join(ids[:limit]) + suffix
+    return ", ".join(_sanitize_id(i) for i in ids[:limit]) + suffix
 
 
 def _check_ssh_agent() -> _CheckResult:
