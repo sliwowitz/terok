@@ -113,7 +113,8 @@ class TestTask:
             task_new(project_id)
 
             # Verify marker file exists in the workspace subdirectory
-            workspace_dir = ctx.state_dir / "tasks" / project_id / "1" / "workspace-dangerous"
+            sandbox_live = ctx.base / "sandbox-live"
+            workspace_dir = sandbox_live / "tasks" / project_id / "1" / "workspace-dangerous"
             marker_path = workspace_dir / ".new-task-marker"
             assert marker_path.is_file()
 
@@ -458,7 +459,8 @@ class TestTask:
             clear_env=True,
         ) as ctx:
             task_new(project_id)
-            workspace_dir = ctx.state_dir / "tasks" / project_id / "1" / "workspace-dangerous"
+            sandbox_live = ctx.base / "sandbox-live"
+            workspace_dir = sandbox_live / "tasks" / project_id / "1" / "workspace-dangerous"
             assert sorted(p.name for p in workspace_dir.iterdir()) == [".new-task-marker"]
             with (
                 mock_git_config(),
@@ -478,7 +480,7 @@ class TestTask:
                 task_run_cli(project_id, "1")
 
             assert sorted(p.name for p in workspace_dir.iterdir()) == [".new-task-marker"]
-            agent_mounts = ctx.base / "agent" / "mounts"
+            agent_mounts = ctx.base / "sandbox-live" / "mounts"
             assert (agent_mounts / "_claude-config" / "settings.json").is_file()
 
     def test_task_run_toad_passes_public_url(self) -> None:
@@ -1135,9 +1137,9 @@ class TestTaskLogs:
                 task_id = self._setup_task_with_mode("proj_logs_persist", "run")
 
                 # Create persisted log file
-                from terok.lib.core.config import state_dir
+                from terok.lib.core.config import sandbox_live_dir
 
-                task_dir = Path(state_dir()) / "tasks" / "proj_logs_persist" / task_id
+                task_dir = Path(sandbox_live_dir()) / "tasks" / "proj_logs_persist" / task_id
                 logs_dir = task_dir / "logs"
                 logs_dir.mkdir(parents=True, exist_ok=True)
                 log_file = logs_dir / "container.log"
@@ -1172,9 +1174,9 @@ class TestTaskLogs:
             with mock_git_config():
                 task_id = self._setup_task_with_mode("proj_logs_tail", "run")
 
-                from terok.lib.core.config import state_dir
+                from terok.lib.core.config import sandbox_live_dir
 
-                task_dir = Path(state_dir()) / "tasks" / "proj_logs_tail" / task_id
+                task_dir = Path(sandbox_live_dir()) / "tasks" / "proj_logs_tail" / task_id
                 logs_dir = task_dir / "logs"
                 logs_dir.mkdir(parents=True, exist_ok=True)
                 log_file = logs_dir / "container.log"
@@ -1220,9 +1222,9 @@ class TestTaskLogs:
             with mock_git_config():
                 task_id = self._setup_task_with_mode("proj_logs_negtail", "run")
 
-                from terok.lib.core.config import state_dir
+                from terok.lib.core.config import sandbox_live_dir
 
-                task_dir = Path(state_dir()) / "tasks" / "proj_logs_negtail" / task_id
+                task_dir = Path(sandbox_live_dir()) / "tasks" / "proj_logs_negtail" / task_id
                 logs_dir = task_dir / "logs"
                 logs_dir.mkdir(parents=True, exist_ok=True)
                 (logs_dir / "container.log").write_text("a\nb\n")
@@ -1283,10 +1285,12 @@ class TestTaskArchive:
                 # Task should be deleted
                 assert not meta_path.exists()
 
-                # Archive should exist
-                archive_dir = ctx.state_dir / "projects" / project_id / "archive"
-                assert archive_dir.is_dir()
-                archives = list(archive_dir.iterdir())
+                # Archive should exist under umbrella archive tree
+                from terok.lib.orchestration.tasks import tasks_archive_dir
+
+                archive_root = tasks_archive_dir(project_id)
+                assert archive_root.is_dir()
+                archives = list(archive_root.iterdir())
                 assert len(archives) == 1
 
                 archive_entry = archives[0]
@@ -1312,7 +1316,7 @@ class TestTaskArchive:
         with project_env(
             f"project:\n  id: {project_id}\n",
             project_id=project_id,
-        ) as ctx:
+        ):
             with mock_git_config():
                 task_id = task_new(project_id)
 
@@ -1328,9 +1332,11 @@ class TestTaskArchive:
                 ):
                     task_delete(project_id, task_id)
 
-                archive_dir = ctx.state_dir / "projects" / project_id / "archive"
-                assert archive_dir.is_dir()
-                archives = list(archive_dir.iterdir())
+                from terok.lib.orchestration.tasks import tasks_archive_dir
+
+                archive_root = tasks_archive_dir(project_id)
+                assert archive_root.is_dir()
+                archives = list(archive_root.iterdir())
                 assert len(archives) == 1
 
                 # Should have task.yml but no logs subdir

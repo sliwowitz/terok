@@ -38,8 +38,10 @@ def build_dir(_env: SimpleNamespace, project_id: str) -> Path:
 
 
 def ssh_dir(env: SimpleNamespace, project_id: str) -> Path:
-    """Create and return the project's SSH keys dir."""
-    target = env.state_dir / "ssh-keys" / project_id
+    """Create and return the project's SSH keys dir (under sandbox state)."""
+    from terok.lib.core.config import make_sandbox_config
+
+    target = make_sandbox_config().ssh_keys_dir / project_id
     target.mkdir(parents=True, exist_ok=True)
     (target / "id_ed25519").write_text("# private key", encoding="utf-8")
     return target
@@ -60,6 +62,18 @@ def gate_dir(env: SimpleNamespace, _project_id: str) -> Path:
     return env.gate_dir
 
 
+def task_archive_subdir(_env: SimpleNamespace, project_id: str) -> Path:
+    """Create and return the project's task archive dir (under umbrella archive)."""
+    from terok.lib.core.config import archive_dir as cfg_archive_dir
+
+    target = cfg_archive_dir() / project_id / "tasks"
+    target.mkdir(parents=True, exist_ok=True)
+    entry = target / "20260101T000000Z_1_old-task"
+    entry.mkdir()
+    (entry / "task.yml").write_text("task_id: '1'\n", encoding="utf-8")
+    return target.parent  # archive/<project_id>/ — should be removed
+
+
 @pytest.mark.parametrize(
     ("project_id", "env_kwargs", "setup_target"),
     [
@@ -68,8 +82,9 @@ def gate_dir(env: SimpleNamespace, _project_id: str) -> Path:
         ("del-ssh", {"with_config_file": True}, ssh_dir),
         ("del-meta", {}, task_state_dir),
         ("del-gate", {"with_gate": True}, gate_dir),
+        ("del-tarch", {}, task_archive_subdir),
     ],
-    ids=["config-dir", "build-dir", "ssh-dir", "task-metadata-dir", "gate-dir"],
+    ids=["config-dir", "build-dir", "ssh-dir", "task-metadata-dir", "gate-dir", "task-archive-dir"],
 )
 def test_delete_project_removes_managed_directories(
     project_id: str,
@@ -88,7 +103,8 @@ def test_delete_project_skips_shared_gate(monkeypatch: pytest.MonkeyPatch, tmp_p
     projects_root = config_base / "projects"
     state_dir = tmp_path / "state"
     envs_dir = tmp_path / "envs"
-    gate_path = state_dir / "gate" / "shared.git"
+    sandbox_state = tmp_path / "sandbox-state"
+    gate_path = sandbox_state / "gate" / "shared.git"
     config_file = tmp_path / "config.yml"
     gate_path.mkdir(parents=True, exist_ok=True)
     envs_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +124,7 @@ def test_delete_project_skips_shared_gate(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     monkeypatch.setenv("TEROK_CONFIG_DIR", str(config_base))
     monkeypatch.setenv("TEROK_STATE_DIR", str(state_dir))
+    monkeypatch.setenv("TEROK_SANDBOX_STATE_DIR", str(sandbox_state))
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
 
@@ -187,6 +204,17 @@ class TestManagedRootGuard:
         monkeypatch.setenv("TEROK_CREDENTIALS_DIR", str(tmp_path / "creds"))
         monkeypatch.setenv("TEROK_CONFIG_FILE", str(tmp_path / "empty.yml"))
         assert _is_under_terok_root(tmp_path / "state" / "build" / "some-image")
+
+    def test_archive_dir_is_managed(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Paths under archive_dir are recognized as managed."""
+        from terok.lib.domain.project import _is_under_terok_root
+
+        monkeypatch.setenv("TEROK_ROOT", str(tmp_path))
+        monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path / "state"))
+        monkeypatch.setenv("TEROK_CONFIG_DIR", str(tmp_path / "cfg"))
+        monkeypatch.setenv("TEROK_CREDENTIALS_DIR", str(tmp_path / "creds"))
+        monkeypatch.setenv("TEROK_CONFIG_FILE", str(tmp_path / "empty.yml"))
+        assert _is_under_terok_root(tmp_path / "archive" / "myproj" / "tasks")
 
     def test_external_path_rejected(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """Paths outside all managed roots are rejected."""

@@ -17,7 +17,6 @@ from ..util.yaml import YAMLError, load as _yaml_load
 from .paths import (
     config_root as _config_root_base,
     credentials_root as _credentials_root_base,
-    state_root as _state_root_base,
 )
 from .yaml_schema import RawGlobalConfig
 
@@ -183,16 +182,46 @@ def _resolve_path(
 
 
 def state_dir() -> Path:
-    """Writable state directory for tasks/cache/build.
+    """Terok core state directory (host-only: build artifacts, task metadata).
 
     Precedence:
-    - Environment variable TEROK_STATE_DIR (handled first)
-    - If set in global config (paths.state_dir), use it.
-    - Otherwise, ``state_root() / "core"`` (umbrella subdir for terok-core data).
+    - ``TEROK_STATE_DIR`` environment variable (per-package escape hatch).
+    - Umbrella root (``TEROK_ROOT`` / ``config.yml`` ``paths.root``) + ``core/``.
+    - Platform default (``~/.local/share/terok/core``).
     """
+    from terok_sandbox.paths import umbrella_state_dir
+
+    return umbrella_state_dir("core", "TEROK_STATE_DIR").resolve()
+
+
+def sandbox_live_dir() -> Path:
+    """Container-writable runtime data (tasks, agent mounts).
+
+    All directories that are bind-mounted into containers live under this
+    tree.  For hardened installations, mount on a separate partition with
+    ``noexec,nosuid,nodev``.
+
+    Precedence:
+    - ``TEROK_SANDBOX_LIVE_DIR`` environment variable.
+    - Global config ``paths.sandbox_live_dir``.
+    - Umbrella root + ``sandbox-live/``.
+    """
+    from terok_sandbox.paths import umbrella_state_dir
+
     return _resolve_path(
-        "TEROK_STATE_DIR", ("paths", "state_dir"), lambda: _state_root_base() / "core"
+        "TEROK_SANDBOX_LIVE_DIR",
+        ("paths", "sandbox_live_dir"),
+        lambda: umbrella_state_dir("sandbox-live"),
     )
+
+
+def sandbox_live_mounts_dir() -> Path:
+    """Provider config mounts directory (container-writable).
+
+    Each agent/tool gets a subdirectory (e.g. ``_claude-config/``) that is
+    bind-mounted into task containers.
+    """
+    return sandbox_live_dir() / "mounts"
 
 
 def gate_repos_dir() -> Path:
@@ -200,12 +229,12 @@ def gate_repos_dir() -> Path:
 
     Precedence:
     - ``gate_server.repos_dir`` in global config (explicit override).
-    - ``state_dir() / "gate"`` (default).
+    - Sandbox's default ``gate_base_path`` (``sandbox/gate/``).
     """
     custom = _load_validated().gate_server.repos_dir
     if custom:
         return Path(custom).expanduser().resolve()
-    return state_dir() / "gate"
+    return make_sandbox_config().gate_base_path
 
 
 def _xdg_config_subdir(subdir: str) -> Path:
@@ -262,8 +291,20 @@ def build_dir() -> Path:
 
 
 def archive_dir() -> Path:
-    """Return the directory for archived deleted projects (``state_dir() / "deleted-projects"``)."""
-    return state_dir() / "deleted-projects"
+    """Umbrella archive tree for project and task archives.
+
+    All archived data lives under one discoverable location::
+
+        archive/
+            <ts>_<project>.tar.gz     # deleted-project snapshots
+            <project>/tasks/          # task archives (live projects)
+
+    The ``<project>/`` subdirectory is bundled into the project tar and
+    removed on project deletion — freeing the name for reuse.
+    """
+    from terok_sandbox.paths import umbrella_state_dir
+
+    return umbrella_state_dir("archive").resolve()
 
 
 def get_ui_base_port() -> int:
@@ -284,11 +325,11 @@ def credentials_dir() -> Path:
 
 
 def make_sandbox_config() -> "SandboxConfig":  # noqa: F821 — forward ref
-    """Construct a :class:`SandboxConfig` aligned with terok's path resolution.
+    """Construct a :class:`SandboxConfig` for sandbox operations.
 
     Bridges terok's config layer (env vars → config.yml → XDG defaults) to
-    sandbox's plain dataclass so that all sandbox operations use terok's
-    directory namespace rather than sandbox's own standalone defaults.
+    sandbox's plain dataclass.  Sandbox uses its own ``state_dir`` default
+    (``~/.local/share/terok/sandbox/``) — terok no longer overrides it.
 
     This is the **single source of truth** for config bridging — every
     SandboxConfig field that terok controls must be set here.
@@ -296,7 +337,6 @@ def make_sandbox_config() -> "SandboxConfig":  # noqa: F821 — forward ref
     from terok_sandbox import SandboxConfig
 
     return SandboxConfig(
-        state_dir=state_dir(),
         credentials_dir=credentials_dir(),
         gate_port=get_gate_server_port(),
         shield_bypass=get_shield_bypass_firewall_no_protection(),

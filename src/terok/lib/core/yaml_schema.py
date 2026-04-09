@@ -307,12 +307,17 @@ class RawCredentialsSection(BaseModel):
 
 
 class RawPathsSection(BaseModel):
-    """Global ``paths:`` section."""
+    """Global ``paths:`` section.
+
+    ``root`` is the umbrella state root read by all ecosystem packages
+    (Podman model).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    state_dir: str | None = None
+    root: str | None = None
     build_dir: str | None = None
+    sandbox_live_dir: str | None = None
     user_projects_dir: str | None = None
     user_presets_dir: str | None = None
 

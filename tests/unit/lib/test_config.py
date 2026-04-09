@@ -54,7 +54,6 @@ def test_global_config_path_prefers_xdg(
     ("env_var", "config_text", "resolver", "expected_name"),
     [
         ("TEROK_STATE_DIR", None, cfg.state_dir, "state"),
-        ("TEROK_CONFIG_FILE", "paths:\n  state_dir: {path}\n", cfg.state_dir, "state"),
         (
             "TEROK_CONFIG_FILE",
             "paths:\n  user_projects_dir: {path}\n",
@@ -68,7 +67,7 @@ def test_global_config_path_prefers_xdg(
             "envs",
         ),
     ],
-    ids=["state-env", "state-config", "projects-config", "credentials-config"],
+    ids=["state-env", "projects-config", "credentials-config"],
 )
 def test_path_resolution(
     monkeypatch: pytest.MonkeyPatch,
@@ -195,14 +194,14 @@ def test_state_dir_via_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
 
 
 def test_state_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``state_dir()`` reads ``paths.state_dir`` from global config."""
-    target = tmp_path / "custom-state"
+    """``state_dir()`` honors ``paths.root`` from config as umbrella root."""
+    target = tmp_path / "custom-root"
     monkeypatch.delenv("TEROK_STATE_DIR", raising=False)
     monkeypatch.setenv(
         "TEROK_CONFIG_FILE",
-        str(write_config(tmp_path, f"paths:\n  state_dir: {target}\n")),
+        str(write_config(tmp_path, f"paths:\n  root: {target}\n")),
     )
-    assert cfg.state_dir() == target.resolve()
+    assert cfg.state_dir() == (target / "core").resolve()
 
 
 def test_build_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -222,10 +221,44 @@ def test_build_dir_defaults_under_state(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert cfg.build_dir() == (tmp_path / "build").resolve()
 
 
-def test_archive_dir_under_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``archive_dir()`` returns ``state_dir()/deleted-projects``."""
-    monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path))
-    assert cfg.archive_dir() == (tmp_path / "deleted-projects").resolve()
+def test_archive_dir_at_umbrella_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``archive_dir()`` lives at the umbrella state root."""
+    monkeypatch.setenv("TEROK_ROOT", str(tmp_path))
+    assert cfg.archive_dir() == (tmp_path / "archive").resolve()
+
+
+def test_sandbox_live_dir_via_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``sandbox_live_dir()`` reads TEROK_SANDBOX_LIVE_DIR."""
+    target = tmp_path / "live"
+    monkeypatch.setenv("TEROK_SANDBOX_LIVE_DIR", str(target))
+    assert cfg.sandbox_live_dir() == target.resolve()
+
+
+def test_sandbox_live_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``sandbox_live_dir()`` reads ``paths.sandbox_live_dir`` from config."""
+    target = tmp_path / "custom-live"
+    monkeypatch.delenv("TEROK_SANDBOX_LIVE_DIR", raising=False)
+    monkeypatch.setenv(
+        "TEROK_CONFIG_FILE",
+        str(write_config(tmp_path, f"paths:\n  sandbox_live_dir: {target}\n")),
+    )
+    assert cfg.sandbox_live_dir() == target.resolve()
+
+
+def test_sandbox_live_dir_defaults_under_umbrella(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``sandbox_live_dir()`` defaults to ``umbrella_root/sandbox-live``."""
+    monkeypatch.delenv("TEROK_SANDBOX_LIVE_DIR", raising=False)
+    monkeypatch.setenv("TEROK_ROOT", str(tmp_path))
+    monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
+    assert cfg.sandbox_live_dir() == (tmp_path / "sandbox-live").resolve()
+
+
+def test_sandbox_live_mounts_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``sandbox_live_mounts_dir()`` appends ``mounts/`` to sandbox-live."""
+    monkeypatch.setenv("TEROK_SANDBOX_LIVE_DIR", str(tmp_path / "live"))
+    assert cfg.sandbox_live_mounts_dir() == (tmp_path / "live" / "mounts").resolve()
 
 
 def test_credentials_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -259,10 +292,11 @@ def test_credentials_dir_env_beats_config(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 
 def test_gate_repos_dir_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``gate_repos_dir()`` falls back to ``state_dir()/gate``."""
-    monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path))
+    """``gate_repos_dir()`` falls back to sandbox's ``gate_base_path``."""
+    sandbox_state = tmp_path / "sandbox-state"
+    monkeypatch.setenv("TEROK_SANDBOX_STATE_DIR", str(sandbox_state))
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
-    assert cfg.gate_repos_dir() == (tmp_path / "gate").resolve()
+    assert cfg.gate_repos_dir() == (sandbox_state / "gate").resolve()
 
 
 def test_gate_repos_dir_custom(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -407,36 +441,36 @@ def test_load_validated_returns_defaults_on_invalid_schema(
 
 
 def test_make_sandbox_config_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Factory aligns SandboxConfig state_dir with terok's state_dir()."""
-    monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path / "state"))
+    """Factory uses sandbox's own state_dir (not terok's)."""
+    sandbox_state = tmp_path / "sandbox-state"
+    monkeypatch.setenv("TEROK_SANDBOX_STATE_DIR", str(sandbox_state))
     monkeypatch.setenv("TEROK_CREDENTIALS_DIR", str(tmp_path / "creds"))
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
     sc = cfg.make_sandbox_config()
-    assert sc.state_dir == (tmp_path / "state").resolve()
+    assert sc.state_dir == sandbox_state
     assert sc.credentials_dir == (tmp_path / "creds").resolve()
 
 
 def test_make_sandbox_config_ssh_keys_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Factory's ssh_keys_dir derives from terok's state, not sandbox's."""
-    monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path / "terok-state"))
+    """Factory's ssh_keys_dir derives from sandbox's state, not terok's."""
+    sandbox_state = tmp_path / "sandbox-state"
+    monkeypatch.setenv("TEROK_SANDBOX_STATE_DIR", str(sandbox_state))
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
     sc = cfg.make_sandbox_config()
-    assert sc.ssh_keys_dir == (tmp_path / "terok-state" / "ssh-keys").resolve()
+    assert sc.ssh_keys_dir == sandbox_state / "ssh-keys"
 
 
 def test_make_sandbox_config_from_config_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Factory reads paths from config.yml when no env var is set."""
-    custom_state = tmp_path / "virt" / "state"
-    monkeypatch.delenv("TEROK_STATE_DIR", raising=False)
+    """Factory propagates credentials_dir from config.yml."""
+    target = tmp_path / "cfg-creds"
     monkeypatch.setenv(
         "TEROK_CONFIG_FILE",
-        str(write_config(tmp_path, f"paths:\n  state_dir: {custom_state}\n")),
+        str(write_config(tmp_path, f"credentials:\n  dir: {target}\n")),
     )
     sc = cfg.make_sandbox_config()
-    assert sc.state_dir == custom_state.resolve()
-    assert sc.ssh_keys_dir == (custom_state / "ssh-keys").resolve()
+    assert sc.credentials_dir == target.resolve()
 
 
 def test_make_sandbox_config_gate_port(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
