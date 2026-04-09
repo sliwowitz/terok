@@ -236,13 +236,16 @@ def _check_ssh_agent() -> _CheckResult:
     if not projects:
         return ("ok", label, "no projects configured")
 
+    def _is_key_path(value: object) -> bool:
+        return isinstance(value, str) and bool(value) and Path(value).is_file()
+
     def _keys_healthy(entry: object) -> bool:
         """Check whether all key files in a scope entry exist on disk."""
         keys = entry if isinstance(entry, list) else [entry]
         return bool(keys) and all(
             isinstance(k, dict)
-            and Path(k.get("private_key", "")).is_file()
-            and Path(k.get("public_key", "")).is_file()
+            and _is_key_path(k.get("private_key"))
+            and _is_key_path(k.get("public_key"))
             for k in keys
         )
 
