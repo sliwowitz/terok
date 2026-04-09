@@ -221,9 +221,9 @@ def test_build_dir_defaults_under_state(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert cfg.build_dir() == (tmp_path / "build").resolve()
 
 
-def test_archive_dir_under_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``archive_dir()`` returns ``state_dir()/deleted-projects``."""
-    monkeypatch.setenv("TEROK_STATE_DIR", str(tmp_path))
+def test_archive_dir_at_umbrella_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``archive_dir()`` lives at the umbrella state root, not under core/."""
+    monkeypatch.setenv("TEROK_ROOT", str(tmp_path))
     assert cfg.archive_dir() == (tmp_path / "deleted-projects").resolve()
 
 

@@ -291,8 +291,15 @@ def build_dir() -> Path:
 
 
 def archive_dir() -> Path:
-    """Return the directory for archived deleted projects (``state_dir() / "deleted-projects"``)."""
-    return state_dir() / "deleted-projects"
+    """Return the directory for archived deleted projects.
+
+    Lives at the umbrella state root (``~/.local/share/terok/deleted-projects``)
+    rather than under ``core/`` — archived projects are a cross-cutting concern
+    that operators may browse directly.
+    """
+    from terok_sandbox.paths import umbrella_state_dir
+
+    return umbrella_state_dir("deleted-projects").resolve()
 
 
 def get_ui_base_port() -> int:
