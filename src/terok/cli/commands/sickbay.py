@@ -213,6 +213,28 @@ def _check_unfired_hooks(
     return results
 
 
+def _is_key_path(value: object) -> bool:
+    """Check whether a value is a non-empty string pointing to an existing file."""
+    return isinstance(value, str) and bool(value) and Path(value).is_file()
+
+
+def _keys_healthy(entry: object) -> bool:
+    """Check whether all key files in a scope entry exist on disk."""
+    keys = entry if isinstance(entry, list) else [entry]
+    return bool(keys) and all(
+        isinstance(k, dict)
+        and _is_key_path(k.get("private_key"))
+        and _is_key_path(k.get("public_key"))
+        for k in keys
+    )
+
+
+def _abbreviate(ids: list[str], limit: int = 3) -> str:
+    """Join project IDs with a '+N more' suffix when the list is long."""
+    suffix = f" (+{len(ids) - limit} more)" if len(ids) > limit else ""
+    return ", ".join(ids[:limit]) + suffix
+
+
 def _check_ssh_agent() -> _CheckResult:
     """Check SSH agent proxy key registration against known projects."""
     import json
@@ -236,41 +258,24 @@ def _check_ssh_agent() -> _CheckResult:
     if not projects:
         return ("ok", label, "no projects configured")
 
-    def _is_key_path(value: object) -> bool:
-        return isinstance(value, str) and bool(value) and Path(value).is_file()
-
-    def _keys_healthy(entry: object) -> bool:
-        """Check whether all key files in a scope entry exist on disk."""
-        keys = entry if isinstance(entry, list) else [entry]
-        return bool(keys) and all(
-            isinstance(k, dict)
-            and _is_key_path(k.get("private_key"))
-            and _is_key_path(k.get("public_key"))
-            for k in keys
-        )
-
     broken = [p.id for p in projects if p.id in mapping and not _keys_healthy(mapping[p.id])]
     unregistered = [p.id for p in projects if p.id not in mapping]
     registered = len(projects) - len(broken) - len(unregistered)
     total = len(projects)
 
     if broken:
-        names = ", ".join(broken[:3])
-        suffix = f" (+{len(broken) - 3} more)" if len(broken) > 3 else ""
         return (
             "error",
             label,
             f"{len(broken)}/{total} project(s) have missing key files: "
-            f"{names}{suffix} — re-run 'terok ssh-init'",
+            f"{_abbreviate(broken)} — re-run 'terok ssh-init'",
         )
     if unregistered:
-        names = ", ".join(unregistered[:3])
-        suffix = f" (+{len(unregistered) - 3} more)" if len(unregistered) > 3 else ""
         return (
             "warn",
             label,
             f"{registered}/{total} project(s) have SSH keys — missing: "
-            f"{names}{suffix}. Run 'terok ssh-init <project>'",
+            f"{_abbreviate(unregistered)}. Run 'terok ssh-init <project>'",
         )
     return ("ok", label, f"{total}/{total} project(s) have SSH keys")
 
