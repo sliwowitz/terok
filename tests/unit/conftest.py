@@ -15,6 +15,16 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _reset_umbrella_config_cache() -> Iterator[None]:
+    """Clear the umbrella path resolver config cache between tests."""
+    import terok_sandbox.paths as _sandbox_paths
+
+    _sandbox_paths._config_paths_cache = None
+    yield
+    _sandbox_paths._config_paths_cache = None
+
+
+@pytest.fixture(autouse=True)
 def _mock_infrastructure() -> Iterator[None]:
     """Replace Sandbox.run, shield down, and credential proxy with no-ops."""
     with (

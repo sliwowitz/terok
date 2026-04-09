@@ -54,7 +54,6 @@ def test_global_config_path_prefers_xdg(
     ("env_var", "config_text", "resolver", "expected_name"),
     [
         ("TEROK_STATE_DIR", None, cfg.state_dir, "state"),
-        ("TEROK_CONFIG_FILE", "paths:\n  state_dir: {path}\n", cfg.state_dir, "state"),
         (
             "TEROK_CONFIG_FILE",
             "paths:\n  user_projects_dir: {path}\n",
@@ -68,7 +67,7 @@ def test_global_config_path_prefers_xdg(
             "envs",
         ),
     ],
-    ids=["state-env", "state-config", "projects-config", "credentials-config"],
+    ids=["state-env", "projects-config", "credentials-config"],
 )
 def test_path_resolution(
     monkeypatch: pytest.MonkeyPatch,
@@ -195,14 +194,14 @@ def test_state_dir_via_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> N
 
 
 def test_state_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``state_dir()`` reads ``paths.state_dir`` from global config."""
-    target = tmp_path / "custom-state"
+    """``state_dir()`` honors ``paths.root`` from config as umbrella root."""
+    target = tmp_path / "custom-root"
     monkeypatch.delenv("TEROK_STATE_DIR", raising=False)
     monkeypatch.setenv(
         "TEROK_CONFIG_FILE",
-        str(write_config(tmp_path, f"paths:\n  state_dir: {target}\n")),
+        str(write_config(tmp_path, f"paths:\n  root: {target}\n")),
     )
-    assert cfg.state_dir() == target.resolve()
+    assert cfg.state_dir() == (target / "core").resolve()
 
 
 def test_build_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

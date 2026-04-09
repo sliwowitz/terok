@@ -17,7 +17,6 @@ from ..util.yaml import YAMLError, load as _yaml_load
 from .paths import (
     config_root as _config_root_base,
     credentials_root as _credentials_root_base,
-    state_root as _state_root_base,
 )
 from .yaml_schema import RawGlobalConfig
 
@@ -183,16 +182,16 @@ def _resolve_path(
 
 
 def state_dir() -> Path:
-    """Writable state directory for tasks/cache/build.
+    """Terok core state directory (host-only: build, archive, metadata).
 
     Precedence:
-    - Environment variable TEROK_STATE_DIR (handled first)
-    - If set in global config (paths.state_dir), use it.
-    - Otherwise, ``state_root() / "core"`` (umbrella subdir for terok-core data).
+    - ``TEROK_STATE_DIR`` environment variable (per-package escape hatch).
+    - Umbrella root (``TEROK_ROOT`` / ``config.yml`` ``paths.root``) + ``core/``.
+    - Platform default (``~/.local/share/terok/core``).
     """
-    return _resolve_path(
-        "TEROK_STATE_DIR", ("paths", "state_dir"), lambda: _state_root_base() / "core"
-    )
+    from terok_sandbox.paths import umbrella_state_dir
+
+    return umbrella_state_dir("core", "TEROK_STATE_DIR").resolve()
 
 
 def sandbox_live_dir() -> Path:
@@ -205,12 +204,14 @@ def sandbox_live_dir() -> Path:
     Precedence:
     - ``TEROK_SANDBOX_LIVE_DIR`` environment variable.
     - Global config ``paths.sandbox_live_dir``.
-    - ``state_root() / "sandbox-live"``.
+    - Umbrella root + ``sandbox-live/``.
     """
+    from terok_sandbox.paths import umbrella_state_dir
+
     return _resolve_path(
         "TEROK_SANDBOX_LIVE_DIR",
         ("paths", "sandbox_live_dir"),
-        lambda: _state_root_base() / "sandbox-live",
+        lambda: umbrella_state_dir("sandbox-live"),
     )
 
 

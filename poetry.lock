@@ -2964,7 +2964,7 @@ terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/downloa
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/umbrella-resolvers"
-resolved_reference = "78ca0592050cf2dd434a95d2924c8fa424fb9c39"
+resolved_reference = "76be407649b53429ba30b5a68615838b2e16318d"
 
 [[package]]
 name = "terok-shield"
