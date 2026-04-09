@@ -13,10 +13,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from ..util.yaml import YAMLError, load as _yaml_load
-from .paths import (
-    config_root as _config_root_base,
-    credentials_root as _credentials_root_base,
-)
+from .paths import config_root as _config_root_base
 from .yaml_schema import RawGlobalConfig
 
 # ---------- Prefix & roots ----------
@@ -326,10 +323,15 @@ def credentials_dir() -> Path:
     Precedence:
     - ``TEROK_CREDENTIALS_DIR`` environment variable.
     - Global config ``credentials.dir``.
-    - ``credentials_root()`` → ``~/.local/share/terok/credentials``
-      (or ``/var/lib/terok/credentials`` for root).
+    - Umbrella root + ``credentials/`` (honors ``paths.root``).
     """
-    return _resolve_path("TEROK_CREDENTIALS_DIR", ("credentials", "dir"), _credentials_root_base)
+    from terok_sandbox.paths import umbrella_state_dir
+
+    return _resolve_path(
+        "TEROK_CREDENTIALS_DIR",
+        ("credentials", "dir"),
+        lambda: umbrella_state_dir("credentials"),
+    )
 
 
 def make_sandbox_config() -> "SandboxConfig":  # noqa: F821 — forward ref
