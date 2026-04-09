@@ -315,14 +315,11 @@ files = [
 ]
 
 [[package]]
-<<<<<<< Updated upstream
 name = "cffi"
 version = "2.0.0"
 description = "Foreign Function Interface for Python calling C code."
 optional = false
 python-versions = ">=3.9"
-groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\""
 files = [
     {file = "cffi-2.0.0-cp310-cp310-macosx_10_13_x86_64.whl", hash = "sha256:0cf2d91ecc3fcc0625c2c530fe004f82c110405f101548512cce44322fa8ac44"},
     {file = "cffi-2.0.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:f73b96c41e3b2adedc34a7356e64c8eb96e03a3782b535e043a986276ce12a49"},
@@ -413,7 +410,7 @@ files = [
 [package.dependencies]
 pycparser = {version = "*", markers = "implementation_name != \"PyPy\""}
 
-=======
+[[package]]
 name = "cfgv"
 version = "3.5.0"
 description = "Validate configuration and produce human readable error messages."
@@ -424,7 +421,6 @@ files = [
     {file = "cfgv-3.5.0.tar.gz", hash = "sha256:d5b1034354820651caa73ede66a6294d6e95c1b00acc5e9b098e917404669132"},
 ]
 
->>>>>>> Stashed changes
 [[package]]
 name = "charset-normalizer"
 version = "3.4.6"
@@ -809,23 +805,11 @@ files = [
 toml = ["tomli"]
 
 [[package]]
-name = "distlib"
-version = "0.4.0"
-description = "Distribution utilities"
-optional = false
-python-versions = "*"
-files = [
-    {file = "distlib-0.4.0-py2.py3-none-any.whl", hash = "sha256:9659f7d87e46584a30b5780e43ac7a2143098441670ff0a49d5f9034c54a6c16"},
-    {file = "distlib-0.4.0.tar.gz", hash = "sha256:feec40075be03a04501a973d81f633735b4b69f98b05450592310c0f401a4e0d"},
-]
-
-[[package]]
 name = "cryptography"
 version = "46.0.6"
 description = "cryptography is a package which provides cryptographic recipes and primitives to Python developers."
 optional = false
 python-versions = "!=3.9.0,!=3.9.1,>=3.8"
-groups = ["main"]
 files = [
     {file = "cryptography-46.0.6-cp311-abi3-macosx_10_9_universal2.whl", hash = "sha256:64235194bad039a10bb6d2d930ab3323baaec67e2ce36215fd0952fad0930ca8"},
     {file = "cryptography-46.0.6-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:26031f1e5ca62fcb9d1fcb34b2b60b390d1aacaa15dc8b895a9ed00968b97b30"},
@@ -879,7 +863,7 @@ files = [
 ]
 
 [package.dependencies]
-cffi = {version = ">=2.0.0", markers = "python_full_version >= \"3.9.0\" and platform_python_implementation != \"PyPy\""}
+cffi = {version = ">=2.0.0", markers = "python_full_version >= \"3.9\" and platform_python_implementation != \"PyPy\""}
 
 [package.extras]
 docs = ["sphinx (>=5.3.0)", "sphinx-inline-tabs", "sphinx-rtd-theme (>=3.0.0)"]
@@ -897,7 +881,6 @@ version = "4.0.4"
 description = "A faster version of dbus-next"
 optional = false
 python-versions = ">=3.10"
-groups = ["main"]
 files = [
     {file = "dbus_fast-4.0.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:cc3955d9b86717a2b126700842012e30df3c3b263707154047e9b06e91d7b48d"},
     {file = "dbus_fast-4.0.4-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d1dc97206c3f7fbf45e2fc12a2a3fdf0f080325a342a140edece4bf33f0bfd23"},
@@ -936,6 +919,17 @@ files = [
     {file = "dbus_fast-4.0.4-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:0c869d1949065d7b3c75d926cd461faa434691b4cf57a10559617821afe30737"},
     {file = "dbus_fast-4.0.4-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:92b3aaea0e6df4cf83208ae994b08554335166eff726947733b93da748eab641"},
     {file = "dbus_fast-4.0.4.tar.gz", hash = "sha256:43137f0b73a7adbf7d5c0e9eb9d8d34df9e6e0aeafade2166e641c52dfe0a853"},
+]
+
+[[package]]
+name = "distlib"
+version = "0.4.0"
+description = "Distribution utilities"
+optional = false
+python-versions = "*"
+files = [
+    {file = "distlib-0.4.0-py2.py3-none-any.whl", hash = "sha256:9659f7d87e46584a30b5780e43ac7a2143098441670ff0a49d5f9034c54a6c16"},
+    {file = "distlib-0.4.0.tar.gz", hash = "sha256:feec40075be03a04501a973d81f633735b4b69f98b05450592310c0f401a4e0d"},
 ]
 
 [[package]]
@@ -2173,8 +2167,6 @@ version = "3.0"
 description = "C parser in Python"
 optional = false
 python-versions = ">=3.10"
-groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\" and implementation_name != \"PyPy\""
 files = [
     {file = "pycparser-3.0-py3-none-any.whl", hash = "sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992"},
     {file = "pycparser-3.0.tar.gz", hash = "sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29"},
@@ -2370,12 +2362,7 @@ name = "pygments"
 version = "2.20.0"
 description = "Pygments is a syntax highlighting package written in Python."
 optional = false
-<<<<<<< Updated upstream
 python-versions = ">=3.9"
-groups = ["main", "dev", "docs", "test"]
-=======
-python-versions = ">=3.8"
->>>>>>> Stashed changes
 files = [
     {file = "pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176"},
     {file = "pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f"},
@@ -2637,12 +2624,7 @@ name = "requests"
 version = "2.33.1"
 description = "Python HTTP for Humans."
 optional = false
-<<<<<<< Updated upstream
 python-versions = ">=3.10"
-groups = ["main", "docs"]
-=======
-python-versions = ">=3.9"
->>>>>>> Stashed changes
 files = [
     {file = "requests-2.33.1-py3-none-any.whl", hash = "sha256:4e6d1ef462f3626a1f0a0a9c42dd93c63bad33f9f1c1937509b8c5c8718ab56a"},
     {file = "requests-2.33.1.tar.gz", hash = "sha256:18817f8c57c6263968bc123d237e3b8b08ac046f5456bd1e307ee8f4250d3517"},
@@ -2852,7 +2834,6 @@ version = "0.5.6"
 description = "D-Bus desktop notification package for terok"
 optional = false
 python-versions = ">=3.12,<4.0"
-groups = ["main"]
 files = [
     {file = "terok_dbus-0.5.6-py3-none-any.whl", hash = "sha256:d95cb2029d3e8a094f4a4cdf93c6d3b91f6f98b6c3727dd749616a872ce55507"},
 ]
@@ -3370,8 +3351,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.12,<4.0"
-<<<<<<< Updated upstream
-content-hash = "eb60beec490714ed8b678ac381fd24ba9125a6863d350e51dfe8fdd05fc3c2a1"
-=======
-content-hash = "4f9eb7208894232de2093b4bcfae6b3a5b0c991d341bc3d37716a4d8b4dd640d"
->>>>>>> Stashed changes
+content-hash = "c23aef5d9b75a3c955071d9523aefd2af9857e24b839f16cd7ebd88316d32e50"
