@@ -773,10 +773,16 @@ if _HAS_TEXTUAL:
                 result = worker.result
                 if not result:
                     return
-                project_id, task_id, task_name, error = result
+                project_id, task_id, task_name, error, warnings = result
                 task_label = f"{project_id} {task_id}" + (f" {task_name}" if task_name else "")
                 if error:
                     self.notify(f"Delete error for task {task_label}: {error}")
+                elif warnings:
+                    detail = "; ".join(warnings)
+                    self.notify(
+                        f"Deleted task {task_label} with warnings:\n{detail}\n"
+                        f"Archive: terok task archive list {project_id}",
+                    )
                 else:
                     self.notify(
                         f"Deleted task {task_label}.\n"

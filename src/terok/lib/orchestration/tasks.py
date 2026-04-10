@@ -688,9 +688,24 @@ def _archive_task(project: ProjectConfig, task_id: str, meta: dict) -> Path | No
         return None
 
 
-def _task_delete(project: ProjectConfig, task_id: str) -> None:
+@dataclass
+class TaskDeleteResult:
+    """Outcome of a task deletion — always completes, collects warnings.
+
+    The task is considered deleted regardless (metadata and workspace
+    removed), but individual cleanup steps may fail.  ``warnings``
+    carries human-readable descriptions of any steps that did not
+    complete cleanly.
+    """
+
+    task_id: str
+    warnings: list[str]
+
+
+def _task_delete(project: ProjectConfig, task_id: str) -> TaskDeleteResult:
     """Delete a task's workspace, metadata, and associated containers."""
     _log_debug(f"task_delete: start project_id={project.id} task_id={task_id}")
+    warnings: list[str] = []
 
     workspace = project.tasks_root / str(task_id)
     meta_dir = tasks_meta_dir(project.id)
@@ -717,10 +732,20 @@ def _task_delete(project: ProjectConfig, task_id: str) -> None:
         revoke_token_for_task(project.id, task_id)
     except Exception as exc:
         _log_debug(f"task_delete: token revoke failed: {exc}")
+        warnings.append(f"Token revoke failed: {exc}")
 
     _log_debug("task_delete: calling _stop_task_containers")
     names = [container_name(project.id, mode, str(task_id)) for mode in CONTAINER_MODES]
-    stop_task_containers(names)
+    try:
+        rm_results = stop_task_containers(names)
+    except Exception as exc:
+        _log_debug(f"task_delete: stop_task_containers raised: {exc}")
+        warnings.append(f"Container removal failed: {exc}")
+        rm_results = []
+    for r in rm_results:
+        if not r.removed:
+            _log_debug(f"task_delete: container {r.name} not removed: {r.error}")
+            warnings.append(f"Container {r.name}: {r.error}")
     _log_debug("task_delete: _stop_task_containers returned")
 
     if mode:
@@ -739,26 +764,36 @@ def _task_delete(project: ProjectConfig, task_id: str) -> None:
 
     if workspace.is_dir():
         _log_debug("task_delete: removing workspace directory")
-        shutil.rmtree(workspace)
-        _log_debug("task_delete: workspace directory removed")
+        try:
+            shutil.rmtree(workspace)
+            _log_debug("task_delete: workspace directory removed")
+        except Exception as exc:
+            _log_debug(f"task_delete: workspace removal failed: {exc}")
+            warnings.append(f"Workspace removal failed: {exc}")
 
     if meta_path.is_file():
         _log_debug("task_delete: removing metadata file")
-        meta_path.unlink()
-        _log_debug("task_delete: metadata file removed")
+        try:
+            meta_path.unlink()
+            _log_debug("task_delete: metadata file removed")
+        except Exception as exc:
+            _log_debug(f"task_delete: metadata removal failed: {exc}")
+            warnings.append(f"Metadata removal failed: {exc}")
 
     _log_debug("task_delete: finished")
+    return TaskDeleteResult(task_id=task_id, warnings=warnings)
 
 
-def task_delete(project_id: str, task_id: str) -> None:
+def task_delete(project_id: str, task_id: str) -> TaskDeleteResult:
     """Delete a task's workspace, metadata, and any associated containers.
 
     Before removal, captures container logs and archives the task metadata
     and logs to ``archive/<project_id>/tasks/``.  Containers are stopped
     best-effort via podman using the ``<project.id>-<mode>-<task_id>``
-    naming scheme.
+    naming scheme.  Returns a :class:`TaskDeleteResult` so the caller can
+    present any warnings from cleanup steps that failed.
     """
-    _task_delete(load_project(project_id), task_id)
+    return _task_delete(load_project(project_id), task_id)
 
 
 def _validate_login(project: ProjectConfig, task_id: str) -> tuple[str, str]:

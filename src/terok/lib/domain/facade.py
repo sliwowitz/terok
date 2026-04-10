@@ -45,6 +45,7 @@ from ..orchestration.task_runners import (  # noqa: F401 — re-exported public 
     task_run_toad,
 )
 from ..orchestration.tasks import (  # noqa: F401 — re-exported public API
+    TaskDeleteResult,
     get_tasks,
     task_archive_list,
     task_archive_logs,
@@ -154,6 +155,7 @@ __all__ = [
     "delete_project",
     "DeleteProjectResult",
     # Task lifecycle
+    "TaskDeleteResult",
     "task_new",
     "task_delete",
     "task_rename",
