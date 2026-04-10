@@ -9,6 +9,7 @@ script (tools/terok-release-chain.sh) with structured state and the
 "release from PR" workflow for chained feature branches.
 
 Usage:
+    python3 tools/terok-release-chain.py open feat/comms dbus
     python3 tools/terok-release-chain.py quick dbus terok
     python3 tools/terok-release-chain.py quick --from-prs sandbox:42,agent:55
     python3 tools/terok-release-chain.py plan dbus -o plan.json
@@ -40,7 +41,6 @@ console = Console(stderr=True)
 # ── Chain config ──────────────────────────────────────────────────────────
 #
 # Single source of truth for release ordering and sibling relationships.
-# Must stay in sync with tools/terok-chain-open.sh.
 
 CHAIN = ["terok-dbus", "terok-shield", "terok-sandbox", "terok-agent", "terok"]
 
@@ -226,6 +226,19 @@ def set_dep_url(path: Path, dep_repo: str, version: str, org: str):
         return
     t = tomlkit.inline_table()
     t.append("url", wheel_url(org, dep_repo, version))
+    deps[key] = t
+    path.write_text(tomlkit.dumps(doc))
+
+
+def set_branch_dep(path: Path, dep_repo: str, branch: str, fork: str):
+    """Set a dependency to a git-branch reference (for PR chain development)."""
+    doc, deps = _toml_deps(path)
+    key = dep_repo if dep_repo in deps else pkg_name(dep_repo)
+    if key not in deps:
+        return
+    t = tomlkit.inline_table()
+    t.append("git", f"https://github.com/{fork}/{dep_repo}.git")
+    t.append("branch", branch)
     deps[key] = t
     path.write_text(tomlkit.dumps(doc))
 
@@ -1022,6 +1035,114 @@ def quick(
         else:
             console.print(f"  [yellow]*[/] {pkg.repo}  (deps only)")
     console.print(f"\nElapsed: {elapsed:.0f}s")
+
+
+@cli.command("open")
+@click.argument("branch")
+@click.argument("repos", nargs=-1, required=True)
+@click.option("-p", "--pretend", is_flag=True, help="Dry run")
+@click.option("--org", default=_env("TEROK_GH_ORG", "terok-ai"))
+@click.option("--fork", default=_env("TEROK_GH_FORK"))
+@click.option(
+    "--cache-dir", default=_env("TEROK_RELEASE_DIR", str(Path.home() / ".cache/terok-release"))
+)
+def open_chain(branch, repos, pretend, org, fork, cache_dir):
+    """Open a PR chain for cross-cutting development.
+
+    Creates a branch in each repo, wires sibling deps as Poetry git-branch
+    references, and opens PRs.  During an open chain, use `poetry install`
+    for development — not pipx.
+
+    \b
+    Examples:
+        terok-release-chain.py open feat/comms dbus
+        terok-release-chain.py open feat/my-feature sandbox terok
+    """
+    org, fork, cd, ctx = _common_ctx(org, fork, cache_dir, pretend, True, True, 0)
+    start = normalise(repos[0])
+    end = normalise(repos[1]) if len(repos) > 1 else None
+    chain = build_chain(start, end)
+
+    console.print(f"\n[bold]Opening PR chain:[/] {branch}")
+    console.print(f"  Repos: {' '.join(chain)}\n")
+
+    for repo in chain:
+        ensure_clone(repo, cd, org, fork)
+    console.print()
+
+    pr_urls: list[str] = []
+    for i, repo in enumerate(chain):
+        repo_dir = cd / repo
+        gh_repo = f"{org}/{repo}"
+
+        console.print(f"[cyan]{repo}[/]: creating branch {branch}")
+        if not ctx.dry_run:
+            sh("git", "checkout", "-B", branch, "upstream/master", cwd=repo_dir)
+
+        # Wire in-chain deps as git-branch references (skip the leaf repo)
+        if i > 0:
+            for dep in DEPS.get(repo, []):
+                if dep in chain:
+                    console.print(f"  wiring {dep} -> branch {branch}")
+                    if not ctx.dry_run:
+                        set_branch_dep(repo_dir / "pyproject.toml", dep, branch, fork)
+            if not ctx.dry_run:
+                sh("poetry", "lock", cwd=repo_dir)
+                sh("git", "add", "pyproject.toml", "poetry.lock", cwd=repo_dir)
+                sh("git", "commit", "-m", f"chore: wire {branch} branch deps", cwd=repo_dir)
+
+        console.print("  pushing to fork")
+        if not ctx.dry_run:
+            sh("git", "push", "-u", "origin", branch, "--force-with-lease", cwd=repo_dir)
+
+        # Open PR (detect "already exists" gracefully)
+        if ctx.dry_run:
+            console.print("  [yellow][pretend][/] would create PR")
+            pr_urls.append("(pretend)")
+        else:
+            r = sh(
+                "gh",
+                "pr",
+                "view",
+                "--repo",
+                gh_repo,
+                "--head",
+                f"{fork}:{branch}",
+                "--json",
+                "url",
+                "--jq",
+                ".url",
+                capture=True,
+                check=False,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                pr_urls.append(r.stdout.strip())
+                console.print(f"  PR already exists: {pr_urls[-1]}")
+            else:
+                r = sh(
+                    "gh",
+                    "pr",
+                    "create",
+                    "--repo",
+                    gh_repo,
+                    "--base",
+                    "master",
+                    "--head",
+                    f"{fork}:{branch}",
+                    "--title",
+                    branch,
+                    "--body",
+                    f"Part of `{branch}` PR chain.",
+                    capture=True,
+                )
+                pr_urls.append(r.stdout.strip())
+                console.print(f"  [green]PR created: {pr_urls[-1]}[/]")
+        console.print()
+
+    console.print("[bold green]PR chain opened![/]\n")
+    for repo, url in zip(chain, pr_urls, strict=True):
+        console.print(f"  {repo}  {url}")
+    console.print()
 
 
 @cli.command("plan")
