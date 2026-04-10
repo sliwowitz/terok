@@ -471,7 +471,9 @@ prepare_repo() {
     local gh_repo="${GH_ORG}/${repo}"
     local current_ver
     current_ver=$(upstream_version "$repo")
-    local branch_suffix="${RELEASE_NAME:+${RELEASE_NAME// /-}}"
+    # Slugify: lowercase, strip non-alnum to hyphens, collapse runs
+    local branch_suffix
+    branch_suffix=$(echo "$RELEASE_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/-\+/-/g; s/^-//; s/-$//')
     local branch="chore/bump-deps${branch_suffix:+-${branch_suffix}}"
 
     printf "\n${BOLD}════════════════════════════════════════════════════════════════${RESET}\n"

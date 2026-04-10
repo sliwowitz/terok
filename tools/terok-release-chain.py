@@ -77,6 +77,11 @@ def pkg_name(repo: str) -> str:
     return repo.replace("-", "_")
 
 
+def slugify(text: str) -> str:
+    """Normalize a human-readable name to a safe machine token: [a-z0-9-]."""
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.lower())).strip("-")
+
+
 def bump_version(ver: str, level: str = "patch") -> str:
     """X.Y.Z -> next version at the given semver level."""
     major, minor, patch = (int(x) for x in ver.split("."))
@@ -456,7 +461,7 @@ def plan_steps(pkg: PackagePlan, org: str, fork: str, name: str) -> list[Step]:
         branch = f"chore/release-{pkg.new_version}"
         base_params = {"branch": branch, "base": "upstream/master"}
     else:
-        suffix = name.replace(" ", "-")
+        suffix = slugify(name)
         branch = f"chore/bump-deps{'-' + suffix if suffix else ''}"
         base_params = {"branch": branch, "base": "upstream/master"}
 
@@ -996,7 +1001,7 @@ def quick(
 
     # Save plan
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    slug = release_name.replace(" ", "-").strip("-") or "release"
+    slug = slugify(release_name) or "release"
     plan_path = cd / "plans" / f"{ts}-{slug}.json"
     ctx.plan_path = plan_path
     save_plan(plan, plan_path)
