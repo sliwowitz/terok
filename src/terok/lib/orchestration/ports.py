@@ -15,7 +15,7 @@ from ..util.yaml import load as _yaml_load
 _LOCALHOST = "127.0.0.1"
 
 
-def _is_port_free(port: int) -> bool:
+def is_port_free(port: int) -> bool:
     """Return True if *port* can be bound on localhost."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
@@ -63,7 +63,7 @@ def assign_web_port() -> int:
     max_tries = 200
     tries = 0
     while tries < max_tries:
-        if port not in used and _is_port_free(port):
+        if port not in used and is_port_free(port):
             return port
         port += 1
         tries += 1

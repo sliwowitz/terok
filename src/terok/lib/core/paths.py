@@ -11,9 +11,10 @@ try:
     from platformdirs import (
         user_config_dir as _user_config_dir,
         user_data_dir as _user_data_dir,
+        user_runtime_dir as _user_runtime_dir,
     )
 except ImportError:  # optional dependency
-    _user_config_dir = _user_data_dir = None  # type: ignore[assignment]
+    _user_config_dir = _user_data_dir = _user_runtime_dir = None  # type: ignore[assignment]
 
 
 APP_NAME = "terok"
@@ -76,13 +77,15 @@ def state_root() -> Path:
 
 
 def runtime_root() -> Path:
-    """
-    Transient runtime bits.
+    """Transient runtime files (port files, PID files).
+
+    Port files for host-side services live here so each user on a shared host
+    gets an isolated, session-scoped directory (cleaned on logout).
 
     Priority:
       1. TEROK_RUNTIME_DIR
       2. if root   → /run/terok
-         else      → ~/.cache/terok
+         else      → platformdirs → $XDG_RUNTIME_DIR/terok → ~/.cache/terok
     """
     env = os.getenv("TEROK_RUNTIME_DIR")
     if env:
@@ -91,6 +94,12 @@ def runtime_root() -> Path:
     if _is_root():
         return Path("/run") / APP_NAME
 
+    if _user_runtime_dir is not None:
+        return Path(_user_runtime_dir(APP_NAME))
+
+    xdg = os.getenv("XDG_RUNTIME_DIR")
+    if xdg:
+        return Path(xdg) / APP_NAME
     return Path.home() / ".cache" / APP_NAME
 
 

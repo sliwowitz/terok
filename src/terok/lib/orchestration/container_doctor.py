@@ -144,7 +144,7 @@ def _terok_doctor_checks(
     checks.append(_git_identity_check(human_name, human_email, "email"))
 
     # Git remote URL check
-    from ..core.config import get_gate_server_port as _get_gate_port
+    from ..core.config import get_configured_gate_port as _get_gate_port
 
     gate_port = _get_gate_port()
     checks.append(_git_remote_check(project.security_class, gate_port))

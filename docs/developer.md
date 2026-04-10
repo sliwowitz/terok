@@ -542,6 +542,54 @@ This pattern (config key for inheritance control + file for additive content) is
 
 ---
 
+## Multi-User Port Allocation
+
+### Problem
+
+terok's host-side services (gate server, credential proxy, Toad web UI) bind to fixed TCP ports.
+On a shared Linux host with multiple users, only one user can run terok at a time because port
+conflicts prevent the second user's services from starting.
+
+### Solution: port-file discovery
+
+Each service binds to an OS-assigned port (port 0) and writes the actual bound port to a file
+under `$XDG_RUNTIME_DIR/terok/` (typically `/run/user/{uid}/terok/`).  Clients read the file to
+discover the port.  On restart, the service attempts to reuse its previous port (SO_REUSEADDR),
+so running containers are unaffected.
+
+This is the same pattern used by JupyterHub (per-user notebook servers) and Xvfb (display
+servers).
+
+### Port file locations
+
+| Service          | Port file                                 | Preferred port config          |
+|------------------|-------------------------------------------|--------------------------------|
+| Gate server      | `runtime_root()/gate.port`                | `gate_server.port` (9418)      |
+| Credential proxy | `runtime_root()/proxy.port`               | `credential_proxy.port` (18731)|
+| Toad web UI      | Per-task in `tasks/{id}.yml` → `web_port` | `ui.base_port` (7860)          |
+
+`runtime_root()` resolves to `$XDG_RUNTIME_DIR/terok` on systemd-based Linux — per-user,
+permission-protected (mode 0700), cleaned on logout.
+
+### Package boundary
+
+Port-file writing and reading is implemented in **terok-sandbox** (gate server, credential
+proxy).  The **terok** package consumes ports via sandbox APIs (`get_gate_server_port()`,
+`get_proxy_port()`), which transparently read from port files.  Toad ports are managed directly
+in terok's task metadata.
+
+The `config.yml` port fields (`gate_server.port`, `credential_proxy.port`) specify the
+*preferred* port — what the service will try to bind first.  The actual bound port may differ
+in multi-user environments.
+
+### Future: bridge mode networking
+
+Port-file discovery is a pragmatic near-term solution.  The long-term architecture is Podman
+bridge-mode networking with per-user networks and DNS-based service discovery, eliminating host
+port exposure entirely.
+
+---
+
 ## Making a Release
 
 ### Steps

@@ -136,7 +136,7 @@ class TestStateRoot:
 
 
 class TestRuntimeRoot:
-    """Verify ``runtime_root()`` resolution."""
+    """Verify ``runtime_root()`` resolution — includes XDG_RUNTIME_DIR for port files."""
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """TEROK_RUNTIME_DIR takes first priority."""
@@ -149,8 +149,25 @@ class TestRuntimeRoot:
         monkeypatch.setattr(paths, "_is_root", lambda: True)
         assert paths.runtime_root() == Path("/run/terok")
 
-    def test_user_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Non-root fallback: ~/.cache/terok."""
+    def test_platformdirs_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-root with platformdirs delegates to user_runtime_dir."""
         monkeypatch.delenv("TEROK_RUNTIME_DIR", raising=False)
         monkeypatch.setattr(paths, "_is_root", lambda: False)
+        monkeypatch.setattr(paths, "_user_runtime_dir", lambda name: f"{MOCK_BASE}/run/{name}")
+        assert paths.runtime_root() == MOCK_BASE / "run" / "terok"
+
+    def test_xdg_runtime_dir_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without platformdirs, XDG_RUNTIME_DIR is honored."""
+        monkeypatch.delenv("TEROK_RUNTIME_DIR", raising=False)
+        monkeypatch.setattr(paths, "_is_root", lambda: False)
+        monkeypatch.setattr(paths, "_user_runtime_dir", None)
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(MOCK_BASE / "xdg-run"))
+        assert paths.runtime_root() == MOCK_BASE / "xdg-run" / "terok"
+
+    def test_bare_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Last resort: ~/.cache/terok."""
+        monkeypatch.delenv("TEROK_RUNTIME_DIR", raising=False)
+        monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+        monkeypatch.setattr(paths, "_is_root", lambda: False)
+        monkeypatch.setattr(paths, "_user_runtime_dir", None)
         assert paths.runtime_root() == Path.home() / ".cache" / "terok"

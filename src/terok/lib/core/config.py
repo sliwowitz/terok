@@ -348,7 +348,7 @@ def make_sandbox_config() -> "SandboxConfig":  # noqa: F821 — forward ref
 
     return SandboxConfig(
         credentials_dir=credentials_dir(),
-        gate_port=get_gate_server_port(),
+        gate_port=get_configured_gate_port(),
         shield_bypass=get_shield_bypass_firewall_no_protection(),
         shield_audit=get_shield_audit(),
     )
@@ -401,6 +401,21 @@ def get_task_name_categories() -> list[str] | None:
 
 # Presentation-layer hint appended to CLI/TUI messages when the shield is weakened.
 SHIELD_SECURITY_HINT = "See: https://terok-ai.github.io/terok/shield-security/"
+
+
+def get_configured_proxy_port() -> int:
+    """Return the preferred credential proxy port from global config (default 18731).
+
+    This is the port the proxy will *try* to bind.  In multi-user setups the
+    actual bound port may differ — use ``terok_sandbox.get_proxy_port()`` for
+    the live value.
+
+    Global config (config.yml)::
+
+        credential_proxy:
+          port: 18731
+    """
+    return _load_validated().credential_proxy.port
 
 
 def get_credential_proxy_bypass() -> bool:
@@ -470,8 +485,18 @@ def get_public_host() -> str:
     return os.environ.get("TEROK_PUBLIC_HOST", "").strip() or "127.0.0.1"
 
 
-def get_gate_server_port() -> int:
-    """Return the gate server port from global config (default 9418)."""
+def get_configured_gate_port() -> int:
+    """Return the preferred gate server port from global config (default 9418).
+
+    This is the port the server will *try* to bind.  In multi-user setups the
+    actual bound port may differ — use ``terok_sandbox.get_gate_server_port()``
+    for the live value.
+
+    Global config (config.yml)::
+
+        gate_server:
+          port: 9418
+    """
     return _load_validated().gate_server.port
 
 

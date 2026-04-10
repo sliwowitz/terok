@@ -363,10 +363,16 @@ class RawShieldGlobalSection(BaseModel):
 
 
 class RawCredentialProxySection(BaseModel):
-    """Global ``credential_proxy:`` section."""
+    """Global ``credential_proxy:`` section.
+
+    The ``port`` field is the *preferred* port the proxy will try to bind.
+    In multi-user setups the actual port may differ — see port-file discovery
+    in developer.md.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
+    port: int = 18731
     bypass_no_secret_protection: bool = False
     transport: Literal["direct", "socket"] = "socket"
 

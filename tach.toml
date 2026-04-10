@@ -622,7 +622,7 @@ expose = [
     "load_global_config",
     "get_global_section",
     "get_global_agent_config",
-    "get_gate_server_port",
+    "get_configured_gate_port",
     "get_gate_server_suppress_warning",
     "get_task_name_categories",
     "get_prefix",
@@ -632,6 +632,7 @@ expose = [
     "get_claude_allow_oauth",
     "get_claude_expose_oauth_token",
     "is_claude_oauth_proxied",
+    "get_configured_proxy_port",
     "get_credential_proxy_bypass",
     "get_credential_proxy_transport",
     "get_shield_bypass_firewall_no_protection",
@@ -755,7 +756,7 @@ expose = ["ensure_dir", "ensure_dir_writable", "archive_timestamp", "unique_arch
 from = ["terok.lib.util.fs"]
 
 [[interfaces]]
-expose = ["assign_web_port"]
+expose = ["assign_web_port", "is_port_free"]
 from = ["terok.lib.orchestration.ports"]
 
 [[interfaces]]

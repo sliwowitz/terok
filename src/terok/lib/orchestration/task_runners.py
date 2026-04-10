@@ -54,7 +54,7 @@ from .agent_config import resolve_agent_config
 from .container_exec import container_git_diff
 from .environment import build_task_env_and_volumes, ensure_credential_proxy
 from .hooks import run_hook
-from .ports import assign_web_port
+from .ports import assign_web_port, is_port_free
 from .tasks import (
     container_name,
     load_task_meta,
@@ -527,6 +527,11 @@ def task_run_toad(
     if not isinstance(port, int):
         port = assign_web_port()
         meta["web_port"] = port
+    elif not is_port_free(port):
+        old = port
+        port = assign_web_port()
+        meta["web_port"] = port
+        print(f"WARNING: Previously assigned port {old} is in use, reassigned to {port}")
 
     cname = container_name(project.id, "toad", task_id)
     container_state = get_container_state(cname)

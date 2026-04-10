@@ -398,10 +398,10 @@ def test_get_credential_proxy_bypass(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     assert cfg.get_credential_proxy_bypass() is True
 
 
-def test_get_gate_server_port_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``get_gate_server_port()`` defaults to 9418."""
+def test_get_configured_gate_port_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``get_configured_gate_port()`` defaults to 9418."""
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
-    assert cfg.get_gate_server_port() == 9418
+    assert cfg.get_configured_gate_port() == 9418
 
 
 def test_get_gate_server_suppress_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
