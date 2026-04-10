@@ -98,12 +98,16 @@ def build_chain(start: str, end: str | None = None) -> list[str]:
     return CHAIN[i : j + 1] if j >= i else die(f"{end} is not downstream of {start}")
 
 
+def wheel_filename(repo: str, version: str) -> str:
+    """terok-sandbox 0.0.50 -> terok_sandbox-0.0.50-py3-none-any.whl."""
+    return f"{pkg_name(repo)}-{version}-py3-none-any.whl"
+
+
 def wheel_url(org: str, repo: str, version: str) -> str:
     """Construct the GitHub release wheel URL."""
-    pkg = pkg_name(repo)
     return (
         f"https://github.com/{org}/{repo}/releases/download/"
-        f"v{version}/{pkg}-{version}-py3-none-any.whl"
+        f"v{version}/{wheel_filename(repo, version)}"
     )
 
 
@@ -356,7 +360,9 @@ def wait_for_checks(pr_url: str, gh_repo: str, ctx: Ctx) -> str:
         console.print("[yellow]Checks failed:[/]")
         for c in failing:
             console.print(f"  {c['name']}: {c['bucket']}")
-        if not click.confirm("Force merge anyway?", default=False):
+        if ctx.auto_yes:
+            console.print("[yellow]Force-merging (--yes)[/]")
+        elif not click.confirm("Force merge anyway?", default=False):
             die("Aborted.")
         return "passed"
 
@@ -404,7 +410,7 @@ def squash_merge(pr_url: str, gh_repo: str) -> str:
 
 def wait_for_wheel(repo: str, version: str, org: str, timeout: int = 300):
     """Poll release assets until the wheel appears."""
-    expected = f"{pkg_name(repo)}-{version}-py3-none-any.whl"
+    expected = wheel_filename(repo, version)
     console.print(f"Waiting for {expected}...")
     for _elapsed in range(0, timeout, 5):
         r = sh(
@@ -520,6 +526,10 @@ def generate_plan(
         # Determine action
         if pr_specs and repo in pr_specs:
             info = pr_info(pr_specs[repo], gh_repo)
+            if info.get("state") != "OPEN":
+                die(
+                    f"PR #{pr_specs[repo]} for {repo} is {info.get('state', 'unknown')} — must be OPEN"
+                )
             action = Action.RELEASE_PR
             pr_num, pr_branch = pr_specs[repo], info["headRefName"]
         elif repo == stop_at:
@@ -620,37 +630,63 @@ def execute_step(step: Step, plan: Plan, ctx: Ctx):
 
         case StepKind.GIT_COMMIT:
             sh("git", "add", "pyproject.toml", "poetry.lock", cwd=repo_dir)
-            sh("git", "commit", "-m", p["message"], cwd=repo_dir)
+            # Idempotent: skip if HEAD already carries this commit message
+            r = sh("git", "log", "-1", "--format=%s", cwd=repo_dir, capture=True)
+            if r.stdout.strip() == p["message"]:
+                console.print("[dim]Already committed — skipping.[/]")
+            else:
+                sh("git", "commit", "-m", p["message"], cwd=repo_dir)
 
         case StepKind.GIT_PUSH:
             sh("git", "push", "-u", "origin", p["branch"], "--force-with-lease", cwd=repo_dir)
 
         case StepKind.PR_CREATE:
+            # Idempotent: reuse existing PR for this head branch
             r = sh(
                 "gh",
                 "pr",
-                "create",
+                "view",
                 "--repo",
                 gh_repo,
-                "--base",
-                "master",
                 "--head",
                 f"{plan.gh_fork}:{p['branch']}",
-                "--title",
-                p["title"],
-                "--body",
-                p["body"],
-                "--label",
-                "automated-release",
+                "--json",
+                "url",
+                "--jq",
+                ".url",
                 capture=True,
+                check=False,
             )
-            step.result["pr_url"] = r.stdout.strip()
-            console.print(f"PR created: {step.result['pr_url']}")
+            if r.returncode == 0 and r.stdout.strip():
+                step.result["pr_url"] = r.stdout.strip()
+                console.print(f"PR already exists: {step.result['pr_url']}")
+            else:
+                r = sh(
+                    "gh",
+                    "pr",
+                    "create",
+                    "--repo",
+                    gh_repo,
+                    "--base",
+                    "master",
+                    "--head",
+                    f"{plan.gh_fork}:{p['branch']}",
+                    "--title",
+                    p["title"],
+                    "--body",
+                    p["body"],
+                    "--label",
+                    "automated-release",
+                    capture=True,
+                )
+                step.result["pr_url"] = r.stdout.strip()
+                console.print(f"PR created: {step.result['pr_url']}")
 
         case StepKind.PR_MERGE:
             pr_url = _find_pr_url(step.package, plan)
-            check_result = wait_for_checks(pr_url, gh_repo, ctx)
-            if check_result == "merged":
+            # Idempotent: if already merged, just capture the SHA
+            st = pr_state(pr_url, gh_repo)
+            if st == "MERGED":
                 r = sh(
                     "gh",
                     "pr",
@@ -665,12 +701,46 @@ def execute_step(step: Step, plan: Plan, ctx: Ctx):
                     capture=True,
                 )
                 step.result["merge_sha"] = r.stdout.strip()
+                console.print(f"[dim]Already merged ({step.result['merge_sha'][:12]})[/]")
             else:
-                step.result["merge_sha"] = squash_merge(pr_url, gh_repo)
+                check_result = wait_for_checks(pr_url, gh_repo, ctx)
+                if check_result == "merged":
+                    r = sh(
+                        "gh",
+                        "pr",
+                        "view",
+                        pr_url,
+                        "--repo",
+                        gh_repo,
+                        "--json",
+                        "mergeCommit",
+                        "--jq",
+                        ".mergeCommit.oid",
+                        capture=True,
+                    )
+                    step.result["merge_sha"] = r.stdout.strip()
+                else:
+                    step.result["merge_sha"] = squash_merge(pr_url, gh_repo)
 
         case StepKind.TAG:
             sh("git", "fetch", "upstream", cwd=repo_dir)
-            # Check release doesn't already exist
+            merge_sha = None
+            for s in plan.steps:
+                if s.package == step.package and s.kind == StepKind.PR_MERGE:
+                    merge_sha = s.result.get("merge_sha")
+            target = merge_sha or "upstream/master"
+            # Idempotent: skip if tag already exists on the expected target
+            r = sh(
+                "git", "rev-parse", f"refs/tags/{p['tag']}", cwd=repo_dir, capture=True, check=False
+            )
+            if r.returncode == 0:
+                console.print(f"[dim]Tag {p['tag']} already exists — skipping.[/]")
+            else:
+                sh("git", "tag", "-f", p["tag"], target, cwd=repo_dir)
+                sh("git", "push", "upstream", p["tag"], cwd=repo_dir)
+
+        case StepKind.RELEASE:
+            # Idempotent: skip if release already exists
             r = sh(
                 "gh",
                 "release",
@@ -684,27 +754,19 @@ def execute_step(step: Step, plan: Plan, ctx: Ctx):
                 check=False,
             )
             if r.returncode == 0:
-                die(f"Release {p['tag']} already exists on {gh_repo}")
-            merge_sha = None
-            for s in plan.steps:
-                if s.package == step.package and s.kind == StepKind.PR_MERGE:
-                    merge_sha = s.result.get("merge_sha")
-            target = merge_sha or "upstream/master"
-            sh("git", "tag", "-f", p["tag"], target, cwd=repo_dir)
-            sh("git", "push", "upstream", p["tag"], cwd=repo_dir)
-
-        case StepKind.RELEASE:
-            sh(
-                "gh",
-                "release",
-                "create",
-                p["tag"],
-                "--repo",
-                gh_repo,
-                "--title",
-                p["title"],
-                "--generate-notes",
-            )
+                console.print(f"[dim]Release {p['tag']} already exists — skipping.[/]")
+            else:
+                sh(
+                    "gh",
+                    "release",
+                    "create",
+                    p["tag"],
+                    "--repo",
+                    gh_repo,
+                    "--title",
+                    p["title"],
+                    "--generate-notes",
+                )
 
         case StepKind.WHEEL_POLL:
             wait_for_wheel(step.package, p["version"], plan.gh_org, ctx.wheel_timeout)
@@ -733,7 +795,7 @@ def simulate_step(step: Step, plan: Plan, ctx: Ctx):
                     capture=True,
                     check=False,
                 )
-                expected = f"{pkg_name(p['dep_repo'])}-{p['dep_version']}-py3-none-any.whl"
+                expected = wheel_filename(p["dep_repo"], p["dep_version"])
                 if expected not in (r.stdout or ""):
                     console.print(f"[yellow]Warning: wheel {expected} not found[/]")
         case StepKind.PR_MERGE:
@@ -795,8 +857,11 @@ def _common_ctx(
     yes: bool,
     skip_checks: bool,
     check_timeout: int,
+    *,
+    require_fork: bool = True,
 ) -> tuple[str, str, Path, Ctx]:
-    fork = fork or die("TEROK_GH_FORK is not set (e.g. TEROK_GH_FORK=sliwowitz)")
+    if require_fork:
+        fork = fork or die("TEROK_GH_FORK is not set (e.g. TEROK_GH_FORK=sliwowitz)")
     cd = Path(cache_dir)
     cd.mkdir(parents=True, exist_ok=True)
     return (
@@ -1012,8 +1077,11 @@ def plan_cmd(
 )
 def simulate(plan_file, org, fork, cache_dir):
     """Validate a plan against real repo state."""
-    org, fork, cd, ctx = _common_ctx(org, fork, cache_dir, True, True, True, 0)
+    org, fork, cd, ctx = _common_ctx(org, fork, cache_dir, True, True, True, 0, require_fork=False)
     plan = Plan.model_validate_json(Path(plan_file).read_text())
+    # Fall back to plan-embedded values when CLI/env didn't provide them
+    plan.gh_org = org or plan.gh_org
+    plan.gh_fork = fork or plan.gh_fork
     execute_plan(plan, mode="simulate", ctx=ctx)
     console.print("\n[green]Simulation complete — no issues found.[/]")
 
@@ -1030,9 +1098,13 @@ def simulate(plan_file, org, fork, cache_dir):
 )
 def execute(plan_file, yes, skip_checks, check_timeout, org, fork, cache_dir):
     """Execute (or resume) a release plan."""
-    org, fork, cd, ctx = _common_ctx(org, fork, cache_dir, False, yes, skip_checks, check_timeout)
+    org, fork, cd, ctx = _common_ctx(
+        org, fork, cache_dir, False, yes, skip_checks, check_timeout, require_fork=False
+    )
     plan_path = Path(plan_file)
     plan = Plan.model_validate_json(plan_path.read_text())
+    plan.gh_org = org or plan.gh_org
+    plan.gh_fork = fork or plan.gh_fork or die("Fork required: set TEROK_GH_FORK or embed in plan")
     ctx.plan_path = plan_path
 
     has_completed = any(s.status == "completed" for s in plan.steps)

@@ -189,14 +189,22 @@ main() {
         run git -C "$repo_dir" push -u origin "$branch" --force-with-lease
 
         if ! $DRY_RUN; then
-            local pr_url
+            local pr_url pr_err=""
             pr_url=$(gh pr create \
                 --repo "$gh_repo" \
                 --base master \
                 --head "${GH_FORK}:${branch}" \
                 --title "${branch}" \
                 --body "Part of \`${branch}\` PR chain." 2>&1) \
-                || { warn "PR create for ${repo}: ${pr_url}"; pr_url="(exists)"; }
+                || pr_err="$pr_url"
+            if [[ -n "$pr_err" ]]; then
+                if [[ "$pr_err" == *"already exists"* ]]; then
+                    warn "PR already exists for ${repo} — continuing"
+                    pr_url="(exists)"
+                else
+                    die "PR creation failed for ${repo}: ${pr_err}"
+                fi
+            fi
             pr_urls+=("$pr_url")
             success "${repo}: ${pr_url}"
         else
