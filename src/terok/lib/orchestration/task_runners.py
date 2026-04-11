@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 _LOCALHOST = "127.0.0.1"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _TOAD_CONTAINER_PORT = 8080
+_ANTHROPIC_API_HOST = "api.anthropic.com"
 _FALSE_STRINGS = frozenset({"false", "0", "no", "off"})
 
 
@@ -254,6 +255,26 @@ def _drop_shield_on_creation(cname: str, task_dir: Path) -> None:
         warnings.warn(f"shield drop: {exc}", stacklevel=2)
 
 
+def _maybe_deny_anthropic_api(cname: str, task_dir: Path) -> None:
+    """Block ``api.anthropic.com`` when Claude OAuth is proxied (tier 2).
+
+    When the shield is down, deny sets prevent phantom tokens from leaking
+    to Anthropic's hardcoded ``BASE_API_URL`` endpoint.  No-op for tiers 1/3.
+    """
+    from ..core.config import is_claude_oauth_proxied
+
+    if not is_claude_oauth_proxied():
+        return
+    try:
+        from terok_sandbox import make_shield
+
+        make_shield(task_dir).deny(cname, _ANTHROPIC_API_HOST)
+    except Exception as exc:  # noqa: BLE001
+        import warnings
+
+        warnings.warn(f"shield deny {_ANTHROPIC_API_HOST}: {exc}", stacklevel=2)
+
+
 def _apply_shield_policy(
     project: ProjectConfig, cname: str, task_dir: Path, *, is_restart: bool
 ) -> None:
@@ -276,12 +297,12 @@ def _apply_shield_policy(
             raise ValueError(
                 f"Unknown shield.on_task_restart value: {policy!r} (expected 'retain' or 'up')"
             )
-        return
-
-    if project.shield_drop_on_task_run:
+    elif project.shield_drop_on_task_run:
         _drop_shield_on_creation(cname, task_dir)
     else:
         _write_desired_shield_state(task_dir, "up")
+
+    _maybe_deny_anthropic_api(cname, task_dir)
 
 
 def _run_container(

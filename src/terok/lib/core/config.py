@@ -497,11 +497,73 @@ _experimental: bool = False
 
 
 def is_experimental() -> bool:
-    """Return whether experimental features are enabled."""
-    return _experimental
+    """Return whether experimental features are enabled (CLI flag or config).
+
+    Checks the runtime flag (set by ``--experimental``) first, then falls
+    back to the ``experimental:`` key in ``config.yml``.
+    """
+    return _experimental or _load_validated().experimental
 
 
 def set_experimental(value: bool) -> None:
     """Enable or disable experimental features globally."""
     global _experimental  # noqa: PLW0603
     _experimental = value
+
+
+# ---------- Agent-specific config (agent: section) ----------
+
+
+def _claude_agent_config() -> dict:
+    """Return the ``agent.claude`` sub-dict, guarding against non-dict values."""
+    claude = _load_validated().agent.get("claude")
+    return claude if isinstance(claude, dict) else {}
+
+
+def get_claude_allow_oauth() -> bool:
+    """Return ``agent.claude.allow_oauth`` from global config (default False).
+
+    When True (and experimental is enabled), the credential proxy handles
+    Claude OAuth credentials normally.  The shield blocks
+    ``api.anthropic.com`` to prevent phantom token leaks to Claude Code's
+    hardcoded ``BASE_API_URL``.
+
+    Global config (config.yml)::
+
+        agent:
+          claude:
+            allow_oauth: true
+    """
+    return _claude_agent_config().get("allow_oauth", False) is True
+
+
+def get_claude_expose_oauth_token() -> bool:
+    """Return ``agent.claude.expose_oauth_token`` from global config (default False).
+
+    When True (and experimental is enabled), the credential proxy is
+    bypassed for Claude entirely.  The real ``.credentials.json`` in the
+    shared mount is exposed to the container, and Claude Code manages its
+    own token refresh.  Shield must allow ``api.anthropic.com`` and
+    ``platform.claude.com``.
+
+    Global config (config.yml)::
+
+        agent:
+          claude:
+            expose_oauth_token: true
+    """
+    return _claude_agent_config().get("expose_oauth_token", False) is True
+
+
+def is_claude_oauth_proxied() -> bool:
+    """Return True when Claude OAuth is in tier 2 (proxy active, not exposed).
+
+    Centralises the three-tier decision so callers don't duplicate the
+    flag combination logic:
+
+    - **Tier 1** (default): experimental off or allow_oauth off — skip Claude OAuth.
+    - **Tier 2**: experimental + allow_oauth — proxy handles OAuth, shield denies
+      ``api.anthropic.com``.
+    - **Tier 3**: experimental + expose_oauth_token — proxy bypassed for Claude.
+    """
+    return is_experimental() and get_claude_allow_oauth() and not get_claude_expose_oauth_token()
