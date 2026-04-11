@@ -110,8 +110,8 @@ def _resolve_user_snippet(project: ProjectConfig) -> str:
                 f"  (configured in project '{project.id}')"
             )
         try:
-            parts.append(us_path.read_text())
-        except OSError as exc:
+            parts.append(us_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError) as exc:
             raise SystemExit(f"Failed to read docker.user_snippet_file {us_path}: {exc}")
     if project.docker_snippet_inline and project.docker_snippet_inline.strip():
         parts.append(project.docker_snippet_inline)
