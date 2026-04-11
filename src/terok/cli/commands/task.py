@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 
 from terok_agent import PROVIDER_NAMES as _PROVIDER_NAMES
 
@@ -345,8 +346,18 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
             unrestricted=_resolve_unrestricted(args),
         )
     elif args.task_cmd == "delete":
-        task_delete(args.project_id, args.task_id)
-        print(f"Deleted task {args.task_id}. Archive: terok task archive list {args.project_id}")
+        result = task_delete(args.project_id, args.task_id)
+        if result.warnings:
+            for w in result.warnings:
+                print(f"  Warning: {w}", file=sys.stderr)
+            print(
+                f"Deleted task {args.task_id} (with warnings)."
+                f" Archive: terok task archive list {args.project_id}"
+            )
+        else:
+            print(
+                f"Deleted task {args.task_id}. Archive: terok task archive list {args.project_id}"
+            )
     elif args.task_cmd == "stop":
         task_stop(args.project_id, args.task_id, timeout=getattr(args, "timeout", None))
     elif args.task_cmd == "restart":

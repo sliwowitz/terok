@@ -136,15 +136,15 @@ class TaskActionsMixin:
 
     def _delete_task(
         self, project_id: str, task_id: str, task_name: str
-    ) -> tuple[str, str, str, str | None]:
-        """Delete a task and return ``(project_id, task_id, task_name, error_or_None)``."""
+    ) -> tuple[str, str, str, str | None, list[str]]:
+        """Delete a task and return ``(project_id, task_id, task_name, error, warnings)``."""
         try:
-            task_delete(project_id, task_id)
-            return project_id, task_id, task_name, None
+            result = task_delete(project_id, task_id)
+            return project_id, task_id, task_name, None, result.warnings
         except SystemExit as e:
-            return project_id, task_id, task_name, str(e)
+            return project_id, task_id, task_name, str(e), []
         except Exception as e:
-            return project_id, task_id, task_name, str(e)
+            return project_id, task_id, task_name, str(e), []
 
     # ---------- Background container start helpers ----------
 

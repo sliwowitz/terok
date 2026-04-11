@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
+import contextlib
 import os
 import re
 import subprocess
@@ -17,6 +18,7 @@ from terok.lib.domain.task_logs import LogViewOptions, task_logs
 from terok.lib.orchestration.environment import build_task_env_and_volumes
 from terok.lib.orchestration.task_runners import task_run_cli, task_run_toad
 from terok.lib.orchestration.tasks import (
+    TaskDeleteResult,
     get_workspace_git_diff,
     task_delete,
     task_list,
@@ -90,11 +92,15 @@ class TestTask:
 
             with (
                 unittest.mock.patch("terok.lib.orchestration.tasks.subprocess.run") as run_mock,
+                unittest.mock.patch(
+                    "terok.lib.orchestration.tasks.stop_task_containers", return_value=[]
+                ),
                 mock_git_config(),
             ):
                 run_mock.return_value.returncode = 0
-                task_delete(project_id, "1")
+                result = task_delete(project_id, "1")
 
+            assert isinstance(result, TaskDeleteResult)
             assert not meta_path.exists()
             assert not workspace.exists()
 
@@ -1276,9 +1282,15 @@ class TestTaskArchive:
                     result.returncode = 0
                     return result
 
-                with unittest.mock.patch(
-                    "terok.lib.orchestration.tasks.subprocess.run",
-                    side_effect=fake_run,
+                with (
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.subprocess.run",
+                        side_effect=fake_run,
+                    ),
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.stop_task_containers",
+                        return_value=[],
+                    ),
                 ):
                     task_delete(project_id, task_id)
 
@@ -1326,9 +1338,15 @@ class TestTaskArchive:
                     result.returncode = 0
                     return result
 
-                with unittest.mock.patch(
-                    "terok.lib.orchestration.tasks.subprocess.run",
-                    side_effect=fake_run,
+                with (
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.subprocess.run",
+                        side_effect=fake_run,
+                    ),
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.stop_task_containers",
+                        return_value=[],
+                    ),
                 ):
                     task_delete(project_id, task_id)
 
@@ -1472,3 +1490,134 @@ class TestTaskArchive:
                     result = capture_task_logs(project_id, task_id, "run")
 
                 assert result is None
+
+
+class TestTaskDeleteWarnings:
+    """Verify that _task_delete collects per-step warnings."""
+
+    @staticmethod
+    def _make_rm_result(name: str, removed: bool, error: str | None = None):
+        """Build a duck-typed ContainerRemoveResult for testing."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(name=name, removed=removed, error=error)
+
+    def _delete_with_mocks(
+        self,
+        project_id: str = "proj_warn",
+        *,
+        token_side_effect: BaseException | None = None,
+        container_results: list | None = None,
+        rmtree_side_effect: BaseException | None = None,
+        unlink_side_effect: BaseException | None = None,
+    ) -> TaskDeleteResult:
+        """Create a task and delete it with configurable failure injections."""
+        if container_results is None:
+            container_results = []
+
+        with project_env(
+            f"project:\n  id: {project_id}\n",
+            project_id=project_id,
+        ):
+            with mock_git_config():
+                task_id = task_new(project_id)
+
+                patches = [
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.subprocess.run",
+                        return_value=unittest.mock.Mock(returncode=1),
+                    ),
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.stop_task_containers",
+                        return_value=[self._make_rm_result(**r) for r in container_results],
+                    ),
+                ]
+                if token_side_effect:
+                    patches.append(
+                        unittest.mock.patch(
+                            "terok_sandbox.revoke_token_for_task",
+                            side_effect=token_side_effect,
+                        )
+                    )
+                if rmtree_side_effect:
+                    patches.append(
+                        unittest.mock.patch(
+                            "terok.lib.orchestration.tasks.shutil.rmtree",
+                            side_effect=rmtree_side_effect,
+                        )
+                    )
+
+                with contextlib.ExitStack() as stack:
+                    for p in patches:
+                        stack.enter_context(p)
+
+                    if unlink_side_effect:
+                        orig_unlink = Path.unlink
+
+                        def _guarded_unlink(self, *a, **kw):
+                            if "tasks" in str(self) and self.suffix == ".yml":
+                                raise unlink_side_effect
+                            return orig_unlink(self, *a, **kw)
+
+                        stack.enter_context(
+                            unittest.mock.patch.object(Path, "unlink", _guarded_unlink)
+                        )
+
+                    return task_delete(project_id, task_id)
+
+    def test_clean_delete_returns_empty_warnings(self) -> None:
+        """Normal deletion returns TaskDeleteResult with no warnings."""
+        result = self._delete_with_mocks(project_id="proj_warn1")
+        assert isinstance(result, TaskDeleteResult)
+        assert result.warnings == []
+
+    def test_token_revoke_failure_produces_warning(self) -> None:
+        """Failed token revoke adds a warning but deletion still completes."""
+        result = self._delete_with_mocks(
+            project_id="proj_warn2",
+            token_side_effect=RuntimeError("auth server down"),
+        )
+        assert any("Token revoke" in w for w in result.warnings)
+
+    def test_container_rm_failure_produces_warning(self) -> None:
+        """Failed container removal adds a warning per failed container."""
+        result = self._delete_with_mocks(
+            project_id="proj_warn3",
+            container_results=[
+                {"name": "proj-cli-1", "removed": True},
+                {"name": "proj-web-1", "removed": False, "error": "locked"},
+            ],
+        )
+        assert any("proj-web-1" in w and "locked" in w for w in result.warnings)
+        assert not any("proj-cli-1" in w for w in result.warnings)
+
+    def test_workspace_rm_failure_produces_warning(self) -> None:
+        """Failed workspace rmtree adds a warning."""
+        result = self._delete_with_mocks(
+            project_id="proj_warn4",
+            rmtree_side_effect=PermissionError("busy"),
+        )
+        assert any("Workspace removal" in w for w in result.warnings)
+
+    def test_metadata_rm_failure_produces_warning(self) -> None:
+        """Failed metadata unlink adds a warning."""
+        result = self._delete_with_mocks(
+            project_id="proj_warn5",
+            unlink_side_effect=PermissionError("read-only"),
+        )
+        assert any("Metadata removal" in w for w in result.warnings)
+
+    def test_multiple_failures_collected(self) -> None:
+        """Multiple failures from different steps all appear in warnings."""
+        result = self._delete_with_mocks(
+            project_id="proj_warn6",
+            token_side_effect=RuntimeError("offline"),
+            container_results=[
+                {"name": "c1", "removed": False, "error": "timeout"},
+            ],
+            rmtree_side_effect=OSError("nfs stale"),
+        )
+        assert len(result.warnings) >= 3
+        assert any("Token" in w for w in result.warnings)
+        assert any("c1" in w for w in result.warnings)
+        assert any("Workspace" in w for w in result.warnings)

@@ -987,15 +987,26 @@ class TestDeleteTaskResult:
     """Tests for _delete_task tuple shape and delete notification messages."""
 
     def _call_delete(
-        self, side_effect: BaseException | None = None, **kwargs: str
-    ) -> tuple[str, str, str, str | None]:
+        self,
+        side_effect: BaseException | None = None,
+        warnings: list[str] | None = None,
+        **kwargs: str,
+    ) -> tuple[str, str, str, str | None, list[str]]:
         """Import app, mock task_delete, and call _delete_task."""
+        from terok.lib.orchestration.tasks import TaskDeleteResult
+
         _, app_class = import_app()
         instance = mock.Mock(spec=app_class)
         # Patch task_delete in the method's own globals (the reimported module dict).
         fn_globals = app_class._delete_task.__globals__
         orig = fn_globals["task_delete"]
-        fake = mock.Mock(side_effect=side_effect) if side_effect else mock.Mock()
+        if side_effect:
+            fake = mock.Mock(side_effect=side_effect)
+        else:
+            task_id = kwargs.get("task_id", "3")
+            fake = mock.Mock(
+                return_value=TaskDeleteResult(task_id=task_id, warnings=warnings or [])
+            )
         fn_globals["task_delete"] = fake
         try:
             return app_class._delete_task(
@@ -1007,24 +1018,29 @@ class TestDeleteTaskResult:
         finally:
             fn_globals["task_delete"] = orig
 
-    def test_delete_task_success_returns_four_tuple(self) -> None:
-        """Successful deletion returns (project_id, task_id, task_name, None)."""
-        assert self._call_delete() == ("proj1", "3", "fix-login", None)
+    def test_delete_task_success_returns_five_tuple(self) -> None:
+        """Successful deletion returns (project_id, task_id, task_name, None, [])."""
+        assert self._call_delete() == ("proj1", "3", "fix-login", None, [])
 
-    def test_delete_task_error_returns_four_tuple(self) -> None:
-        """Failed deletion returns (project_id, task_id, task_name, error_str)."""
+    def test_delete_task_error_returns_five_tuple(self) -> None:
+        """Failed deletion returns error string and empty warnings."""
         result = self._call_delete(side_effect=RuntimeError("boom"))
-        assert result == ("proj1", "3", "fix-login", "boom")
+        assert result == ("proj1", "3", "fix-login", "boom", [])
 
-    def test_delete_task_systemexit_returns_four_tuple(self) -> None:
+    def test_delete_task_systemexit_returns_five_tuple(self) -> None:
         """SystemExit during deletion is captured in the error slot."""
         result = self._call_delete(side_effect=SystemExit("not found"), task_name="")
-        assert result == ("proj1", "3", "", "not found")
+        assert result == ("proj1", "3", "", "not found", [])
 
     def test_delete_task_empty_name(self) -> None:
         """Empty task name is preserved through the round-trip."""
         result = self._call_delete(task_name="")
-        assert result == ("proj1", "3", "", None)
+        assert result == ("proj1", "3", "", None, [])
+
+    def test_delete_task_warnings_propagated(self) -> None:
+        """Warnings from TaskDeleteResult are passed through the tuple."""
+        result = self._call_delete(warnings=["Container c1: locked"])
+        assert result == ("proj1", "3", "fix-login", None, ["Container c1: locked"])
 
 
 # ---------------------------------------------------------------------------
