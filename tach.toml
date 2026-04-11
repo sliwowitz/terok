@@ -43,7 +43,7 @@ exclude = ["pydevd_pycharm", "pydevd"]
 path = "terok.cli"
 layer = "presentation"
 depends_on = [
-    "terok.lib.domain.agent_config",
+    "terok.lib.orchestration.agent_config",
     "terok.lib.domain.panic",
     "terok.lib.orchestration.container_doctor",
     "terok.lib.orchestration.hooks",
@@ -113,7 +113,7 @@ depends_on = [
 path = "terok.lib.domain.project"
 layer = "domain"
 depends_on = [
-    "terok.lib.domain.agent_config",
+    "terok.lib.orchestration.agent_config",
     "terok.lib.orchestration.docker",
     "terok.lib.domain.project_state",
     "terok.lib.orchestration.task_runners",
@@ -166,9 +166,8 @@ layer = "domain"
 depends_on = ["terok.lib.core.projects"]
 
 # Agent config resolution (terok-specific stack composition)
-# Lives in domain/ but has orchestration-level layer so that task_runners can import it.
 [[modules]]
-path = "terok.lib.domain.agent_config"
+path = "terok.lib.orchestration.agent_config"
 layer = "orchestration"
 depends_on = ["terok.lib.core.config", "terok.lib.core.projects"]
 
@@ -205,7 +204,7 @@ depends_on = [
 path = "terok.lib.orchestration.task_runners"
 layer = "orchestration"
 depends_on = [
-    "terok.lib.domain.agent_config",
+    "terok.lib.orchestration.agent_config",
     "terok.lib.orchestration.container_exec",
     "terok.lib.orchestration.environment",
     "terok.lib.orchestration.hooks",
@@ -556,7 +555,7 @@ from = ["terok.lib.orchestration.task_runners"]
 
 [[interfaces]]
 expose = ["build_agent_config_stack", "resolve_agent_config"]
-from = ["terok.lib.domain.agent_config"]
+from = ["terok.lib.orchestration.agent_config"]
 
 [[interfaces]]
 expose = [

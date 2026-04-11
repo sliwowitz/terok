@@ -373,7 +373,7 @@ class ProjectActionsMixin:
             """Resolve and print the effective instructions."""
             from terok_agent import resolve_instructions
 
-            from ..lib.domain.agent_config import resolve_agent_config
+            from ..lib.orchestration.agent_config import resolve_agent_config
 
             project = load_project(pid)
             effective = resolve_agent_config(
