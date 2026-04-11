@@ -112,6 +112,12 @@ def make_staleness_info(**overrides: Any) -> GateStalenessInfo:
     return GateStalenessInfo(**defaults)
 
 
+def assert_hex_id(task_id: str) -> None:
+    """Assert that *task_id* is a valid 8-char hex string."""
+    assert len(task_id) == 8, f"Expected 8-char hex ID, got {task_id!r}"
+    assert all(c in "0123456789abcdef" for c in task_id), f"Not a hex string: {task_id!r}"
+
+
 def make_mock_http_response(data: dict[str, object]) -> unittest.mock.Mock:
     """Create a mock HTTP response that returns JSON data as a context manager."""
     mock_response = unittest.mock.Mock()
