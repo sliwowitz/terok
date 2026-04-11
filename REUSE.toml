@@ -16,6 +16,7 @@ path = [
   "**/*.dockerinclude",
   ".gitignore",
   ".dockerignore",
+  ".importlinter",
   "MANIFEST.in",
   "Makefile",
   "completions/**",
