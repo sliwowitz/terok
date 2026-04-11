@@ -40,7 +40,6 @@ from ..core.config import (
 from ..core.images import project_cli_image
 from ..core.projects import load_project
 from ..core.task_display import has_gpu
-from ..domain.agent_config import resolve_agent_config
 from ..util.ansi import (
     blue as _blue,
     green as _green,
@@ -49,6 +48,7 @@ from ..util.ansi import (
     yellow as _yellow,
 )
 from ..util.yaml import dump as _yaml_dump, load as _yaml_load
+from .agent_config import resolve_agent_config
 from .container_exec import container_git_diff
 from .environment import build_task_env_and_volumes, ensure_credential_proxy
 from .hooks import run_hook

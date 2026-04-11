@@ -1,0 +1,84 @@
+[importlinter]
+root_packages =
+    terok
+include_external_packages = True
+
+# ── Layer architecture (independent verification) ─────────────────
+#
+# Duplicates tach's layer list (4 lines) to catch agent-modified
+# tach.toml.  import-linter computes layers from the actual import
+# graph, not from editable labels.
+
+[importlinter:contract:architecture]
+name = Layered architecture
+type = layers
+layers =
+    terok.cli | terok.tui
+    terok.lib.domain
+    terok.lib.orchestration
+    terok.lib.core
+
+# ── Cross-package boundaries (tach can't do this) ────────────────
+#
+# TODO: tighten allowed_importers as direct external-package imports are
+# consolidated behind facade modules (see runtime-abstraction-phases.md).
+#
+# protected contracts: "module X may ONLY be imported by modules Y, Z"
+# The allowed_importers lists start wide (reflecting current state)
+# and shrink as the abstraction is sealed.
+
+[importlinter:contract:sandbox-boundary]
+name = terok_sandbox access restricted to designated modules
+type = protected
+protected_modules = terok_sandbox
+allowed_importers =
+    terok.cli.commands.credentials
+    terok.cli.commands.setup
+    terok.cli.commands.shield
+    terok.cli.commands.sickbay
+    terok.cli.main
+    terok.cli.wiring
+    terok.lib.core.config
+    terok.lib.core.projects
+    terok.lib.domain.panic
+    terok.lib.domain.project
+    terok.lib.domain.task_logs
+    terok.lib.orchestration.agent_config
+    terok.lib.orchestration.container_doctor
+    terok.lib.orchestration.container_exec
+    terok.lib.orchestration.environment
+    terok.lib.orchestration.task_runners
+    terok.lib.orchestration.tasks
+    terok.tui.app
+    terok.tui.polling
+    terok.tui.project_actions
+    terok.tui.screens
+    terok.tui.task_actions
+    terok.tui.widgets.project_state
+
+[importlinter:contract:agent-boundary]
+name = terok_agent access restricted to designated modules
+type = protected
+protected_modules = terok_agent
+allowed_importers =
+    terok.cli.commands.setup
+    terok.cli.commands.task
+    terok.cli.main
+    terok.cli.wiring
+    terok.lib.domain.facade
+    terok.lib.domain.project
+    terok.lib.orchestration.container_doctor
+    terok.lib.orchestration.docker
+    terok.lib.orchestration.environment
+    terok.lib.orchestration.task_runners
+    terok.tui.project_actions
+    terok.tui.screens
+    terok.tui.task_actions
+
+[importlinter:contract:shield-boundary]
+name = terok_shield access restricted to designated modules
+type = protected
+protected_modules = terok_shield
+allowed_importers =
+    terok.cli.commands.shield
+    terok.tui.task_actions
