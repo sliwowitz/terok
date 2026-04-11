@@ -113,10 +113,11 @@ class TestClearanceCLI:
         """Dispatch ignores non-clearance commands."""
         assert not dispatch(argparse.Namespace(cmd="project"))
 
-    def test_dispatch_returns_true_for_clearance(self) -> None:
-        """Dispatch launches the clearance app for cmd=clearance."""
-        with mock.patch("terok.tui.clearance_screen.main"):
-            assert dispatch(argparse.Namespace(cmd="clearance"))
+    def test_dispatch_execs_terok_clearance(self) -> None:
+        """Dispatch execs the terok-clearance entry point."""
+        with mock.patch("os.execlp") as execlp:
+            dispatch(argparse.Namespace(cmd="clearance"))
+            execlp.assert_called_once_with("terok-clearance", "terok-clearance")
 
 
 # ---------------------------------------------------------------------------

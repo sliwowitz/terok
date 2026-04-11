@@ -17,10 +17,6 @@ layers =
     terok.lib.domain
     terok.lib.orchestration
     terok.lib.core
-# TODO: resolve this layer violation instead of ignoring it:
-# - clearance CLI command delegates to TUI screen — extract shared logic to domain/lib
-ignore_imports =
-    terok.cli.commands.clearance -> terok.tui.clearance_screen
 
 # ── Cross-package boundaries (tach can't do this) ────────────────
 #

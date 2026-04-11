@@ -97,6 +97,7 @@ asyncio_mode = "auto"
 terok = "terok.cli.main:main"
 terok-tui = "terok.tui.app:main"
 terok-web = "terok.tui.serve:main"
+terok-clearance = "terok.tui.clearance_screen:main"
 terok-gate = "terok_sandbox.gate.server:main"
 
 [tool.ruff]

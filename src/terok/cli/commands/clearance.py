@@ -26,9 +26,7 @@ def dispatch(args: argparse.Namespace) -> bool:
     if getattr(args, "cmd", None) != "clearance":
         return False
 
-    # Lazy import to avoid terok.cli → terok.tui module boundary violation.
-    # Same pattern as the ``tui`` subcommand in main.py.
-    from terok.tui.clearance_screen import main as clearance_main  # tach-ignore
+    import os
 
-    clearance_main()
-    return True
+    os.execlp("terok-clearance", "terok-clearance")
+    return True  # pragma: no cover — execlp never returns
