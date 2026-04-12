@@ -53,31 +53,18 @@ pipx install ./terok-*.whl
 ### Basic Workflow
 
 ```bash
-# 1. Create project directory
-mkdir -p ~/.config/terok/projects/myproj
+# 1. Create and initialize a project (interactive — walks you through config)
+terok project-wizard
 
-# 2. Create project.yml (see docs/usage.md for full schema)
-cat > ~/.config/terok/projects/myproj/project.yml << 'EOF'
-project:
-  id: myproj
-  security_class: online
-git:
-  upstream_url: https://github.com/yourorg/yourrepo.git
-  default_branch: main
-EOF
-
-# 3. Generate and build images
-terok generate myproj
-terok build myproj
-
-# 4. (Optional) Set up SSH for private repos
-terok ssh-init myproj
-
-# 5. Run a task
+# 2. Run a task
 terok task start myproj                # CLI agent (default)
 terok task start myproj --toad         # Toad multi-agent TUI (browser access)
 terok login myproj a3                  # Attach to running task by hex ID prefix
 ```
+
+The wizard creates the project config, generates Dockerfiles, builds images,
+and sets up SSH keys and the git gate — all in one step.
+For manual setup or CI, see the [User Guide](docs/usage.md).
 
 ### Headless Agent Runs (Autopilot)
 
