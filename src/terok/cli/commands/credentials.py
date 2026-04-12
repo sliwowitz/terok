@@ -4,7 +4,7 @@
 """Credential proxy serve command — foreground passthrough for systemd/debug.
 
 The main credential proxy commands (start, stop, status, install, uninstall,
-routes) are mounted from terok-agent's ``PROXY_COMMANDS`` via ``wire_group``
+routes) are mounted from terok-executor's ``PROXY_COMMANDS`` via ``wire_group``
 in :mod:`terok.cli.main`.  This module only provides the ``credential-proxy-serve``
 top-level command, which passes through to the proxy server's own argparse.
 """

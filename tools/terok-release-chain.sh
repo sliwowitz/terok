@@ -23,14 +23,14 @@ set -euo pipefail
 #
 # The single source of truth for release ordering and sibling relationships.
 
-CHAIN=(terok-dbus terok-shield terok-sandbox terok-agent terok)
+CHAIN=(terok-dbus terok-shield terok-sandbox terok-executor terok)
 
 declare -A DEPS=(
     [terok-dbus]=""
     [terok-shield]="terok-dbus"
     [terok-sandbox]="terok-shield"
-    [terok-agent]="terok-sandbox"
-    [terok]="terok-agent terok-sandbox terok-dbus"
+    [terok-executor]="terok-sandbox"
+    [terok]="terok-executor terok-sandbox terok-dbus"
 )
 
 # ── Defaults ───────────────────────────────────────────────────────────────
@@ -846,9 +846,9 @@ normalise_repo() {
         dbus)    echo "terok-dbus" ;;
         shield)  echo "terok-shield" ;;
         sandbox) echo "terok-sandbox" ;;
-        agent)   echo "terok-agent" ;;
+        agent)   echo "terok-executor" ;;
         terok)   echo "terok" ;;
-        terok-dbus|terok-shield|terok-sandbox|terok-agent) echo "$1" ;;
+        terok-dbus|terok-shield|terok-sandbox|terok-executor) echo "$1" ;;
         *) die "Unknown repo: $1. Use: dbus, shield, sandbox, agent, or terok" ;;
     esac
 }

@@ -463,7 +463,7 @@ class AuthActionsScreen(screen.ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         """Build the numbered list of authentication providers."""
-        from terok_agent import AUTH_PROVIDERS
+        from terok_executor import AUTH_PROVIDERS
 
         providers = list(AUTH_PROVIDERS.values())
         options: list[Option | None] = [
@@ -494,7 +494,7 @@ class AuthActionsScreen(screen.ModalScreen[str | None]):
 
     def on_key(self, event: events.Key) -> None:
         """Handle number-key shortcuts (1-9) to select a provider or import."""
-        from terok_agent import AUTH_PROVIDERS
+        from terok_executor import AUTH_PROVIDERS
 
         if event.character and event.character.isdigit():
             idx = int(event.character) - 1
@@ -815,7 +815,7 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
         super().__init__()
         self._subagents = subagents or []
 
-        from terok_agent import AGENT_PROVIDERS
+        from terok_executor import AGENT_PROVIDERS
 
         if default_agent in AGENT_PROVIDERS:
             self._default_agent = default_agent
@@ -825,7 +825,7 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
 
     def compose(self) -> ComposeResult:
         """Build the agent list, optional sub-agent checkboxes, and buttons."""
-        from terok_agent import AGENT_PROVIDERS
+        from terok_executor import AGENT_PROVIDERS
 
         with Vertical(id="agent-dialog") as dialog:
             options = []
@@ -854,7 +854,7 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
     def on_mount(self) -> None:
         """Focus the agent list and highlight the default entry."""
         agent_list = self.query_one("#agent-list", OptionList)
-        from terok_agent import AGENT_PROVIDERS
+        from terok_executor import AGENT_PROVIDERS
 
         for idx, name in enumerate(AGENT_PROVIDERS):
             if name == self._default_agent:
@@ -894,7 +894,7 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
 
     def on_key(self, event: events.Key) -> None:
         """Handle number-key shortcuts (1-9) to select an agent."""
-        from terok_agent import AGENT_PROVIDERS
+        from terok_executor import AGENT_PROVIDERS
 
         if event.character and event.character.isdigit():
             idx = int(event.character) - 1
@@ -1215,7 +1215,7 @@ class TaskLaunchScreen(screen.ModalScreen["tuple[str, str, str, str, str, str | 
 
     def compose(self) -> ComposeResult:
         """Build status, agent selector, prompt input, and action buttons."""
-        from terok_agent import AGENT_PROVIDERS
+        from terok_executor import AGENT_PROVIDERS
 
         with Vertical(id="launch-dialog") as dialog:
             yield Static("Status: Starting container\u2026", id="launch-status")

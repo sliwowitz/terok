@@ -66,7 +66,7 @@ def project_env(
             "TEROK_ROOT": str(base),
             "TEROK_STATE_DIR": str(state_dir),
             "TEROK_CREDENTIALS_DIR": str(credentials_dir),
-            "TEROK_AGENT_STATE_DIR": str(agent_state_dir),
+            "TEROK_EXECUTOR_STATE_DIR": str(agent_state_dir),
             "TEROK_SANDBOX_LIVE_DIR": str(sandbox_live),
             "TEROK_SANDBOX_STATE_DIR": str(sandbox_state),
         }

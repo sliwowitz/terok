@@ -42,6 +42,7 @@ allowed_importers =
     terok.lib.core.projects
     terok.lib.domain.panic
     terok.lib.domain.project
+    terok.lib.domain.storage
     terok.lib.domain.task_logs
     terok.lib.orchestration.agent_config
     terok.lib.orchestration.container_doctor
@@ -56,10 +57,10 @@ allowed_importers =
     terok.tui.task_actions
     terok.tui.widgets.project_state
 
-[importlinter:contract:agent-boundary]
-name = terok_agent access restricted to designated modules
+[importlinter:contract:executor-boundary]
+name = terok_executor access restricted to designated modules
 type = protected
-protected_modules = terok_agent
+protected_modules = terok_executor
 allowed_importers =
     terok.cli.commands.setup
     terok.cli.commands.task
@@ -67,9 +68,10 @@ allowed_importers =
     terok.cli.wiring
     terok.lib.domain.facade
     terok.lib.domain.project
+    terok.lib.domain.storage
     terok.lib.orchestration.container_doctor
-    terok.lib.orchestration.docker
     terok.lib.orchestration.environment
+    terok.lib.orchestration.image
     terok.lib.orchestration.task_runners
     terok.tui.project_actions
     terok.tui.screens

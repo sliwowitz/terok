@@ -23,7 +23,7 @@ When a task starts, terok mounts host directories into the container for workspa
 These directories are bind-mounted into every task container so that agents and
 tools find their config on startup.  They are created automatically
 on first task launch.  The base dir defaults to
-`~/.local/share/terok/agent/mounts` (override via `TEROK_AGENT_STATE_DIR`).
+`~/.local/share/terok/executor/mounts` (override via `TEROK_EXECUTOR_STATE_DIR`).
 
 > **Trust boundary:** Mount directories are intentionally separated from the
 > credentials store (`~/.local/share/terok/credentials/`) since containers have

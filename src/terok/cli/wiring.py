@@ -3,7 +3,7 @@
 
 """Registry-driven CLI wiring for sub-package command registries.
 
-Mounts ``CommandDef`` tuples (from terok-sandbox and terok-agent) under
+Mounts ``CommandDef`` tuples (from terok-sandbox and terok-executor) under
 argparse subparser groups.  Each package exports its commands as frozen
 tuples; this module wires them into terok's namespace without
 duplicating argument definitions or handler logic.
@@ -20,10 +20,10 @@ raised at dispatch time if the handler supports neither.
 
 Usage::
 
-    from terok_agent import AGENT_COMMANDS
+    from terok_executor import AGENT_COMMANDS
     from terok_sandbox import GATE_COMMANDS
 
-    wire_group(sub, "agent", AGENT_COMMANDS, help="Agent container commands")
+    wire_group(sub, "executor", AGENT_COMMANDS, help="Executor container commands")
     wire_group(
         sub, "gate", GATE_COMMANDS, help="Gate server commands", config_factory=make_sandbox_config
     )

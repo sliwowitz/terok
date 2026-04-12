@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
-from terok_agent import ImageSet
+from terok_executor import ImageSet
 
 from terok.lib.core.config import build_dir
 from terok.lib.orchestration.image import build_images, generate_dockerfiles
@@ -33,7 +33,7 @@ def image_project(project_id: str, *, security_class: str = "online") -> Iterato
 
 def _mock_base_images(base_image: str = "ubuntu:24.04") -> ImageSet:
     """Return a mock ImageSet matching the default base image."""
-    from terok_agent.container.build import l0_image_tag, l1_image_tag
+    from terok_executor.container.build import l0_image_tag, l1_image_tag
 
     return ImageSet(l0=l0_image_tag(base_image), l1=l1_image_tag(base_image))
 
@@ -214,7 +214,7 @@ def test_build_images_builds_l2() -> None:
         generate_dockerfiles("proj_build_l2")
         commands = build_commands("proj_build_l2")
 
-    # L0+L1 are delegated to terok-agent (mocked); only L2 commands appear
+    # L0+L1 are delegated to terok-executor (mocked); only L2 commands appear
     assert len(commands) == 1
     assert commands[0][0] == "podman"
     l2_dockerfile = next(p for p in commands[0] if p.endswith("L2.Dockerfile"))

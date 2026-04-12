@@ -5,7 +5,7 @@
 
 Orchestrates queries from three layers:
 - **terok-sandbox** — container overlay sizes (podman)
-- **terok-agent** — task workspace and shared mount sizes (filesystem)
+- **terok-executor** — task workspace and shared mount sizes (filesystem)
 - **terok** itself — image knowledge (L0/L1/L2 classification)
 
 Two entry points mirror two levels of detail:
@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from terok_agent import (
+from terok_executor import (
     SharedMountStorageInfo,
     TaskStorageInfo,
     get_shared_mounts_storage,
@@ -195,7 +195,7 @@ class ProjectDetail:
 def get_storage_overview() -> StorageOverview:
     """Gather global summary — fast, no per-container podman queries.
 
-    Iterates all projects, sums workspace sizes via terok-agent, and
+    Iterates all projects, sums workspace sizes via terok-executor, and
     classifies images into global vs per-project.
     """
     all_images = list_images()

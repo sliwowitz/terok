@@ -81,7 +81,7 @@ def runner_env_vars(base: Path, config_file: Path) -> dict[str, str]:
     return {
         "TEROK_CONFIG_DIR": str(base / "config"),
         "TEROK_STATE_DIR": str(base / "state"),
-        "TEROK_AGENT_STATE_DIR": str(base / "agent"),
+        "TEROK_EXECUTOR_STATE_DIR": str(base / "agent"),
         "TEROK_CONFIG_FILE": str(config_file),
         "TEROK_SANDBOX_LIVE_DIR": str(base / "sandbox-live"),
         "TEROK_SANDBOX_STATE_DIR": str(base / "sandbox-state"),
@@ -143,7 +143,7 @@ def prepare_agent_config(
     instructions: str | None = None,
 ) -> Path:
     """Build an agent-config directory for the given task."""
-    from terok_agent import AgentConfigSpec, prepare_agent_config_dir
+    from terok_executor import AgentConfigSpec, prepare_agent_config_dir
 
     (project.tasks_root / task_id).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
@@ -337,7 +337,7 @@ class TestTaskRunHeadless:
             )
 
     def test_headless_generates_agent_wrapper(self) -> None:
-        """task_run_headless generates terok-agent.sh in agent-config dir."""
+        """task_run_headless generates terok-executor.sh in agent-config dir."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
 
@@ -347,7 +347,7 @@ class TestTaskRunHeadless:
                 HeadlessRunRequest("proj_wrap", "test"),
             )
 
-            wrapper = task_paths(base, "proj_wrap", result.task_id)[0] / "terok-agent.sh"
+            wrapper = task_paths(base, "proj_wrap", result.task_id)[0] / "terok-executor.sh"
             assert wrapper.is_file()
             content = wrapper.read_text()
             assert "claude()" in content
@@ -415,7 +415,7 @@ class TestTaskRunHeadless:
             assert "--max-turns 100" in bash_cmd
             assert "--terok-timeout" in bash_cmd
 
-            wrapper = task_paths(base, "proj_flags", result.task_id)[0] / "terok-agent.sh"
+            wrapper = task_paths(base, "proj_flags", result.task_id)[0] / "terok-executor.sh"
             content = wrapper.read_text()
             assert "--model" not in content
             assert "--max-turns" not in content

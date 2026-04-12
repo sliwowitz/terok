@@ -151,7 +151,7 @@ def _generate() -> str:
     buf.write("## config.yml\n\n")
     buf.write(
         "Global configuration shared by all terok ecosystem packages "
-        "(terok, terok-sandbox, terok-agent).  Each package reads only the "
+        "(terok, terok-sandbox, terok-executor).  Each package reads only the "
         "sections it understands — terok validates the full file, while "
         "lower-level packages silently ignore sections they don't own.\n\n"
         "Search order:\n\n"
@@ -194,7 +194,7 @@ def _generate() -> str:
         "| --- | --- | --- |\n"
         '| **terok** | All sections | Pydantic `extra="forbid"` — catches typos everywhere |\n'
         "| **terok-sandbox** | `paths:` only | Raw YAML — ignores unknown top-level keys |\n"
-        "| **terok-agent** | Delegates to sandbox | No direct config file reading |\n\n"
+        "| **terok-executor** | Delegates to sandbox | No direct config file reading |\n\n"
         "This means sandbox and agent never reject terok-only sections "
         "(`ui:`, `tui:`, `hooks:`, etc.), while terok catches all typos.\n"
     )

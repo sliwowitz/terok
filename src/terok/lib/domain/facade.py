@@ -29,7 +29,7 @@ used by CLI commands that operate on ``project_id`` strings directly.
 
 from __future__ import annotations
 
-from terok_agent import (
+from terok_executor import (
     authenticate as _authenticate_raw,
 )
 

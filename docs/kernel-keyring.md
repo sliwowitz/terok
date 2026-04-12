@@ -25,7 +25,7 @@ cycles many agent containers will hit this limit.
 
 ## Impact on terok containers
 
-The per-container kernel keyring is used by subsystems that terok agent
+The per-container kernel keyring is used by subsystems that terok executor
 containers never touch:
 
 | Subsystem | Used by terok agents? |

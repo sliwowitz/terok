@@ -141,7 +141,7 @@ def _task_action_cases() -> list[tuple[str, str]]:
 
 
 def _auth_providers() -> list[str]:
-    from terok_agent import AUTH_PROVIDERS
+    from terok_executor import AUTH_PROVIDERS
 
     return list(AUTH_PROVIDERS)
 
@@ -579,7 +579,7 @@ class TestAuthScreenOptions:
         import option has no number shortcut and pressing the next
         number is a no-op.
         """
-        from terok_agent import AUTH_PROVIDERS
+        from terok_executor import AUTH_PROVIDERS
 
         screens, _ = import_screens()
         screen = screens.AuthActionsScreen()

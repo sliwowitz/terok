@@ -4,7 +4,7 @@
 """Dockerfile generation, image building, and build-context hashing.
 
 L0 (base dev) and L1 (agent CLI) image builds are delegated to
-``terok_agent.container.build``.  This module owns L2 (project customisation)
+``terok_executor.container.build``.  This module owns L2 (project customisation)
 rendering and the project-level build orchestration that ties all
 three layers together.
 """
@@ -17,7 +17,7 @@ from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
-from terok_agent import (
+from terok_executor import (
     BuildError,
     build_base_images,
     l0_image_tag,
@@ -76,14 +76,14 @@ def _hash_traversable_tree(root) -> str:
 @lru_cache(maxsize=1)
 def _scripts_hash() -> str:
     """Return a cached SHA-256 hash of the bundled helper scripts."""
-    scripts_root = resources.files("terok_agent") / "resources" / "scripts"
+    scripts_root = resources.files("terok_executor") / "resources" / "scripts"
     return _hash_traversable_tree(scripts_root)
 
 
 @lru_cache(maxsize=1)
 def _tmux_config_hash() -> str:
     """Return a cached SHA-256 hash of the bundled tmux configuration."""
-    tmux_root = resources.files("terok_agent") / "resources" / "tmux"
+    tmux_root = resources.files("terok_executor") / "resources" / "tmux"
     return _hash_traversable_tree(tmux_root)
 
 
@@ -150,10 +150,10 @@ def _render_l2(project: ProjectConfig) -> str:
 def render_all_dockerfiles(project: ProjectConfig) -> dict[str, str]:
     """Render all Dockerfile templates for *project*.
 
-    L0 and L1 are rendered by terok-agent; L2 is rendered locally.
+    L0 and L1 are rendered by terok-executor; L2 is rendered locally.
     Returns name→content mapping for the build context.
     """
-    from terok_agent.container.build import render_l0, render_l1
+    from terok_executor.container.build import render_l0, render_l1
 
     return {
         "L0.Dockerfile": render_l0(project.base_image),
@@ -206,7 +206,7 @@ def generate_dockerfiles(project_id: str) -> None:
     for name, content in rendered.items():
         (out_dir / name).write_text(content)
 
-    # Stage auxiliary resources from terok-agent into build context.
+    # Stage auxiliary resources from terok-executor into build context.
     try:
         stage_scripts(out_dir / "scripts")
     except OSError as e:
@@ -236,7 +236,7 @@ def build_images(
 ) -> None:
     """Build container images for a project.
 
-    L0+L1 builds are delegated to ``terok_agent.build_base_images()``.
+    L0+L1 builds are delegated to ``terok_executor.build_base_images()``.
     This function handles L2 (project customisation) and ties the layers
     together.
 
@@ -252,7 +252,7 @@ def build_images(
     base_image = project.base_image
     stage_dir = build_dir() / project.id
 
-    # Delegate L0+L1 to terok-agent (uses its own temp dir for build context)
+    # Delegate L0+L1 to terok-executor (uses its own temp dir for build context)
     try:
         base_images = build_base_images(
             base_image,
