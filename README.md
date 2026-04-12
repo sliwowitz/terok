@@ -156,7 +156,7 @@ git:
 | `TEROK_CONFIG_FILE` | Global config file path |
 | `TEROK_ROOT` | Shared namespace root for all ecosystem packages |
 | `TEROK_STATE_DIR` | Host-only state (builds, metadata) |
-| `TEROK_CREDENTIALS_DIR` | Credential proxy store (SSH keys, proxy DB) |
+| `TEROK_CREDENTIALS_DIR` | Credential proxy store (proxy DB, routes, key registry) |
 
 ## Requirements
 
