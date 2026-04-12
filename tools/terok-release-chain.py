@@ -56,7 +56,7 @@ ALIASES = {
     "dbus": "terok-dbus",
     "shield": "terok-shield",
     "sandbox": "terok-sandbox",
-    "agent": "terok-executor",
+    "executor": "terok-executor",
     "terok": "terok",
 } | {n: n for n in CHAIN}
 

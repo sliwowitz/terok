@@ -195,7 +195,7 @@ def _generate() -> str:
         '| **terok** | All sections | Pydantic `extra="forbid"` — catches typos everywhere |\n'
         "| **terok-sandbox** | `paths:` only | Raw YAML — ignores unknown top-level keys |\n"
         "| **terok-executor** | Delegates to sandbox | No direct config file reading |\n\n"
-        "This means sandbox and agent never reject terok-only sections "
+        "This means sandbox and executor never reject terok-only sections "
         "(`ui:`, `tui:`, `hooks:`, etc.), while terok catches all typos.\n"
     )
 

@@ -111,7 +111,7 @@ terok depends on three sibling packages, each pinned to a GitHub release wheel:
 terok → terok-executor → terok-sandbox → terok-shield
 ```
 
-Both `terok-executor` and `terok-sandbox` are listed as **explicit** dependencies in `pyproject.toml` — even though sandbox is pulled transitively via agent. This is intentional: terok imports directly from both packages, so the dependency must be declared, not just inherited.
+Both `terok-executor` and `terok-sandbox` are listed as **explicit** dependencies in `pyproject.toml` — even though sandbox is pulled transitively via executor. This is intentional: terok imports directly from both packages, so the dependency must be declared, not just inherited.
 
 **Version sync rules:**
 
