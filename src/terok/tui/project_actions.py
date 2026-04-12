@@ -371,7 +371,7 @@ class ProjectActionsMixin:
 
         def work() -> None:
             """Resolve and print the effective instructions."""
-            from terok_agent import resolve_instructions
+            from terok_executor import resolve_instructions
 
             from ..lib.orchestration.agent_config import resolve_agent_config
 
@@ -379,7 +379,7 @@ class ProjectActionsMixin:
             effective = resolve_agent_config(
                 pid, agent_config=project.agent_config, project_root=project.root
             )
-            from terok_agent import get_provider as _get_provider
+            from terok_executor import get_provider as _get_provider
 
             provider = _get_provider(None, default_agent=project.default_agent)
             text = resolve_instructions(effective, provider.name, project_root=project.root)
@@ -411,7 +411,7 @@ class ProjectActionsMixin:
 
         def work() -> None:
             """Print bundled default instructions."""
-            from terok_agent import bundled_default_instructions
+            from terok_executor import bundled_default_instructions
 
             text = bundled_default_instructions()
             print("=== Bundled Default Instructions ===\n")
@@ -572,7 +572,7 @@ class ProjectActionsMixin:
 
     async def _action_proxy_install(self) -> None:
         """Install systemd socket activation for the credential proxy."""
-        from terok_agent import ensure_proxy_routes
+        from terok_executor import ensure_proxy_routes
 
         from ..lib.core.config import make_sandbox_config
 
@@ -596,7 +596,7 @@ class ProjectActionsMixin:
 
     async def _action_proxy_start(self) -> None:
         """Generate routes and start the credential proxy daemon."""
-        from terok_agent import ensure_proxy_routes
+        from terok_executor import ensure_proxy_routes
 
         from ..lib.core.config import make_sandbox_config
 

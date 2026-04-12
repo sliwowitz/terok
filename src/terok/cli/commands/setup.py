@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 
-from terok_agent import AUTH_PROVIDERS
+from terok_executor import AUTH_PROVIDERS
 
 from ...lib.core.projects import load_project
 from ...lib.domain.facade import (

@@ -4,7 +4,7 @@
 """In-container health checks via the layered doctor protocol.
 
 Collects checks from ``terok_sandbox.doctor`` (network, shield),
-``terok_agent.doctor`` (bridges, credentials, env), and adds terok-level
+``terok_executor.doctor`` (bridges, credentials, env), and adds terok-level
 checks (git identity, remote URL).  Executes probes inside running
 containers via ``podman exec`` and optionally applies fixes.
 
@@ -18,7 +18,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
-from terok_agent import agent_doctor_checks, get_roster
+from terok_executor import agent_doctor_checks, get_roster
 from terok_sandbox import get_container_state, get_proxy_port, get_ssh_agent_port, make_shield
 from terok_sandbox.doctor import CheckVerdict, DoctorCheck, sandbox_doctor_checks
 

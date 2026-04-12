@@ -75,8 +75,8 @@ def main() -> None:
             "  3. Login:  terok login <project_id> <task_id>\n"
             "\n"
             "Standalone agent (no project):\n"
-            "  terok agent run claude .          (headless against cwd)\n"
-            "  terok agent run claude . -p 'fix' (with prompt)\n"
+            "  terok executor run claude .          (headless against cwd)\n"
+            "  terok executor run claude . -p 'fix' (with prompt)\n"
             "\n"
             "Step-by-step (order of operations):\n"
             "  Online (HTTPS): generate → build → gate-sync (optional)"
@@ -126,12 +126,12 @@ def main() -> None:
     # Mount sub-package command registries under scoped prefixes.
     # Groups that touch SandboxConfig paths receive config_factory so the
     # wiring layer injects terok's make_sandbox_config() as ``cfg``.
-    from terok_agent import AGENT_COMMANDS, PROXY_COMMANDS as AGENT_PROXY_COMMANDS
+    from terok_executor import AGENT_COMMANDS, PROXY_COMMANDS as AGENT_PROXY_COMMANDS
     from terok_sandbox import GATE_COMMANDS, SSH_COMMANDS
 
     from ..lib.core.config import make_sandbox_config
 
-    wire_group(sub, "agent", AGENT_COMMANDS, help="Agent container commands")
+    wire_group(sub, "executor", AGENT_COMMANDS, help="Executor container commands")
     wire_group(
         sub,
         "gate",

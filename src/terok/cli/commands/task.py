@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from terok_agent import PROVIDER_NAMES as _PROVIDER_NAMES
+from terok_executor import PROVIDER_NAMES as _PROVIDER_NAMES
 
 from ...lib.core.config import get_logs_partial_streaming as _get_logs_partial_streaming
 from ...lib.domain.facade import (

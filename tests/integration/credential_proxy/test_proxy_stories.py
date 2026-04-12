@@ -56,7 +56,7 @@ class TestStoryAuthThroughProxy:
         import aiohttp
         from terok_sandbox.credentials.proxy.server import _build_app
 
-        # 1. Store credential (simulates terok-agent auth vibe --api-key ...)
+        # 1. Store credential (simulates terok-executor auth vibe --api-key ...)
         db_path = tmp_path / "proxy" / "credentials.db"
         db = CredentialDB(db_path)
         db.store_credential("default", "vibe", {"type": "api_key", "key": "real-mistral-key"})

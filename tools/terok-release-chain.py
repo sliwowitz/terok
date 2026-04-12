@@ -42,21 +42,21 @@ console = Console(stderr=True)
 #
 # Single source of truth for release ordering and sibling relationships.
 
-CHAIN = ["terok-dbus", "terok-shield", "terok-sandbox", "terok-agent", "terok"]
+CHAIN = ["terok-dbus", "terok-shield", "terok-sandbox", "terok-executor", "terok"]
 
 DEPS: dict[str, list[str]] = {
     "terok-dbus": [],
     "terok-shield": ["terok-dbus"],
     "terok-sandbox": ["terok-shield"],
-    "terok-agent": ["terok-sandbox"],
-    "terok": ["terok-agent", "terok-sandbox", "terok-dbus"],
+    "terok-executor": ["terok-sandbox"],
+    "terok": ["terok-executor", "terok-sandbox", "terok-dbus"],
 }
 
 ALIASES = {
     "dbus": "terok-dbus",
     "shield": "terok-shield",
     "sandbox": "terok-sandbox",
-    "agent": "terok-agent",
+    "executor": "terok-executor",
     "terok": "terok",
 } | {n: n for n in CHAIN}
 

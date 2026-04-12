@@ -306,27 +306,27 @@ class TestWireDispatch:
 class TestAgentCommandsRegistered:
     """Verify AGENT_COMMANDS can be mounted and dispatched."""
 
-    def test_agent_run_parseable(self) -> None:
-        """'agent run claude .' parses correctly."""
-        from terok_agent import AGENT_COMMANDS
+    def test_executor_run_parseable(self) -> None:
+        """'executor run claude .' parses correctly."""
+        from terok_executor import AGENT_COMMANDS
 
         parser = argparse.ArgumentParser()
         sub = parser.add_subparsers(dest="cmd")
-        wire_group(sub, "agent", AGENT_COMMANDS)
+        wire_group(sub, "executor", AGENT_COMMANDS)
 
-        args = parser.parse_args(["agent", "run", "claude", "."])
+        args = parser.parse_args(["executor", "run", "claude", "."])
         assert args._wired_cmd.name == "run"
         assert args.agent == "claude"
         assert args.repo == "."
 
-    def test_agent_agents_parseable(self) -> None:
-        """'agent agents --all' parses correctly."""
-        from terok_agent import AGENT_COMMANDS
+    def test_executor_agents_parseable(self) -> None:
+        """'executor agents --all' parses correctly."""
+        from terok_executor import AGENT_COMMANDS
 
         parser = argparse.ArgumentParser()
         sub = parser.add_subparsers(dest="cmd")
-        wire_group(sub, "agent", AGENT_COMMANDS)
+        wire_group(sub, "executor", AGENT_COMMANDS)
 
-        args = parser.parse_args(["agent", "agents", "--all"])
+        args = parser.parse_args(["executor", "agents", "--all"])
         assert args._wired_cmd.name == "agents"
         assert args.show_all is True

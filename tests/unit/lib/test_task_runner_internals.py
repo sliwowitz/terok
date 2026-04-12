@@ -565,7 +565,7 @@ class TestApplyUnrestrictedEnv:
 
     def test_sets_flag_and_auto_approve(self) -> None:
         """Injects TEROK_UNRESTRICTED and all agent auto-approve vars."""
-        from terok_agent import collect_all_auto_approve_env
+        from terok_executor import collect_all_auto_approve_env
 
         env: dict[str, str] = {}
         _apply_unrestricted_env(env)

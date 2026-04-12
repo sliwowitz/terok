@@ -20,7 +20,7 @@ credentials:
   # dir: ~/.local/share/terok-credentials
   #
   # Agent config mounts (_claude-config, _codex-config, etc.) are stored
-  # separately under ~/.local/share/terok-agent/mounts/ (TEROK_AGENT_STATE_DIR).
+  # separately under <sandbox_live_dir>/mounts/ (TEROK_SANDBOX_LIVE_DIR).
 
 paths:
   # User projects directory (per-user overlays). Each project is a subdirectory

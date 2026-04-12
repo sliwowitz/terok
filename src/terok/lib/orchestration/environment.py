@@ -7,7 +7,7 @@
 Translates project configuration and security mode into the environment
 variables and volume mounts that ``podman run`` needs when launching a
 task container.  Shared config mounts and base env vars are delegated to
-:func:`terok_agent.assemble_container_env`; this module adds terok-specific
+:func:`terok_executor.assemble_container_env`; this module adds terok-specific
 concerns (gate server, credential proxy with OAuth/socket/SSH support).
 """
 
@@ -265,7 +265,7 @@ def _credential_proxy_env_and_volumes(
     if get_credential_proxy_bypass():
         return {}, []
 
-    from terok_agent import get_roster
+    from terok_executor import get_roster
     from terok_sandbox import (
         CredentialDB,
         ProxyUnreachableError,
@@ -371,7 +371,7 @@ def _credential_proxy_env_and_volumes(
 
     # Warn about real credential files in shared mounts that will be visible
     # to the container alongside proxy phantom tokens.
-    from terok_agent import scan_leaked_credentials
+    from terok_executor import scan_leaked_credentials
 
     leaked = scan_leaked_credentials(sandbox_live_mounts_dir())
     # Tier 3: suppress warning for Claude when expose_oauth_token is active —
@@ -418,7 +418,7 @@ def _seed_workspace_cache(repo_dir: Path, project_id: str, code_repo: str | None
         return
 
     try:
-        from terok_agent import seed_workspace_from_clone_cache
+        from terok_executor import seed_workspace_from_clone_cache
     except ImportError:
         return
 
@@ -445,7 +445,7 @@ def build_task_env_and_volumes(
 
     Delegates shared config mounts, base env vars, workspace volume, git
     identity, and OpenCode provider env to
-    :func:`terok_agent.assemble_container_env`, then layers terok-specific
+    :func:`terok_executor.assemble_container_env`, then layers terok-specific
     concerns: ``PROJECT_ID``, gate server URLs, and the full credential
     proxy (OAuth, socket transport, SSH agent).
 
@@ -481,7 +481,7 @@ def build_task_env_and_volumes(
         authorship=project.git_authorship,
     )
 
-    from terok_agent import ContainerEnvSpec, assemble_container_env, get_roster
+    from terok_executor import ContainerEnvSpec, assemble_container_env, get_roster
 
     result = assemble_container_env(
         ContainerEnvSpec(

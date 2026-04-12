@@ -337,7 +337,7 @@ class TestCredentialProxyEnv:
         db.close()
 
         # Create a leaked credential file in the shared mount
-        from terok_agent import get_roster
+        from terok_executor import get_roster
 
         roster = get_roster()
         auth = roster.auth_providers["claude"]
