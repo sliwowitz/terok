@@ -3063,7 +3063,7 @@ tomli-w = ">=1.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-agent.git"
 reference = "feat/storage-queries"
-resolved_reference = "18edcd346b64008861cb35f3f69bef845d919727"
+resolved_reference = "4d7a2a6d7de126ff62d70ae8df8f35eb768679c3"
 
 [[package]]
 name = "terok-dbus"
@@ -3103,7 +3103,7 @@ terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/downloa
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/container-rw-sizes"
-resolved_reference = "0043c543990ea8a26eea6e529ab17a9309d1bc08"
+resolved_reference = "61697467a7b1a6d577ae24d03ddf1eb8605dfb1e"
 
 [[package]]
 name = "terok-shield"

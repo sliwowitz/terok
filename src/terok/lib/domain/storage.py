@@ -60,7 +60,10 @@ def parse_image_size(text: str) -> int:
     if not m:
         return 0
     try:
-        return int(float(m.group(1)) * _UNITS.get(m.group(2).upper(), 1))
+        multiplier = _UNITS.get(m.group(2).upper())
+        if multiplier is None:
+            return 0
+        return int(float(m.group(1)) * multiplier)
     except (ValueError, OverflowError):
         return 0
 
