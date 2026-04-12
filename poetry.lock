@@ -3045,25 +3045,24 @@ tomli-w = ">=1.0,<2.0"
 
 [[package]]
 name = "terok-agent"
-version = "0.0.68"
+version = "0.0.69"
 description = "Single-agent task runner for hardened Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_agent-0.0.69-py3-none-any.whl", hash = "sha256:88086a53e6c918c889880680662f0bc8b5da1f9362160059d43de02b5a7e7666"},
+]
 
 [package.dependencies]
 Jinja2 = ">=3.1"
 "ruamel.yaml" = ">=0.18"
-terok-sandbox = {git = "https://github.com/sliwowitz/terok-sandbox.git", branch = "feat/sealed-isolation"}
+terok_sandbox = {url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.61/terok_sandbox-0.0.61-py3-none-any.whl"}
 tomli-w = ">=1.0"
 
 [package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-agent.git"
-reference = "feat/sealed-isolation"
-resolved_reference = "15327d1f43b95e14a488f813a7d5aedd7e7df8fa"
+type = "url"
+url = "https://github.com/terok-ai/terok-agent/releases/download/v0.0.69/terok_agent-0.0.69-py3-none-any.whl"
 
 [[package]]
 name = "terok-dbus"
@@ -3085,25 +3084,24 @@ url = "https://github.com/terok-ai/terok-dbus/releases/download/v0.5.6/terok_dbu
 
 [[package]]
 name = "terok-sandbox"
-version = "0.0.60"
+version = "0.0.61"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_sandbox-0.0.61-py3-none-any.whl", hash = "sha256:708056b03769c6f842f0a41170862aed689853e2073a02da4b63f0928d09519f"},
+]
 
 [package.dependencies]
 aiohttp = ">=3.9"
 cryptography = ">=43.0"
 platformdirs = ">=4.0"
-terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.18/terok_shield-0.6.18-py3-none-any.whl"}
+terok_shield = {url = "https://github.com/terok-ai/terok-shield/releases/download/v0.6.18/terok_shield-0.6.18-py3-none-any.whl"}
 
 [package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-sandbox.git"
-reference = "feat/sealed-isolation"
-resolved_reference = "93c2948e477e989d041af1907092274a977f4fed"
+type = "url"
+url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.61/terok_sandbox-0.0.61-py3-none-any.whl"
 
 [[package]]
 name = "terok-shield"
@@ -3611,4 +3609,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "885c39381990056ba76e7b4fcb64a462515c9dd14936ed2e127ac6935dc18a74"
+content-hash = "4afbd9930f69d666b405cd7e46e2504dc2fd57e7b31444720a2fd9cd02ab4ebf"
