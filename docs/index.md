@@ -37,33 +37,42 @@ provisioning.
 pipx install ./terok-*.whl
 ```
 
-### Basic Workflow
+### One-time setup
+
+Install OCI hooks for the egress firewall, start the host-side services
+(credential proxy and git gate), and optionally add shell completions:
 
 ```bash
-# 1. Create project directory
-mkdir -p ~/.config/terok/projects/myproj
-
-# 2. Create project.yml (see User Guide for full schema)
-cat > ~/.config/terok/projects/myproj/project.yml << 'EOF'
-project:
-  id: myproj
-  security_class: online
-git:
-  upstream_url: https://github.com/yourorg/yourrepo.git
-  default_branch: main
-EOF
-
-# 3. Generate and build images
-terok generate myproj
-terok build myproj
-
-# 4. (Optional) Set up SSH for private repos
-terok ssh-init myproj
-
-# 5. Create and run a task
-terok task new myproj
-terok task run-cli myproj 1    # CLI mode
+terok shield setup --user               # install OCI hooks for terok-shield
+terok credential-proxy install          # install systemd socket activation
+terok credential-proxy start            # start the credential proxy daemon
+terok gate start                        # start the git gate server
+terok completions install               # (optional) tab completion
 ```
+
+### First project
+
+Launch the TUI and create your first project from there:
+
+```bash
+terok tui
+```
+
+- Press **n** to run the project wizard (creates config, builds images, sets up SSH + gate)
+- Select your new project, press **a** to authenticate your agent
+- **Tab** to the task list, press **c** to start a CLI task
+
+Or do the same from the command line:
+
+```bash
+terok project-wizard                    # interactive setup
+terok auth claude myproj                # authenticate agent
+terok task start myproj                 # start a CLI agent task
+terok task start myproj --toad          # Toad multi-agent TUI (browser access)
+terok login myproj a3                   # attach to a running task by hex ID prefix
+```
+
+For manual project configuration or CI, see the [User Guide](usage.md).
 
 ### Headless Agent Runs (Autopilot)
 
@@ -98,11 +107,13 @@ per-project in `<project>/presets/`. See the
 - [User Guide](usage.md) — Complete user documentation
 - [Container Layers](container-layers.md) — Container image architecture
 - [Container Lifecycle](container-lifecycle.md) — Container and image lifecycle
-- [Shared Directories](shared-dirs.md) — Volume mounts and SSH configuration
+- [Shared Directories](shared-dirs.md) — Volume mounts and credential proxy
 - [Security Modes](git-gate-and-security-modes.md) — Online vs gatekeeping modes
-- [Login Design](login-design.md) — Login session architecture
-- [Developer Guide](developer.md) — Architecture and contributing
+- [Shield](shield-security.md) — Egress firewall (terok-shield)
 - [Agent Compatibility Matrix](agent-compat-matrix.md) — Per-agent feature support
+- [Login Design](login-design.md) — Login session architecture
+- [Docker](docker.md) — Running terok inside Docker (experimental)
+- [Developer Guide](developer.md) — Architecture and contributing
 - [API Reference](reference/) — Auto-generated API documentation
 
 ## License
