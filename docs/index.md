@@ -52,25 +52,27 @@ terok completions install               # (optional) tab completion
 
 ### First project
 
+Launch the TUI and create your first project from there:
+
 ```bash
-# Interactive wizard — creates config, builds images, sets up SSH + gate
-terok project-wizard
+terok tui
 ```
 
-From here you can launch the full TUI or work directly from the CLI:
+- Press **n** to run the project wizard (creates config, builds images, sets up SSH + gate)
+- Select your new project, press **a** to authenticate your agent
+- **Tab** to the task list, press **c** to start a CLI task
+
+Or do the same from the command line:
 
 ```bash
-terok tui                               # Textual TUI (manage projects & tasks)
-
-# — or use the CLI directly —
+terok project-wizard                    # interactive setup
+terok auth claude myproj                # authenticate agent
 terok task start myproj                 # start a CLI agent task
 terok task start myproj --toad          # Toad multi-agent TUI (browser access)
 terok login myproj a3                   # attach to a running task by hex ID prefix
 ```
 
-The wizard creates the project config, generates Dockerfiles, builds images,
-and sets up SSH keys and the git gate — all in one step.
-For manual setup or CI, see the [User Guide](usage.md).
+For manual project configuration or CI, see the [User Guide](usage.md).
 
 ### Headless Agent Runs (Autopilot)
 
