@@ -5,7 +5,7 @@
 
 Generic proxy plumbing (phantom tokens, socket transport, SSH agent) is
 tested in terok-executor (test_env_builder.py).  These tests cover the
-terok-only Claude OAuth tier gating and leaked-credential scan with
+terok-only Claude OAuth mode overrides and leaked-credential scan with
 exposed-token filtering.
 """
 
@@ -19,7 +19,7 @@ import pytest
 
 
 class TestClaudeOAuthOverrides:
-    """Verify _apply_claude_oauth_overrides tier gating."""
+    """Verify _apply_claude_oauth_overrides mode selection."""
 
     def test_proxied_removes_token_keeps_base_url(self) -> None:
         """Claude OAuth proxied → remove phantom token, keep base URL."""

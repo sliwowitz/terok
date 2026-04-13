@@ -382,8 +382,7 @@ def build_task_env_and_volumes(
     if "EXTERNAL_REMOTE_URL" in sec_env:
         env["EXTERNAL_REMOTE_URL"] = sec_env["EXTERNAL_REMOTE_URL"]
 
-    # Claude OAuth tier gating (terok-specific policy on top of executor's
-    # generic proxy injection) + leaked-cred scan with tier 3 filtering
+    # Claude OAuth overrides + leaked-cred scan with exposed-token filtering
     if not proxy_bypass:
         _apply_claude_oauth_overrides(env)
         _warn_leaked_credentials()
