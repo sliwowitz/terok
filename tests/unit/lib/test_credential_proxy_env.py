@@ -91,7 +91,7 @@ class TestLeakedCredentialsScan:
                 "terok_executor.scan_leaked_credentials",
                 return_value=[("claude", Path("/tmp/terok-testing/m/.credentials.json"))],
             ),
-            patch("terok.lib.core.config.is_experimental", return_value=False),
+            patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
         ):
             _warn_leaked_credentials()
 
@@ -116,8 +116,7 @@ class TestLeakedCredentialsScan:
                     ("vibe", Path("/tmp/terok-testing/m/config.toml")),
                 ],
             ),
-            patch("terok.lib.core.config.is_experimental", return_value=True),
-            patch("terok.lib.core.config.get_claude_expose_oauth_token", return_value=True),
+            patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=True),
         ):
             _warn_leaked_credentials()
 

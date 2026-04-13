@@ -225,7 +225,7 @@ def _apply_claude_oauth_overrides(env: dict[str, str]) -> None:
     if is_claude_oauth_proxied():
         # Proxied: remove phantom token (the mounted .credentials.json
         # marker is used for auth), keep ANTHROPIC_BASE_URL for routing
-        del env["CLAUDE_CODE_OAUTH_TOKEN"]
+        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
     else:
         # Skipped or exposed: remove all Claude proxy env vars
         for key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"):
@@ -240,19 +240,27 @@ def _warn_leaked_credentials() -> None:
     """
     from terok_executor import scan_leaked_credentials
 
-    from ..core.config import get_claude_expose_oauth_token, is_experimental
+    from ..core.config import is_claude_oauth_exposed
+    from ..util.ansi import bold, supports_color, yellow
 
     leaked = scan_leaked_credentials(sandbox_live_mounts_dir())
 
-    if is_experimental() and get_claude_expose_oauth_token():
+    if is_claude_oauth_exposed():
         import sys
 
+        color = supports_color()
         print(
-            "\n\033[1;33m"
-            "  WARNING: Claude OAuth token is EXPOSED to all task containers.\n"
-            "  The credential proxy does NOT protect this token — it is mounted\n"
-            "  directly via .credentials.json in the shared config directory.\n"
-            "  Every task container managed by terok can read the real token.\033[0m\n",
+            "\n"
+            + bold(
+                yellow(
+                    "  WARNING: Claude OAuth token is EXPOSED to all task containers.\n"
+                    "  The credential proxy does NOT protect this token — it is mounted\n"
+                    "  directly via .credentials.json in the shared config directory.\n"
+                    "  Every task container managed by terok can read the real token.\n",
+                    color,
+                ),
+                color,
+            ),
             file=sys.stderr,
         )
         leaked = [(p, path) for p, path in leaked if p != "claude"]
@@ -364,12 +372,13 @@ def build_task_env_and_volumes(
             human_email=project.human_email or "nobody@localhost",
             credential_scope=project.id,
             proxy_transport=get_credential_proxy_transport(),
-            proxy_required=True,
+            proxy_required=not proxy_bypass,
             unrestricted=False,  # task_runners resolves per-provider config
             shared_dir=None if sealed else project.shared_dir,
             envs_dir=sandbox_live_mounts_dir(),
         ),
         get_roster(),
+        # bypass → skip proxy entirely (no tokens, no check)
         caller_manages_proxy=proxy_bypass,
     )
 

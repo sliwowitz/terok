@@ -632,3 +632,28 @@ def test_is_claude_oauth_not_proxied_when_exposed(
         ),
     )
     assert cfg.is_claude_oauth_proxied() is False
+
+
+def test_is_claude_oauth_exposed(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``is_claude_oauth_exposed()`` returns True when experimental + expose_oauth_token."""
+    monkeypatch.setenv(
+        "TEROK_CONFIG_FILE",
+        str(
+            write_config(
+                tmp_path,
+                "experimental: true\nagent:\n  claude:\n    expose_oauth_token: true\n",
+            )
+        ),
+    )
+    assert cfg.is_claude_oauth_exposed() is True
+
+
+def test_is_claude_oauth_not_exposed_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``is_claude_oauth_exposed()`` returns False when experimental is off."""
+    monkeypatch.setenv(
+        "TEROK_CONFIG_FILE",
+        str(write_config(tmp_path, "agent:\n  claude:\n    expose_oauth_token: true\n")),
+    )
+    assert cfg.is_claude_oauth_exposed() is False

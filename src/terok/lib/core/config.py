@@ -569,3 +569,13 @@ def is_claude_oauth_proxied() -> bool:
       mounted directly for Claude Code subscription features.
     """
     return is_experimental() and get_claude_allow_oauth() and not get_claude_expose_oauth_token()
+
+
+def is_claude_oauth_exposed() -> bool:
+    """Return True when the real Claude OAuth token is intentionally exposed.
+
+    Exposed mode trades token security for Claude Code subscription
+    features — the real ``.credentials.json`` is mounted directly
+    instead of being replaced with a phantom marker.
+    """
+    return is_experimental() and get_claude_expose_oauth_token()
