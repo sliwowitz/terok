@@ -95,7 +95,10 @@ class TestLeakedCredentialsScan:
         ):
             _warn_leaked_credentials()
 
-        assert any("claude" in r.message for r in caplog.records)
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("claude" in r.message for r in warnings)
+        # Full path must not leak at WARNING — only at DEBUG
+        assert not any(".credentials.json" in r.message for r in warnings)
 
     def test_exposed_token_suppresses_claude_warning(
         self, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture

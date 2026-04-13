@@ -266,7 +266,8 @@ def _warn_leaked_credentials() -> None:
         leaked = [(p, path) for p, path in leaked if p != "claude"]
 
     for provider, path in leaked:
-        _logger.warning("Real credential in shared mount: %s: %s", provider, path)
+        _logger.warning("Real credential in shared mount for provider %s", provider)
+        _logger.debug("  path: %s", path)
 
 
 # ---------- Clone-cache workspace seeding ----------
