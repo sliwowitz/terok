@@ -32,9 +32,12 @@ from typing import Any, Never
 
 import click
 import tomlkit
-from pydantic import BaseModel, Field
+from pydantic import VERSION as _pydantic_ver, BaseModel, Field
 from rich.console import Console
 from rich.table import Table
+
+if int(_pydantic_ver.split(".")[0]) < 2:
+    raise SystemExit(f"pydantic >= 2 required (found {_pydantic_ver}): pip install 'pydantic>=2'")
 
 console = Console(stderr=True)
 
@@ -197,8 +200,16 @@ class Ctx:
 def sh(
     *args: str, cwd: Path | None = None, capture: bool = False, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess."""
-    return subprocess.run(args, cwd=cwd, capture_output=capture, text=True, check=check)
+    """Run a subprocess — always surfaces output on failure."""
+    r = subprocess.run(args, cwd=cwd, capture_output=capture, text=True, check=False)
+    if check and r.returncode:
+        detail = (r.stderr or r.stdout or "").strip() if capture else ""
+        cmd = " ".join(args)
+        msg = f"Command failed (exit {r.returncode}): {cmd}"
+        if detail:
+            msg += f"\n{detail}"
+        die(msg)
+    return r
 
 
 # ── TOML ops ──────────────────────────────────────────────────────────────
@@ -355,7 +366,8 @@ def wait_for_checks(pr_url: str, gh_repo: str, ctx: Ctx) -> str:
             if elapsed < grace:
                 time.sleep(poll)
                 continue
-            die(f"gh pr checks failed (exit {r.returncode})")
+            detail = (r.stderr or r.stdout or "").strip()
+            die(f"gh pr checks failed (exit {r.returncode}): {detail}")
 
         checks = json.loads(r.stdout) if r.stdout.strip() else []
         if not checks:
