@@ -306,4 +306,4 @@ def is_task_image_old(project_id: str | None, task: Any) -> bool | None:
             return True
         return label != current_hash
 
-    return bool(stale) or None
+    return len(stale) > 0
