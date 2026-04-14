@@ -283,6 +283,48 @@ class TestPerLayerHashes:
         )
         assert l1_content_hash(rendered_a) == l1_content_hash(rendered_b)
 
+    def test_l2_changes_dont_affect_l0_or_l1_hash(self) -> None:
+        """Changing L2 Dockerfile does not change L0 or L1 hashes."""
+        from terok.lib.orchestration.image import l0_content_hash, l1_content_hash
+
+        rendered_a = {
+            "L0.Dockerfile": "FROM ubuntu:24.04",
+            "L1.cli.Dockerfile": "FROM l0-tag",
+            "L2.Dockerfile": "FROM l1-tag",
+        }
+        rendered_b = {**rendered_a, "L2.Dockerfile": "FROM l1-tag\nRUN echo added"}
+
+        assert l0_content_hash("ubuntu:24.04", rendered_a) == l0_content_hash(
+            "ubuntu:24.04", rendered_b
+        )
+        assert l1_content_hash(rendered_a) == l1_content_hash(rendered_b)
+
+    def test_l1_dockerfile_change_changes_l1_hash(self) -> None:
+        """Changing L1 Dockerfile content changes the L1 hash."""
+        from terok.lib.orchestration.image import l1_content_hash
+
+        rendered_a = {
+            "L0.Dockerfile": "FROM ubuntu:24.04",
+            "L1.cli.Dockerfile": "FROM l0-tag\nRUN install agents",
+            "L2.Dockerfile": "FROM l1-tag",
+        }
+        rendered_b = {**rendered_a, "L1.cli.Dockerfile": "FROM l0-tag\nRUN install NEW agents"}
+
+        assert l1_content_hash(rendered_a) != l1_content_hash(rendered_b)
+
+    def test_base_image_change_changes_l0_hash(self) -> None:
+        """Changing base_image string changes L0 hash."""
+        from terok.lib.orchestration.image import l0_content_hash
+
+        rendered = {
+            "L0.Dockerfile": "FROM base",
+            "L1.cli.Dockerfile": "x",
+            "L2.Dockerfile": "y",
+        }
+        assert l0_content_hash("ubuntu:24.04", rendered) != l0_content_hash(
+            "ubuntu:26.04", rendered
+        )
+
     def test_combined_hash_derives_from_per_layer(self) -> None:
         """Combined hash changes when any per-layer hash changes."""
         from terok.lib.orchestration.image import (
@@ -348,6 +390,18 @@ class TestBuildManifest:
             path.write_text("not json", encoding="utf-8")
             assert read_build_manifest("proj_corrupt") is None
 
+    def test_wrong_schema_version_returns_none(self) -> None:
+        """Manifest with wrong schema version returns None."""
+        import json
+
+        from terok.lib.orchestration.image import _manifest_path, read_build_manifest
+
+        with image_project("proj_bad_schema"):
+            generate_dockerfiles("proj_bad_schema")
+            path = _manifest_path("proj_bad_schema")
+            path.write_text(json.dumps({"schema": 999, "l0": {}}), encoding="utf-8")
+            assert read_build_manifest("proj_bad_schema") is None
+
     def test_build_images_writes_manifest(self) -> None:
         """build_images writes a build manifest after successful build."""
         from terok.lib.orchestration.image import read_build_manifest
@@ -361,6 +415,36 @@ class TestBuildManifest:
         assert manifest["schema"] == 1
         assert "l0" in manifest and "l1" in manifest and "l2_cli" in manifest
         assert all(manifest[k]["content_hash"] for k in ("l0", "l1"))
+
+    def test_rebuild_agents_writes_fresh_hashes(self) -> None:
+        """rebuild_agents=True records current hashes, not carried-forward ones."""
+        from terok.lib.orchestration.image import (
+            _write_build_manifest,
+            read_build_manifest,
+        )
+
+        with image_project("proj_rebuild"):
+            generate_dockerfiles("proj_rebuild")
+            # Seed a manifest with stale hashes
+            _write_build_manifest(
+                "proj_rebuild",
+                {
+                    "schema": 1,
+                    "base_image": "ubuntu:24.04",
+                    "l0": {"tag": "terok-l0:ubuntu-24-04", "content_hash": "old-l0"},
+                    "l1": {"tag": "terok-l1-cli:ubuntu-24-04", "content_hash": "old-l1"},
+                    "l2_cli": {"tag": "proj_rebuild:l2-cli", "content_hash": "old-l2"},
+                    "combined_hash": "old-combined",
+                },
+            )
+            # Build with --agents → L0/L1 rebuilt → fresh hashes
+            build_commands("proj_rebuild", rebuild_agents=True)
+            manifest = read_build_manifest("proj_rebuild")
+
+        assert manifest is not None
+        # Hashes must NOT be the old carried-forward values
+        assert manifest["l0"]["content_hash"] != "old-l0"
+        assert manifest["l1"]["content_hash"] != "old-l1"
 
     def test_skipped_base_carries_forward_manifest_hashes(self) -> None:
         """When L0/L1 are skipped, manifest preserves previous hashes."""

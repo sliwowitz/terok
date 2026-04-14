@@ -120,6 +120,169 @@ class TestDetectStaleLayers:
             stale = _detect_stale_layers(project, rendered)
             assert stale == ["l0", "l2"]
 
+    def test_malformed_manifest_entry_marks_layer_stale(self) -> None:
+        """Manifest with non-dict layer entry → that layer is stale."""
+        from terok.lib.domain.project_state import _detect_stale_layers
+
+        project = Mock(id="p1", base_image="ubuntu:24.04")
+        rendered = {"L0.Dockerfile": "x", "L1.cli.Dockerfile": "y", "L2.Dockerfile": "z"}
+
+        # l1 entry is a string instead of a dict
+        manifest = self._make_manifest("h0", "h1", "h2")
+        manifest["l1"] = "not-a-dict"
+
+        with (
+            patch("terok.lib.orchestration.image.l0_content_hash", return_value="h0"),
+            patch("terok.lib.orchestration.image.l1_content_hash", return_value="h1"),
+            patch("terok.lib.orchestration.image.l2_content_hash", return_value="h2"),
+            patch(
+                "terok.lib.orchestration.image.read_build_manifest",
+                return_value=manifest,
+            ),
+        ):
+            stale = _detect_stale_layers(project, rendered)
+            assert "l1" in stale
+            assert "l0" not in stale  # l0 matches, still current
+
+    def test_missing_manifest_key_marks_layer_stale(self) -> None:
+        """Manifest missing a layer key entirely → that layer is stale."""
+        from terok.lib.domain.project_state import _detect_stale_layers
+
+        project = Mock(id="p1", base_image="ubuntu:24.04")
+        rendered = {"L0.Dockerfile": "x", "L1.cli.Dockerfile": "y", "L2.Dockerfile": "z"}
+
+        manifest = self._make_manifest("h0", "h1", "h2")
+        del manifest["l0"]
+
+        with (
+            patch("terok.lib.orchestration.image.l0_content_hash", return_value="h0"),
+            patch("terok.lib.orchestration.image.l1_content_hash", return_value="h1"),
+            patch("terok.lib.orchestration.image.l2_content_hash", return_value="h2"),
+            patch(
+                "terok.lib.orchestration.image.read_build_manifest",
+                return_value=manifest,
+            ),
+        ):
+            stale = _detect_stale_layers(project, rendered)
+            assert stale == ["l0"]  # only l0 is stale (missing from manifest)
+
+    def test_import_error_falls_back_to_all_stale(self) -> None:
+        """ImportError during hash computation → all layers stale."""
+        from terok.lib.domain.project_state import _detect_stale_layers
+
+        project = Mock(id="p1", base_image="ubuntu:24.04")
+        rendered = {"L0.Dockerfile": "x", "L1.cli.Dockerfile": "y", "L2.Dockerfile": "z"}
+
+        with patch(
+            "terok.lib.orchestration.image.l0_content_hash",
+            side_effect=ImportError("missing"),
+        ):
+            assert _detect_stale_layers(project, rendered) == ["l0", "l1", "l2"]
+
+
+class TestIsTaskImageOld:
+    """Verify is_task_image_old return values."""
+
+    def test_returns_false_when_all_current(self) -> None:
+        """Running task with current manifest → False."""
+        from terok.lib.domain.project_state import is_task_image_old
+
+        task = Mock(mode="cli", task_id="42")
+        container_inspect = Mock(returncode=0, stdout="true\tsha256:abc123")
+
+        with (
+            patch("terok.lib.domain.project_state.subprocess.run", return_value=container_inspect),
+            patch("terok.lib.domain.project_state._container_name", return_value="c1"),
+            patch(
+                "terok.lib.orchestration.image.render_all_dockerfiles",
+                return_value={"L0.Dockerfile": "x", "L1.cli.Dockerfile": "y", "L2.Dockerfile": "z"},
+            ),
+            patch(
+                "terok.lib.domain.project_state.load_project",
+                return_value=Mock(base_image="ubuntu:24.04"),
+            ),
+            patch(
+                "terok.lib.domain.project_state._detect_stale_layers",
+                return_value=[],
+            ),
+        ):
+            result = is_task_image_old("proj1", task)
+
+        assert result is False
+
+    def test_returns_true_when_stale(self) -> None:
+        """Running task with stale L1 → True."""
+        from terok.lib.domain.project_state import is_task_image_old
+
+        task = Mock(mode="cli", task_id="42")
+        container_inspect = Mock(returncode=0, stdout="true\tsha256:abc123")
+
+        with (
+            patch("terok.lib.domain.project_state.subprocess.run", return_value=container_inspect),
+            patch("terok.lib.domain.project_state._container_name", return_value="c1"),
+            patch(
+                "terok.lib.orchestration.image.render_all_dockerfiles",
+                return_value={"L0.Dockerfile": "x", "L1.cli.Dockerfile": "y", "L2.Dockerfile": "z"},
+            ),
+            patch(
+                "terok.lib.domain.project_state.load_project",
+                return_value=Mock(base_image="ubuntu:24.04"),
+            ),
+            patch(
+                "terok.lib.domain.project_state._detect_stale_layers",
+                return_value=["l1"],
+            ),
+        ):
+            result = is_task_image_old("proj1", task)
+
+        assert result is True
+
+    def test_returns_none_for_non_cli_task(self) -> None:
+        """Non-CLI task mode → None (not applicable)."""
+        from terok.lib.domain.project_state import is_task_image_old
+
+        task = Mock(mode="web", task_id="42")
+        assert is_task_image_old("proj1", task) is None
+
+    def test_returns_none_for_none_project(self) -> None:
+        """None project_id → None."""
+        from terok.lib.domain.project_state import is_task_image_old
+
+        task = Mock(mode="cli", task_id="42")
+        assert is_task_image_old(None, task) is None
+
+    def test_falls_back_to_label_check_on_exception(self) -> None:
+        """When manifest approach fails, falls back to L2 label comparison."""
+        from datetime import UTC, datetime
+
+        from terok.lib.domain.project_state import is_task_image_old
+
+        task = Mock(mode="cli", task_id="42")
+        container_inspect = Mock(returncode=0, stdout="true\tsha256:abc123")
+
+        with (
+            patch("terok.lib.domain.project_state.subprocess.run", return_value=container_inspect),
+            patch("terok.lib.domain.project_state._container_name", return_value="c1"),
+            # Make manifest approach fail at load_project (inside is_task_image_old)
+            patch(
+                "terok.lib.domain.project_state.load_project",
+                side_effect=RuntimeError("boom"),
+            ),
+            # Fallback: build_context_hash succeeds
+            patch(
+                "terok.lib.orchestration.image.build_context_hash",
+                return_value="current-hash",
+            ),
+            # Label on image doesn't match → stale
+            patch(
+                "terok.lib.domain.project_state._get_image_metadata",
+                return_value=(datetime.now(UTC), "old-hash"),
+            ),
+        ):
+            result = is_task_image_old("proj1", task)
+
+        assert result is True  # "old-hash" != "current-hash"
+
 
 class TestStaleLayerHint:
     """Verify TUI hint selection for stale layers."""
