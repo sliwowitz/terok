@@ -17,6 +17,13 @@ from ...lib.core.task_display import GPU_DISPLAY, SECURITY_CLASS_DISPLAY, has_gp
 from ...lib.util.emoji import render_emoji
 from .task_detail import _get_css_variables
 
+_LAYER_LABELS = {"l0": "L0", "l1": "L1", "l2": "L2"}
+
+
+def _stale_layer_hint(stale_layers: list[str]) -> str:
+    """Format a concise ``L0/L1`` label for stale layers."""
+    return "/".join(_LAYER_LABELS[ly] for ly in ("l0", "l1", "l2") if ly in stale_layers)
+
 
 def render_project_loading(
     project: ProjectConfig | None,
@@ -81,7 +88,9 @@ def render_project_details(
 
     images_value = "yes" if state.get("images") else "no"
     if images_value == "yes" and state.get("images_old"):
-        images_value = "old"
+        stale = state.get("stale_layers", [])
+        hint = _stale_layer_hint(stale)
+        images_value = f"old {hint}" if hint else "old"
     images_s = _status_text(images_value)
     ssh_s = _status_text("yes" if state.get("ssh") else "no")
 
