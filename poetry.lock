@@ -3080,7 +3080,7 @@ tomli-w = ">=1.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-executor.git"
 reference = "feat/port-registry-v3"
-resolved_reference = "bcd9faa9963f005c6f2dc837548b5ad27c62ec31"
+resolved_reference = "9b5db4819770bf59c5587400be6481a760cee303"
 
 [[package]]
 name = "terok-sandbox"
@@ -3102,7 +3102,7 @@ terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/downloa
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/port-registry-v3"
-resolved_reference = "7bfe6037d27507caad0e0648eecff2f6df3e0483"
+resolved_reference = "910f2d93dbc54cba787de3d57e6df0120f84270d"
 
 [[package]]
 name = "terok-shield"
