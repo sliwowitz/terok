@@ -22,7 +22,6 @@ from terok_executor import agent_doctor_checks, get_roster
 from terok_sandbox import get_container_state, get_proxy_port, get_ssh_agent_port, make_shield
 from terok_sandbox.doctor import CheckVerdict, DoctorCheck, sandbox_doctor_checks
 
-from ..core.config import make_sandbox_config
 from ..core.projects import load_project
 from ..util.logging_utils import _log_debug
 from .tasks import container_name, load_task_meta, tasks_meta_dir
@@ -234,7 +233,9 @@ def _collect_all_checks(
     task_dir: Path,
 ) -> list[DoctorCheck]:
     """Gather health checks from sandbox, agent, and terok layers."""
-    cfg = make_sandbox_config()
+    from ..core.config import make_sandbox_config_readonly
+
+    cfg = make_sandbox_config_readonly()
     proxy_port = get_proxy_port(cfg)
     ssh_agent_port = get_ssh_agent_port(cfg)
     desired_shield = _read_desired_shield_state(task_dir)

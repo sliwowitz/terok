@@ -116,7 +116,7 @@ def test_cmd_sickbay_reports_health(
         patch("terok.cli.commands.sickbay.check_environment", return_value=mock_ec),
         patch("terok.cli.commands.sickbay.get_proxy_status", return_value=_make_proxy_status()),
         patch("terok.cli.commands.sickbay.is_proxy_systemd_available", return_value=False),
-        patch("terok.cli.commands.sickbay.make_sandbox_config", mock_cfg),
+        patch("terok.cli.commands.sickbay.make_sandbox_config_readonly", mock_cfg),
         patch("terok.cli.commands.sickbay._find_containers_conf", return_value=keyring_conf),
     ):
         if exit_code is None:

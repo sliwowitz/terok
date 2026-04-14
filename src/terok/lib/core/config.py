@@ -385,6 +385,60 @@ def make_sandbox_config() -> "SandboxConfig":  # noqa: F821 — forward ref
     )
 
 
+def make_sandbox_config_readonly() -> "SandboxConfig":  # noqa: F821 — forward ref
+    """Construct a :class:`SandboxConfig` from saved/installed state (no allocation).
+
+    For read-only diagnostic commands (sickbay, container doctor) that
+    need current port values without the side effect of claiming new ports.
+    Reads from: explicit config → saved port claims → installed systemd
+    socket files.  Falls back to :func:`make_sandbox_config` only when
+    all detection methods fail to determine every port.
+    """
+    from terok_sandbox import SandboxConfig, load_saved_ports
+    from terok_sandbox._util import parse_cli_flag, parse_listen_port, systemd_user_unit_dir
+    from terok_sandbox.paths import state_root
+
+    saved = load_saved_ports(state_root())
+
+    gate = get_gate_server_port() or saved.get("gate")
+    proxy = get_credential_proxy_port() or saved.get("proxy")
+    ssh = get_credential_proxy_ssh_agent_port() or saved.get("ssh_agent")
+
+    # Fall back to installed systemd ports (ground truth for running services).
+    if gate is None or proxy is None or ssh is None:
+        try:
+            unit_dir = systemd_user_unit_dir()
+        except SystemExit:
+            unit_dir = None
+        if unit_dir is not None:
+            if gate is None:
+                gate = parse_listen_port(unit_dir / "terok-gate.socket")
+            if proxy is None:
+                proxy = parse_listen_port(unit_dir / "terok-credential-proxy.socket")
+            if ssh is None:
+                val = parse_cli_flag(
+                    unit_dir / "terok-credential-proxy.service", "ssh-agent-port"
+                )
+                if val is not None:
+                    try:
+                        ssh = int(val)
+                    except ValueError:
+                        pass
+
+    if gate is not None and proxy is not None and ssh is not None:
+        return SandboxConfig(
+            credentials_dir=credentials_dir(),
+            gate_port=gate,
+            proxy_port=proxy,
+            ssh_agent_port=ssh,
+            shield_bypass=get_shield_bypass_firewall_no_protection(),
+            shield_audit=get_shield_audit(),
+        )
+
+    # Last resort: full allocation (no saved ports, no systemd, no config).
+    return make_sandbox_config()
+
+
 def get_global_human_name() -> str | None:
     """Return git.human_name from global config, or None if not set."""
     return _load_validated().git.human_name

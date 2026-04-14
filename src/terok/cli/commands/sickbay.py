@@ -36,7 +36,7 @@ from terok_sandbox import (
     is_systemd_available,
 )
 
-from ...lib.core.config import make_sandbox_config
+from ...lib.core.config import make_sandbox_config_readonly
 from ...lib.core.project_model import ProjectConfig
 from ...lib.core.projects import list_projects, load_project
 from ...lib.orchestration.container_doctor import run_container_doctor
@@ -70,7 +70,7 @@ def dispatch(args: argparse.Namespace) -> bool:
 
 def _check_gate_server() -> _CheckResult:
     """Check gate server status."""
-    cfg = make_sandbox_config()
+    cfg = make_sandbox_config_readonly()
     status = get_server_status(cfg)
     label = "Gate server"
     if status.running:
@@ -109,7 +109,7 @@ def _check_credential_proxy() -> _CheckResult:
     """Check credential proxy status."""
     label = "Credential proxy"
     try:
-        status = get_proxy_status()
+        status = get_proxy_status(make_sandbox_config_readonly())
     except Exception as exc:  # noqa: BLE001
         return ("warn", label, f"check failed — {exc}")
     if status.running:
@@ -250,7 +250,7 @@ def _check_ssh_agent() -> _CheckResult:
     import json
 
     label = "SSH agent"
-    cfg = make_sandbox_config()
+    cfg = make_sandbox_config_readonly()
     keys_path = cfg.ssh_keys_json_path
 
     if not keys_path.is_file():
