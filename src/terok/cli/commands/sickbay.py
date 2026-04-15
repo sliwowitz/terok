@@ -395,12 +395,33 @@ def _check_containers(
     return results
 
 
+def _check_selinux_policy() -> _CheckResult:
+    """Check SELinux policy when socket mode is configured on an enforcing host."""
+    from terok_sandbox import is_selinux_enforcing, is_selinux_policy_installed
+
+    label = "SELinux policy"
+    configured = get_services_mode()
+    if configured != "socket":
+        return ("ok", label, "not needed (services.mode: tcp)")
+    if not is_selinux_enforcing():
+        return ("ok", label, "not needed (SELinux not enforcing)")
+    if is_selinux_policy_installed():
+        return ("ok", label, "terok_socket_t installed")
+    return (
+        "warn",
+        label,
+        "terok_socket_t NOT installed — containers cannot connect to sockets. "
+        "Fix: sudo terok setup selinux",
+    )
+
+
 _GLOBAL_CHECKS = [
     _check_gate_server,
     _check_shield,
     _check_credential_proxy,
     _check_ssh_agent,
     _check_keyring,
+    _check_selinux_policy,
 ]
 
 _STATUS_MARKERS = {
