@@ -32,10 +32,7 @@ from ..util.host_cmd import WORKSPACE_DANGEROUS_DIRNAME
 _logger = logging.getLogger(__name__)
 
 _CONTAINER_RUNTIME_DIR = "/run/terok"
-"""Container-side mount point for the host runtime directory.
-
-The host's ``cfg.runtime_dir`` is bind-mounted here in socket mode so
-container-side socat bridges can reach service sockets."""
+"""Container-side mount point — must match :data:`terok_sandbox.CONTAINER_RUNTIME_DIR`."""
 
 
 def _gate_url(
@@ -92,8 +89,6 @@ def _security_mode_env_and_volumes(
         token = create_token(project.id, task_id, cfg)
         gate_url = _gate_url(gate_repo, gate_base, port, token, use_socket=use_socket)
         env["CODE_REPO"] = gate_url
-        if use_socket:
-            env["TEROK_GATE_SOCKET"] = f"{_CONTAINER_RUNTIME_DIR}/{cfg.gate_socket_path.name}"
         if project.default_branch:
             env["GIT_BRANCH"] = project.default_branch
         if project.expose_external_remote and project.upstream_url:
@@ -115,14 +110,14 @@ def _security_mode_env_and_volumes(
                 token = create_token(project.id, task_id, cfg)
                 gate_url = _gate_url(gate_repo, gate_base, port, token, use_socket=use_socket)
                 env["CLONE_FROM"] = gate_url
-                if use_socket:
-                    env["TEROK_GATE_SOCKET"] = (
-                        f"{_CONTAINER_RUNTIME_DIR}/{cfg.gate_socket_path.name}"
-                    )
         if project.upstream_url:
             env["CODE_REPO"] = project.upstream_url
             if project.default_branch:
                 env["GIT_BRANCH"] = project.default_branch
+
+    # Gate socket path for the container-side socat bridge (set once for both modes).
+    if use_socket and ("CODE_REPO" in env or "CLONE_FROM" in env) and gate_repo.exists():
+        env["TEROK_GATE_SOCKET"] = f"{_CONTAINER_RUNTIME_DIR}/{cfg.gate_socket_path.name}"
 
     return env, volumes
 
