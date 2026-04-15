@@ -32,12 +32,18 @@ from ..util.host_cmd import WORKSPACE_DANGEROUS_DIRNAME
 _logger = logging.getLogger(__name__)
 
 
-def _gate_url(gate_repo: Path, gate_base: Path, port: int, token: str) -> str:
+def _gate_url(
+    gate_repo: Path, gate_base: Path, port: int, token: str, *, use_socket: bool = False
+) -> str:
     """Build the ``http://`` URL for a gate repo served by ``terok-gate``.
 
     The token is embedded as the Basic Auth username in the URL so that git
     handles authentication natively.  Uses the repo directory name as the URL
     path — the gate server serves repos as direct children of its base path.
+
+    In socket mode the container reaches the gate via a localhost socat bridge
+    (started by ``ensure-bridges.sh``), so the URL points to ``localhost``
+    instead of ``host.containers.internal``.
 
     Raises ``SystemExit`` if the repo is not a direct child of the gate base,
     since the gate server cannot serve repos from arbitrary locations.
@@ -50,11 +56,12 @@ def _gate_url(gate_repo: Path, gate_base: Path, port: int, token: str) -> str:
             "Move the repo under the gate base directory, or adjust\n"
             "gate_server.repos_dir / paths.state_dir in global config."
         )
-    return f"http://{token}@host.containers.internal:{port}/{gate_repo.name}"
+    host = f"localhost:{port}" if use_socket else f"host.containers.internal:{port}"
+    return f"http://{token}@{host}/{gate_repo.name}"
 
 
 def _security_mode_env_and_volumes(
-    project: ProjectConfig, task_id: str
+    project: ProjectConfig, task_id: str, *, use_socket: bool = False
 ) -> tuple[dict[str, str], list[str]]:
     """Return env vars and volumes for the project's security mode."""
     cfg = make_sandbox_config()
@@ -74,8 +81,10 @@ def _security_mode_env_and_volumes(
         ensure_server_reachable(cfg)
         port = get_gate_server_port(cfg)
         token = create_token(project.id, task_id, cfg)
-        gate_url = _gate_url(gate_repo, gate_base, port, token)
+        gate_url = _gate_url(gate_repo, gate_base, port, token, use_socket=use_socket)
         env["CODE_REPO"] = gate_url
+        if use_socket:
+            env["TEROK_GATE_SOCKET"] = str(cfg.gate_socket_path)
         if project.default_branch:
             env["GIT_BRANCH"] = project.default_branch
         if project.expose_external_remote and project.upstream_url:
@@ -95,8 +104,10 @@ def _security_mode_env_and_volumes(
             else:
                 port = get_gate_server_port(cfg)
                 token = create_token(project.id, task_id, cfg)
-                gate_url = _gate_url(gate_repo, gate_base, port, token)
+                gate_url = _gate_url(gate_repo, gate_base, port, token, use_socket=use_socket)
                 env["CLONE_FROM"] = gate_url
+                if use_socket:
+                    env["TEROK_GATE_SOCKET"] = str(cfg.gate_socket_path)
         if project.upstream_url:
             env["CODE_REPO"] = project.upstream_url
             if project.default_branch:
@@ -328,8 +339,12 @@ def build_task_env_and_volumes(
     repo_dir = task_dir / WORKSPACE_DANGEROUS_DIRNAME
     repo_dir.mkdir(exist_ok=True)
 
+    from ..core.config import get_credential_proxy_bypass, get_services_mode
+
+    use_socket = get_services_mode() == "socket"
+
     # Pre-resolve gate server URLs → CODE_REPO / CLONE_FROM / GIT_BRANCH
-    sec_env, _sec_volumes = _security_mode_env_and_volumes(project, task_id)
+    sec_env, _sec_volumes = _security_mode_env_and_volumes(project, task_id, use_socket=use_socket)
 
     # Seed workspace from clone cache (fast-start optimisation).
     # Only for new tasks (marker present, no .git yet).  The in-container
@@ -349,7 +364,8 @@ def build_task_env_and_volumes(
 
     from terok_executor import ContainerEnvSpec, assemble_container_env, get_roster
 
-    from ..core.config import get_credential_proxy_bypass, get_credential_proxy_transport
+    # Map services.mode to executor's proxy_transport vocabulary
+    proxy_transport = "socket" if use_socket else "direct"
 
     # Proxy: bypass → no proxy at all; otherwise ensure it's up before assembly
     proxy_bypass = get_credential_proxy_bypass()
@@ -372,7 +388,7 @@ def build_task_env_and_volumes(
             human_name=project.human_name or "Nobody",
             human_email=project.human_email or "nobody@localhost",
             credential_scope=project.id,
-            proxy_transport=get_credential_proxy_transport(),
+            proxy_transport=proxy_transport,
             proxy_required=not proxy_bypass,
             unrestricted=False,  # task_runners resolves per-provider config
             shared_dir=None if sealed else project.shared_dir,
@@ -391,6 +407,13 @@ def build_task_env_and_volumes(
     env["GIT_RESET_MODE"] = os.environ.get("TEROK_GIT_RESET_MODE", "none")
     if "EXTERNAL_REMOTE_URL" in sec_env:
         env["EXTERNAL_REMOTE_URL"] = sec_env["EXTERNAL_REMOTE_URL"]
+
+    # Socket mode: mount host runtime dir so socat bridges can reach sockets
+    if use_socket:
+        cfg = make_sandbox_config()
+        from terok_sandbox import Sharing
+
+        volumes.append(VolumeSpec(cfg.runtime_dir, "/run/terok", sharing=Sharing.SHARED))
 
     # Claude OAuth overrides + leaked-cred scan with exposed-token filtering
     if not proxy_bypass:
