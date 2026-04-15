@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 from terok_executor import agent_doctor_checks, get_roster
 from terok_sandbox import (
@@ -108,13 +108,18 @@ def _git_remote_check(security_class: str, gate_port: int | None) -> DoctorCheck
         url = stdout.strip()
         if rc != 0 or not url:
             return CheckVerdict("warn", "git origin: no remote configured")
+
+        parsed = urlparse(url)
+        safe_url = urlunparse(parsed._replace(netloc=parsed.hostname or parsed.netloc))
+        if parsed.port:
+            safe_url = urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{parsed.port}"))
+
         if security_class == "gatekeeping":
             # Gate URL: http://<token>@host.containers.internal:<port>/<name>
-            parsed = urlparse(url)
             if parsed.hostname != "host.containers.internal":
                 return CheckVerdict(
                     "error",
-                    f"git origin: {url!r} bypasses gate — should use host.containers.internal",
+                    f"git origin: {safe_url!r} bypasses gate — should use host.containers.internal",
                     fixable=False,
                 )
             if gate_port is not None and parsed.port != gate_port:
@@ -126,7 +131,7 @@ def _git_remote_check(security_class: str, gate_port: int | None) -> DoctorCheck
                 )
             return CheckVerdict("ok", "git origin: routed through gate")
         # Online mode: any URL is acceptable
-        return CheckVerdict("ok", f"git origin: {url}")
+        return CheckVerdict("ok", f"git origin: {safe_url}")
 
     return DoctorCheck(
         category="git",
