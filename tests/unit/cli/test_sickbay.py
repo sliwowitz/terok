@@ -340,9 +340,7 @@ class TestCheckCredentialProxy:
             mode="systemd", running=True, credentials_stored=("claude",), transport="tcp"
         )
         with (
-            unittest.mock.patch(
-                "terok.cli.commands.sickbay.get_proxy_status", return_value=status
-            ),
+            unittest.mock.patch("terok.cli.commands.sickbay.get_proxy_status", return_value=status),
             unittest.mock.patch("terok.cli.commands.sickbay.get_services_mode", return_value="tcp"),
         ):
             sev, _, detail = _check_credential_proxy()
@@ -356,9 +354,7 @@ class TestCheckCredentialProxy:
             mode="systemd", running=True, credentials_stored=("claude",), transport="tcp"
         )
         with (
-            unittest.mock.patch(
-                "terok.cli.commands.sickbay.get_proxy_status", return_value=status
-            ),
+            unittest.mock.patch("terok.cli.commands.sickbay.get_proxy_status", return_value=status),
             unittest.mock.patch(
                 "terok.cli.commands.sickbay.get_services_mode", return_value="socket"
             ),
@@ -435,9 +431,7 @@ class TestCheckGateServerTransport:
 
     def test_tcp_mode_tcp_transport_ok(self) -> None:
         """TCP mode with TCP transport → ok."""
-        status = unittest.mock.MagicMock(
-            mode="systemd", running=True, port=9418, transport="tcp"
-        )
+        status = unittest.mock.MagicMock(mode="systemd", running=True, port=9418, transport="tcp")
         with (
             unittest.mock.patch("terok.cli.commands.sickbay.make_sandbox_config"),
             unittest.mock.patch(
@@ -454,9 +448,7 @@ class TestCheckGateServerTransport:
 
     def test_socket_mode_tcp_transport_warns(self) -> None:
         """Socket mode configured but gate running on TCP → warn."""
-        status = unittest.mock.MagicMock(
-            mode="systemd", running=True, port=9418, transport="tcp"
-        )
+        status = unittest.mock.MagicMock(mode="systemd", running=True, port=9418, transport="tcp")
         with (
             unittest.mock.patch("terok.cli.commands.sickbay.make_sandbox_config"),
             unittest.mock.patch(

@@ -796,7 +796,7 @@ wait_for_wheel() {
             fi
         fi
         # API says asset exists — confirm CDN has propagated the actual file
-        if $api_ready && curl -sfIo /dev/null --max-time 10 "$url" 2>/dev/null; then
+        if $api_ready && curl -sfILo /dev/null --max-time 10 "$url" 2>/dev/null; then
             printf "\33[2K\r"
             success "Wheel ${expected} is available!"
             return 0
