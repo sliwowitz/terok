@@ -21,10 +21,19 @@ from terok.lib.core.projects import load_project
 from terok.lib.orchestration.environment import build_task_env_and_volumes
 from tests.test_utils import mock_git_config, project_env
 
-_PROJECT_YAML = """\
+_ONLINE_YAML = """\
 project:
   id: story-proj
   security_class: online
+git:
+  upstream_url: https://github.com/example/repo.git
+  default_branch: main
+"""
+
+_GATEKEEPING_YAML = """\
+project:
+  id: story-proj
+  security_class: gatekeeping
 git:
   upstream_url: https://github.com/example/repo.git
   default_branch: main
@@ -69,7 +78,7 @@ class TestProxyEnvStory:
         """TCP mode (default): phantom tokens + base URL via host.containers.internal."""
         with (
             mock_git_config(),
-            project_env(_PROJECT_YAML, project_id="story-proj") as ctx,
+            project_env(_ONLINE_YAML, project_id="story-proj") as ctx,
             patch("terok.lib.core.config.get_services_mode", return_value="tcp"),
             patch("terok_sandbox.is_proxy_socket_active", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
@@ -98,7 +107,7 @@ class TestProxyEnvStory:
         """Socket mode: phantom tokens + socket env vars, runtime dir mounted."""
         with (
             mock_git_config(),
-            project_env(_PROJECT_YAML, project_id="story-proj") as ctx,
+            project_env(_ONLINE_YAML, project_id="story-proj") as ctx,
             patch("terok.lib.core.config.get_services_mode", return_value="socket"),
             patch("terok_sandbox.is_proxy_socket_active", return_value=True),
             patch("terok_sandbox.ensure_proxy_reachable"),
@@ -114,9 +123,54 @@ class TestProxyEnvStory:
         assert env["ANTHROPIC_API_KEY"].startswith("terok-p-")
         # Socket transport: socket_env injected for Claude
         assert "ANTHROPIC_UNIX_SOCKET" in env
-        # SSH agent: socket path instead of port
+        # SSH agent: socket path (container-visible once executor is updated)
         assert env["TEROK_SSH_AGENT_TOKEN"].startswith("terok-p-")
-        assert "TEROK_SSH_AGENT_SOCKET" in env
+        assert env["TEROK_SSH_AGENT_SOCKET"].endswith("/ssh-agent.sock")
         assert "TEROK_SSH_AGENT_PORT" not in env
         # Runtime dir mounted for socket access
         assert any(str(v.container_path) == "/run/terok" for v in volumes)
+
+    def test_socket_mode_gate_uses_container_path(self) -> None:
+        """Socket mode with gate: TEROK_GATE_SOCKET uses container-visible path."""
+        from tests.testnet import GATE_PORT
+
+        with (
+            mock_git_config(),
+            project_env(_GATEKEEPING_YAML, project_id="story-proj", with_gate=True) as ctx,
+        ):
+            # Load project BEFORE mock_sandbox_config to get real gate_path
+            project = load_project("story-proj")
+            gate_base = ctx.base / "sandbox-state" / "gate"
+
+            with (
+                patch("terok.lib.core.config.get_services_mode", return_value="socket"),
+                patch("terok_sandbox.is_proxy_socket_active", return_value=True),
+                patch("terok_sandbox.ensure_proxy_reachable"),
+                patch("terok.lib.orchestration.environment.ensure_server_reachable"),
+                patch(
+                    "terok.lib.orchestration.environment.get_gate_server_port",
+                    return_value=GATE_PORT,
+                ),
+                patch(
+                    "terok.lib.orchestration.environment.get_gate_base_path",
+                    return_value=gate_base,
+                ),
+                patch(
+                    "terok.lib.orchestration.environment.create_token",
+                    return_value="deadbeef" * 4,
+                ),
+                patch("terok.lib.orchestration.environment.make_sandbox_config") as mock_cfg_fn,
+                patch("terok.lib.core.config.is_claude_oauth_proxied", return_value=False),
+            ):
+                cfg = mock_cfg_fn.return_value
+                cfg.gate_socket_path.name = "gate-server.sock"
+                cfg.runtime_dir = ctx.state_dir / "runtime"
+                _setup_credentials(ctx, cfg)
+                with patch("terok_sandbox.SandboxConfig", return_value=cfg):
+                    env, volumes = build_task_env_and_volumes(project, "abc123")
+
+        # Gate URL points to localhost (socat bridge), not host.containers.internal
+        assert "localhost" in env["CODE_REPO"]
+        assert "host.containers.internal" not in env["CODE_REPO"]
+        # Gate socket: container-visible path, not host path
+        assert env["TEROK_GATE_SOCKET"] == "/run/terok/gate-server.sock"

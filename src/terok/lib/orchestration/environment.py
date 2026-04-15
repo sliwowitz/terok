@@ -31,6 +31,12 @@ from ..util.host_cmd import WORKSPACE_DANGEROUS_DIRNAME
 
 _logger = logging.getLogger(__name__)
 
+_CONTAINER_RUNTIME_DIR = "/run/terok"
+"""Container-side mount point for the host runtime directory.
+
+The host's ``cfg.runtime_dir`` is bind-mounted here in socket mode so
+container-side socat bridges can reach service sockets."""
+
 
 def _gate_url(
     gate_repo: Path, gate_base: Path, port: int, token: str, *, use_socket: bool = False
@@ -84,7 +90,7 @@ def _security_mode_env_and_volumes(
         gate_url = _gate_url(gate_repo, gate_base, port, token, use_socket=use_socket)
         env["CODE_REPO"] = gate_url
         if use_socket:
-            env["TEROK_GATE_SOCKET"] = str(cfg.gate_socket_path)
+            env["TEROK_GATE_SOCKET"] = f"{_CONTAINER_RUNTIME_DIR}/{cfg.gate_socket_path.name}"
         if project.default_branch:
             env["GIT_BRANCH"] = project.default_branch
         if project.expose_external_remote and project.upstream_url:
@@ -107,7 +113,9 @@ def _security_mode_env_and_volumes(
                 gate_url = _gate_url(gate_repo, gate_base, port, token, use_socket=use_socket)
                 env["CLONE_FROM"] = gate_url
                 if use_socket:
-                    env["TEROK_GATE_SOCKET"] = str(cfg.gate_socket_path)
+                    env["TEROK_GATE_SOCKET"] = (
+                        f"{_CONTAINER_RUNTIME_DIR}/{cfg.gate_socket_path.name}"
+                    )
         if project.upstream_url:
             env["CODE_REPO"] = project.upstream_url
             if project.default_branch:
@@ -405,15 +413,17 @@ def build_task_env_and_volumes(
     # terok-specific env vars not covered by the shared assembly
     env["PROJECT_ID"] = project.id
     env["GIT_RESET_MODE"] = os.environ.get("TEROK_GIT_RESET_MODE", "none")
-    if "EXTERNAL_REMOTE_URL" in sec_env:
-        env["EXTERNAL_REMOTE_URL"] = sec_env["EXTERNAL_REMOTE_URL"]
+    # Merge gate/security env vars not consumed by ContainerEnvSpec
+    for key in ("EXTERNAL_REMOTE_URL", "TEROK_GATE_SOCKET"):
+        if key in sec_env:
+            env[key] = sec_env[key]
 
     # Socket mode: mount host runtime dir so socat bridges can reach sockets
     if use_socket:
         cfg = make_sandbox_config()
         from terok_sandbox import Sharing
 
-        volumes.append(VolumeSpec(cfg.runtime_dir, "/run/terok", sharing=Sharing.SHARED))
+        volumes.append(VolumeSpec(cfg.runtime_dir, _CONTAINER_RUNTIME_DIR, sharing=Sharing.SHARED))
 
     # Claude OAuth overrides + leaked-cred scan with exposed-token filtering
     if not proxy_bypass:
