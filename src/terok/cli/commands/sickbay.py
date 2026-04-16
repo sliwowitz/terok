@@ -411,6 +411,7 @@ def _check_selinux_policy() -> _CheckResult:
         is_selinux_enforcing,
         is_selinux_policy_installed,
         missing_selinux_policy_tools,
+        selinux_install_script,
     )
 
     label = "SELinux policy"
@@ -419,7 +420,7 @@ def _check_selinux_policy() -> _CheckResult:
     if not is_selinux_enforcing():
         return ("ok", label, "not needed (SELinux not enforcing)")
     if not is_selinux_policy_installed():
-        sudo_cmd = _sudo_setup_selinux_cmd()
+        install_cmd = f"sudo bash {selinux_install_script()}"
         missing = missing_selinux_policy_tools()
         if missing:
             return (
@@ -427,12 +428,13 @@ def _check_selinux_policy() -> _CheckResult:
                 label,
                 f"terok_socket_t NOT installed; policy tools missing ({', '.join(missing)}). "
                 "Fix: sudo dnf install selinux-policy-devel policycoreutils, "
-                f"then {sudo_cmd}",
+                f"then {install_cmd}",
             )
         return (
             "warn",
             label,
-            f"terok_socket_t NOT installed — containers cannot connect to sockets. Fix: {sudo_cmd}",
+            "terok_socket_t NOT installed — containers cannot connect to sockets. "
+            f"Fix: {install_cmd}",
         )
     if not is_libselinux_available():
         return (
@@ -443,17 +445,6 @@ def _check_selinux_policy() -> _CheckResult:
             "Fix: sudo dnf install libselinux",
         )
     return ("ok", label, "terok_socket_t installed, binding functional")
-
-
-def _sudo_setup_selinux_cmd() -> str:
-    """Build the ``sudo`` invocation that runs ``setup selinux`` as root.
-
-    Uses the absolute path of the currently running ``terok`` entry
-    point (``sys.argv[0]``) so the hint works regardless of install
-    method — ``pipx``, ``pip install --user``, or a Poetry venv — where
-    the ``terok`` binary lives outside root's default ``PATH``.
-    """
-    return f"sudo {os.path.abspath(sys.argv[0])} setup selinux"
 
 
 _GLOBAL_CHECKS = [

@@ -54,19 +54,6 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="Dry-run: report status without installing anything",
     )
 
-    # setup selinux (root-only, one-time)
-    p_setup_sub = p_setup.add_subparsers(dest="setup_sub")
-    p_setup_sub.add_parser(
-        "selinux",
-        help="Install SELinux policy for socket-mode services (requires root)",
-        description=(
-            "Installs a targeted SELinux policy module (terok_socket_t) that "
-            "allows containers to connect to terok service sockets.  Required "
-            "on SELinux-enforcing hosts when services.mode is 'socket'.  "
-            "Must be run with sudo."
-        ),
-    )
-
     # generate
     p_gen = subparsers.add_parser("generate", help="Generate Dockerfiles for a project")
     _add_project_arg(p_gen)
@@ -147,10 +134,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
 def dispatch(args: argparse.Namespace) -> bool:
     """Handle infrastructure setup commands.  Returns True if handled."""
     if args.cmd == "setup":
-        if getattr(args, "setup_sub", None) == "selinux":
-            cmd_setup_selinux()
-        else:
-            cmd_setup(check_only=getattr(args, "check", False))
+        cmd_setup(check_only=getattr(args, "check", False))
         return True
     if args.cmd == "generate":
         generate_dockerfiles(args.project_id)
@@ -419,80 +403,31 @@ def _check_selinux_policy(*, color: bool) -> None:
     if get_services_mode() != "socket" or not is_selinux_enforcing():
         return
 
+    from terok_sandbox import selinux_install_script
+
+    install_cmd = f"sudo bash {selinux_install_script()}"
+
     print()
     print(bold("SELinux:", color))
     if not is_selinux_policy_installed():
-        sudo_cmd = _sudo_setup_selinux_cmd()
         missing = missing_selinux_policy_tools()
+        print(f"  terok_socket_t   {_warn_label(color)} (policy NOT installed)")
         if missing:
-            print(f"  terok_socket_t   {_warn_label(color)} (policy NOT installed)")
             print(f"                   Policy tools missing: {', '.join(missing)}")
             print(
                 f"                   Fix: "
                 f"{bold('sudo dnf install selinux-policy-devel policycoreutils', color)}, "
-                f"then {bold(sudo_cmd, color)}"
+                f"then {bold(install_cmd, color)}"
             )
         else:
-            print(f"  terok_socket_t   {_warn_label(color)} (policy NOT installed)")
             print("                   Containers cannot connect to service sockets.")
-            print(f"                   Fix: {bold(sudo_cmd, color)}")
+            print(f"                   Fix: {bold(install_cmd, color)}")
     elif not is_libselinux_available():
         print(f"  terok_socket_t   {_warn_label(color)} (libselinux.so.1 not loadable)")
         print("                   Sockets will bind as unconfined_t — containers denied.")
         print(f"                   Fix: {bold('sudo dnf install libselinux', color)}")
     else:
         print(f"  terok_socket_t   {_status_label(True, color)} (policy installed)")
-
-
-def _sudo_setup_selinux_cmd() -> str:
-    """Build the ``sudo`` invocation that runs ``setup selinux`` as root.
-
-    Uses the absolute path of the currently running ``terok`` entry
-    point (``sys.argv[0]``) so the hint works regardless of install
-    method — ``pipx``, ``pip install --user``, or a Poetry venv — where
-    the ``terok`` binary lives outside root's default ``PATH``.
-    """
-    import os
-
-    return f"sudo {os.path.abspath(sys.argv[0])} setup selinux"
-
-
-def cmd_setup_selinux() -> None:
-    """Install the terok_socket SELinux policy module.
-
-    Must be run as root.  Compiles the bundled ``.te`` policy source and
-    installs it via ``semodule``.
-    """
-    import os
-
-    from terok_sandbox import (
-        install_selinux_policy,
-        is_selinux_enforcing,
-        is_selinux_policy_installed,
-    )
-
-    color = supports_color()
-
-    if os.geteuid() != 0:
-        raise SystemExit("This command must be run as root: sudo terok setup selinux")
-
-    if not is_selinux_enforcing():
-        print(yellow("SELinux is not enforcing — policy installation skipped.", color))
-        return
-
-    if is_selinux_policy_installed():
-        print(green("terok_socket policy is already installed.", color))
-        return
-
-    print("Installing terok_socket SELinux policy module...")
-    install_selinux_policy()
-
-    if is_selinux_policy_installed():
-        print(green("Policy installed successfully.", color))
-        print()
-        print(f"Next: run {bold('terok setup', color)} as user.")
-    else:
-        raise SystemExit("Policy installation failed — check semodule output above.")
 
 
 def cmd_setup(*, check_only: bool = False) -> None:
