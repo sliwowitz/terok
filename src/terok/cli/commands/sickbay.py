@@ -396,23 +396,41 @@ def _check_containers(
 
 
 def _check_selinux_policy() -> _CheckResult:
-    """Check SELinux policy when socket mode is configured on an enforcing host."""
-    from terok_sandbox import is_selinux_enforcing, is_selinux_policy_installed
+    """Check SELinux policy and libselinux binding for socket-mode services.
+
+    Two failure modes matter on an enforcing host: the policy module is
+    not installed (``sudo terok setup selinux`` fixes it), or the policy
+    is installed but ``libselinux.so.1`` cannot be loaded — a silent
+    failure where sockets bind as ``unconfined_t`` and containers are
+    denied ``connectto`` despite everything appearing set up.
+    """
+    from terok_sandbox import (
+        is_libselinux_available,
+        is_selinux_enforcing,
+        is_selinux_policy_installed,
+    )
 
     label = "SELinux policy"
-    configured = get_services_mode()
-    if configured != "socket":
+    if get_services_mode() != "socket":
         return ("ok", label, "not needed (services.mode: tcp)")
     if not is_selinux_enforcing():
         return ("ok", label, "not needed (SELinux not enforcing)")
-    if is_selinux_policy_installed():
-        return ("ok", label, "terok_socket_t installed")
-    return (
-        "warn",
-        label,
-        "terok_socket_t NOT installed — containers cannot connect to sockets. "
-        "Fix: sudo terok setup selinux",
-    )
+    if not is_selinux_policy_installed():
+        return (
+            "warn",
+            label,
+            "terok_socket_t NOT installed — containers cannot connect to sockets. "
+            "Fix: sudo terok setup selinux",
+        )
+    if not is_libselinux_available():
+        return (
+            "warn",
+            label,
+            "libselinux.so.1 not loadable — sockets will bind as unconfined_t "
+            "and containers will be denied even with the policy installed. "
+            "Fix: sudo dnf install libselinux",
+        )
+    return ("ok", label, "terok_socket_t installed, binding functional")
 
 
 _GLOBAL_CHECKS = [

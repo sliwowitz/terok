@@ -398,8 +398,18 @@ def _ensure_gate(*, check_only: bool, color: bool) -> bool:
 
 
 def _check_selinux_policy(*, color: bool) -> None:
-    """Print SELinux policy status when socket mode is active on an SELinux host."""
-    from terok_sandbox import is_selinux_enforcing, is_selinux_policy_installed
+    """Print SELinux policy + binding status for socket mode on an SELinux host.
+
+    Surfaces two failure modes: the policy is not installed (fix with
+    ``sudo terok setup selinux``), or the policy is installed but
+    ``libselinux.so.1`` cannot be loaded — a silent failure where sockets
+    bind as ``unconfined_t`` and containers are denied despite the policy.
+    """
+    from terok_sandbox import (
+        is_libselinux_available,
+        is_selinux_enforcing,
+        is_selinux_policy_installed,
+    )
 
     from ...lib.core.config import get_services_mode
 
@@ -408,12 +418,16 @@ def _check_selinux_policy(*, color: bool) -> None:
 
     print()
     print(bold("SELinux:", color))
-    if is_selinux_policy_installed():
-        print(f"  terok_socket_t   {_status_label(True, color)} (policy installed)")
-    else:
+    if not is_selinux_policy_installed():
         print(f"  terok_socket_t   {_warn_label(color)} (policy NOT installed)")
         print("                   Containers cannot connect to service sockets.")
-        print("                   Fix: sudo terok setup selinux")
+        print(f"                   Fix: {bold('sudo terok setup selinux', color)}")
+    elif not is_libselinux_available():
+        print(f"  terok_socket_t   {_warn_label(color)} (libselinux.so.1 not loadable)")
+        print("                   Sockets will bind as unconfined_t — containers denied.")
+        print(f"                   Fix: {bold('sudo dnf install libselinux', color)}")
+    else:
+        print(f"  terok_socket_t   {_status_label(True, color)} (policy installed)")
 
 
 def cmd_setup_selinux() -> None:
@@ -448,8 +462,8 @@ def cmd_setup_selinux() -> None:
 
     if is_selinux_policy_installed():
         print(green("Policy installed successfully.", color))
-        print("\nServices will label sockets with terok_socket_t on next restart.")
-        print("Run 'terok setup' to reinstall services with the new policy active.")
+        print()
+        print(f"Next: run {bold('terok setup', color)} as user.")
     else:
         raise SystemExit("Policy installation failed — check semodule output above.")
 
