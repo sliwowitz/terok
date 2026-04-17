@@ -411,6 +411,41 @@ class TestPackageFamily:
             with pytest.raises(BuildError, match="Cannot infer package family"):
                 render_all_dockerfiles(project)
 
+    def test_build_images_forwards_family_to_executor(self) -> None:
+        """build_images passes project.family through to build_base_images."""
+        with image_project_with("proj_rocky", base_image="rockylinux:9", family="rpm"):
+            with (
+                patch("subprocess.run", return_value=Mock(returncode=0)),
+                patch("terok.lib.orchestration.image._check_podman_available"),
+                patch("terok.lib.orchestration.image._image_exists", return_value=True),
+                patch(
+                    "terok.lib.orchestration.image.build_base_images",
+                    return_value=_mock_base_images("rockylinux:9"),
+                ) as mock_build,
+                mock_git_config(),
+            ):
+                build_images("proj_rocky")
+
+            mock_build.assert_called_once()
+            assert mock_build.call_args.kwargs["family"] == "rpm"
+
+    def test_build_images_forwards_none_family_when_unset(self) -> None:
+        """An absent project.family flows through as ``None`` (auto-detect)."""
+        with image_project_with("proj_ubuntu", base_image="ubuntu:24.04"):
+            with (
+                patch("subprocess.run", return_value=Mock(returncode=0)),
+                patch("terok.lib.orchestration.image._check_podman_available"),
+                patch("terok.lib.orchestration.image._image_exists", return_value=True),
+                patch(
+                    "terok.lib.orchestration.image.build_base_images",
+                    return_value=_mock_base_images(),
+                ) as mock_build,
+                mock_git_config(),
+            ):
+                build_images("proj_ubuntu")
+
+            assert mock_build.call_args.kwargs["family"] is None
+
 
 # ---------- Build manifest ----------
 
