@@ -803,6 +803,7 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
         self,
         subagents: list[SubagentInfo] | None = None,
         default_agent: str = "claude",
+        installed: frozenset[str] | None = None,
     ) -> None:
         """Create the combined agent + sub-agent selection screen.
 
@@ -811,17 +812,30 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
                 checkbox section is shown below the agent list.
             default_agent: Name of the project's default agent (pre-highlighted
                 and marked with ``*``).
+            installed: Names baked into the project's L1 image (from the
+                ``ai.terok.agents`` label).  When provided and non-empty,
+                the picker hides agents not in the set.  ``None`` or empty
+                means no filtering — every known provider is shown.
         """
         super().__init__()
         self._subagents = subagents or []
+        self._installed = installed
 
         from terok_executor import AGENT_PROVIDERS
 
-        if default_agent in AGENT_PROVIDERS:
+        if default_agent in AGENT_PROVIDERS and (not installed or default_agent in installed):
             self._default_agent = default_agent
         else:
-            self._default_agent = next(iter(AGENT_PROVIDERS))
+            self._default_agent = next(iter(self._visible_provider_names()))
         self._selected_agent: str = self._default_agent
+
+    def _visible_provider_names(self) -> list[str]:
+        """Return provider names visible in this screen (filtered by *installed*)."""
+        from terok_executor import AGENT_PROVIDERS
+
+        if not self._installed:
+            return list(AGENT_PROVIDERS)
+        return [n for n in AGENT_PROVIDERS if n in self._installed]
 
     def compose(self) -> ComposeResult:
         """Build the agent list, optional sub-agent checkboxes, and buttons."""
@@ -829,7 +843,9 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
 
         with Vertical(id="agent-dialog") as dialog:
             options = []
-            for i, provider in enumerate(AGENT_PROVIDERS.values(), 1):
+            visible = self._visible_provider_names()
+            for i, name in enumerate(visible, 1):
+                provider = AGENT_PROVIDERS[name]
                 marker = " *" if provider.name == self._default_agent else ""
                 options.append(Option(f"\\[{i}] {provider.label}{marker}", id=provider.name))
             yield OptionList(*options, id="agent-list")
@@ -854,9 +870,8 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
     def on_mount(self) -> None:
         """Focus the agent list and highlight the default entry."""
         agent_list = self.query_one("#agent-list", OptionList)
-        from terok_executor import AGENT_PROVIDERS
 
-        for idx, name in enumerate(AGENT_PROVIDERS):
+        for idx, name in enumerate(self._visible_provider_names()):
             if name == self._default_agent:
                 agent_list.highlighted = idx
                 break
@@ -1201,14 +1216,22 @@ class TaskLaunchScreen(screen.ModalScreen["tuple[str, str, str, str, str, str | 
         task_id: str,
         task_name: str | None = "",
         default_login: str = "bash",
+        installed: frozenset[str] | None = None,
     ) -> None:
-        """Create the launch screen with container context and default agent."""
+        """Create the launch screen with container context and default agent.
+
+        *installed* is the set of agents present in the project's L1 image
+        (from the ``ai.terok.agents`` label).  When provided and non-empty,
+        the agent dropdown only lists those agents.  ``None`` or empty means
+        no filtering — every known provider is shown.
+        """
         super().__init__()
         self._container_name = container_name
         self._project_id = project_id
         self._task_id = task_id
         self._task_name = task_name or task_id
         self._default_login = default_login
+        self._installed = installed
         self._container_ready = False
         self._poll_timer = None
         self._poll_count = 0
@@ -1221,8 +1244,11 @@ class TaskLaunchScreen(screen.ModalScreen["tuple[str, str, str, str, str, str | 
             yield Static("Status: Starting container\u2026", id="launch-status")
 
             # Build agent choices: bash + all registered headless providers
+            # (filtered by what's actually installed in this project's L1 image).
             choices: list[tuple[str, str]] = [("bash", "bash")]
             for p in AGENT_PROVIDERS.values():
+                if self._installed and p.name not in self._installed:
+                    continue
                 choices.append((p.label, p.name))
 
             # Validate default_login against available choices; fall back to "bash"

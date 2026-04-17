@@ -215,9 +215,13 @@ class TaskActionsMixin:
 
         # Resolve default login agent: project → global → "bash"
         default_login = "bash"
+        installed: frozenset[str] | None = None
         try:
             project = load_project(pid)
             default_login = project.default_login or "bash"
+            from terok.lib.core.images import agent_cli_image, installed_agents
+
+            installed = installed_agents(agent_cli_image(project.base_image))
         except (SystemExit, Exception):
             pass
 
@@ -228,6 +232,7 @@ class TaskActionsMixin:
                 task_id=task_id,
                 task_name=name,
                 default_login=default_login,
+                installed=installed,
             ),
             self._on_launch_screen_result,
         )
@@ -348,8 +353,16 @@ class TaskActionsMixin:
         raw_subagents = project.agent_config.get("subagents", [])
         subagents = self._normalize_subagents(raw_subagents) if raw_subagents else []
 
+        from terok.lib.core.images import agent_cli_image, installed_agents
+
+        installed = installed_agents(agent_cli_image(project.base_image))
+
         await self.push_screen(
-            AgentSelectionScreen(subagents=subagents or None, default_agent=default_agent),
+            AgentSelectionScreen(
+                subagents=subagents or None,
+                default_agent=default_agent,
+                installed=installed,
+            ),
             self._on_agent_selection_result,
         )
 

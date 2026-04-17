@@ -191,7 +191,7 @@ class ProjectActionsMixin:
             return
         pid = self.current_project_id
         await self._run_suspended(
-            lambda: build_images(pid, rebuild_agents=True),
+            lambda: build_images(pid, refresh_agents=True),
             success_msg=f"Rebuilt from L0 with fresh agents for {pid}",
         )
 

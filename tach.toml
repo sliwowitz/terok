@@ -622,6 +622,7 @@ expose = [
     "get_global_human_email",
     "get_global_default_agent",
     "get_global_default_login",
+    "get_global_image_agents",
     "global_config_path",
     "global_config_search_paths",
     "load_global_config",
@@ -657,6 +658,8 @@ expose = [
     "agent_cli_image",
     "project_cli_image",
     "project_dev_image",
+    "installed_agents",
+    "is_installed",
 ]
 from = ["terok.lib.core.images"]
 
