@@ -18,7 +18,7 @@ from ...util.fs import ensure_dir_writable
 from ...util.template_utils import render_template
 
 # The wizard picks a project template by asking two independent
-# questions (isolation mode + base image) instead of one combinatorial
+# questions (security mode + base image) instead of one combinatorial
 # menu.  Template files on disk follow ``{security}-{base}.yml``.
 SECURITY_CLASSES: list[tuple[str, str]] = [
     ("online", "Online (agent pushes directly to upstream)"),
@@ -119,7 +119,7 @@ def collect_wizard_inputs() -> dict | None:
     Returns ``None`` if the user cancels (Ctrl+C) or makes an invalid selection.
     """
     try:
-        security_class = _prompt_choice("Select isolation mode:", SECURITY_CLASSES)
+        security_class = _prompt_choice("Select security mode:", SECURITY_CLASSES)
         if security_class is None:
             print("Invalid mode selection.", file=sys.stderr)
             return None
