@@ -5,6 +5,7 @@
 
 import logging
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -351,10 +352,14 @@ def list_projects() -> list[ProjectConfig]:
         # load_project will automatically prefer user over system config
         try:
             projects.append(load_project(pid))
-        except (SystemExit, Exception):
-            # if a project is broken (malformed YAML, missing fields, etc.),
-            # skip it rather than crashing the listing or the TUI
-            logger.debug("Skipping broken project '%s'", pid, exc_info=True)
+        except (SystemExit, Exception) as exc:
+            # A broken project (malformed YAML, outdated schema, missing
+            # fields) must not crash the listing or the TUI — but silently
+            # hiding it is worse than the crash: users just see "No
+            # projects found" and no trail of why.  Log a warning and
+            # print a terse stderr line so CLI and TUI users notice.
+            logger.warning("Skipping broken project '%s': %s", pid, exc)
+            print(f"warning: skipping broken project '{pid}': {exc}", file=sys.stderr)
             continue
     return projects
 
