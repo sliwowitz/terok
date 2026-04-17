@@ -23,6 +23,7 @@ from typing import Any
 from terok_executor import (
     BuildError,
     build_base_images,
+    detect_family,
     l0_image_tag,
     stage_scripts,
     stage_tmux_config,
@@ -150,15 +151,19 @@ def _render_l2(project: ProjectConfig) -> str:
     return template
 
 
-def render_all_dockerfiles(project: ProjectConfig) -> dict[str, str]:
+def render_all_dockerfiles(project: ProjectConfig, *, family: str | None = None) -> dict[str, str]:
     """Render all Dockerfile templates for *project*.
 
     L0 and L1 are rendered by terok-executor; L2 is rendered locally.
     Returns name→content mapping for the build context.
-    """
-    from terok_executor.container.build import detect_family, render_l0, render_l1
 
-    fam = detect_family(project.base_image, override=project.family)
+    Pass *family* to reuse a value already resolved by the caller; when
+    omitted it is detected from ``project.base_image`` (with
+    ``project.family`` as override).
+    """
+    from terok_executor.container.build import render_l0, render_l1
+
+    fam = family or detect_family(project.base_image, override=project.family)
     return {
         "L0.Dockerfile": render_l0(project.base_image, family=fam),
         "L1.cli.Dockerfile": render_l1(l0_image_tag(project.base_image), family=fam),
@@ -318,6 +323,12 @@ def build_images(
     except BuildError as e:
         raise SystemExit(str(e)) from e
 
+    # If we got here without an override, the build either reused a cached
+    # image (no detection needed) or completed a full build (detection
+    # already happened inside the executor).  Either way it's now safe to
+    # resolve once and thread the result through subsequent renders.
+    fam = detect_family(base_image, override=project.family)
+
     l1_cli_image = base_images.l1
     l0_image = base_images.l0
     l2_cli_image = project_cli_image(project.id)
@@ -327,7 +338,7 @@ def build_images(
     generate_dockerfiles(project_id)
     l2_path = stage_dir / "L2.Dockerfile"
 
-    rendered = render_all_dockerfiles(project)
+    rendered = render_all_dockerfiles(project, family=fam)
     l0_hash = l0_content_hash(base_image, rendered)
     l1_hash = l1_content_hash(rendered)
     l2_hash = l2_content_hash(rendered)

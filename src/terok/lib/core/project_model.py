@@ -15,7 +15,7 @@ have no behavior beyond computed paths.
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
@@ -71,8 +71,8 @@ class ProjectConfig(BaseModel):
     hook_post_stop: str | None = None
     # Image configuration (flattened from image: section)
     base_image: str = "ubuntu:24.04"
-    family: str | None = None
-    """Package family override for L0/L1 builds (``"deb"`` or ``"rpm"``).
+    family: Literal["deb", "rpm"] | None = None
+    """Package family override for L0/L1 builds.
 
     ``None`` lets terok-executor auto-detect from *base_image*; set
     explicitly when the auto-detect allowlist doesn't recognise the

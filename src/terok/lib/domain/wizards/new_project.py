@@ -17,16 +17,23 @@ from ...core.project_model import validate_project_id
 from ...util.fs import ensure_dir_writable
 from ...util.template_utils import render_template
 
-# Template variants: (label, filename)
+# Available base-image families (slug, label) and security classes —
+# the menu is the cross product, ordered security-first so all
+# online options appear before all gatekeeping ones.
+_BASES: list[tuple[str, str]] = [
+    ("ubuntu", "Ubuntu 24.04"),
+    ("fedora", "Fedora 43"),
+    ("podman", "Podman (Fedora-based)"),
+    ("nvidia", "NVIDIA CUDA (GPU)"),
+]
+_SECURITY_CLASSES: list[tuple[str, str]] = [
+    ("online", "Online"),
+    ("gatekeeping", "Gatekeeping"),
+]
 TEMPLATES: list[tuple[str, str]] = [
-    ("Online – Ubuntu 24.04", "online-ubuntu.yml"),
-    ("Online – Fedora 43", "online-fedora.yml"),
-    ("Online – Podman (Fedora-based)", "online-podman.yml"),
-    ("Online – NVIDIA CUDA (GPU)", "online-nvidia.yml"),
-    ("Gatekeeping – Ubuntu 24.04", "gatekeeping-ubuntu.yml"),
-    ("Gatekeeping – Fedora 43", "gatekeeping-fedora.yml"),
-    ("Gatekeeping – Podman (Fedora-based)", "gatekeeping-podman.yml"),
-    ("Gatekeeping – NVIDIA CUDA (GPU)", "gatekeeping-nvidia.yml"),
+    (f"{sec_label} – {base_label}", f"{sec_slug}-{base_slug}.yml")
+    for sec_slug, sec_label in _SECURITY_CLASSES
+    for base_slug, base_label in _BASES
 ]
 
 _TEMPLATE_DIR: Traversable = resources.files("terok") / "resources" / "templates" / "projects"
