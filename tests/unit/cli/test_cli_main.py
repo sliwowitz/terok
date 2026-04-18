@@ -112,3 +112,111 @@ def test_known_subcommands_appear_in_help(subcmd: str) -> None:
     """Core subcommands are listed in ``terok --help``."""
     result = _run_cli("--help")
     assert subcmd in result.stdout
+
+
+def _run_terokctl(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run the CLI as ``terokctl`` by invoking the dedicated entry point."""
+    return subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from terok.cli.main import terokctl_main; terokctl_main()",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+class TestTerokctlSurface:
+    """``terokctl`` is the scriptable surface — same tree, different branding."""
+
+    def test_help_shows_terokctl(self) -> None:
+        """``terokctl --help`` uses ``terokctl`` as the program name."""
+        result = _run_terokctl("--help")
+        assert result.returncode == 0
+        assert "terokctl" in result.stdout
+
+    def test_version_shows_terokctl(self) -> None:
+        """``terokctl --version`` starts with ``terokctl``."""
+        result = _run_terokctl("--version")
+        assert result.returncode == 0
+        assert result.stdout.startswith("terokctl ")
+
+    def test_epilog_uses_terokctl_prog(self) -> None:
+        """Quick-start examples in the epilog reference ``terokctl``, not ``terok``."""
+        result = _run_terokctl("--help")
+        assert "terokctl setup" in result.stdout
+        assert "terokctl completions install" in result.stdout
+
+    def test_known_subcommands_appear(self) -> None:
+        """Core subcommands are listed — command tree is identical to ``terok``."""
+        result = _run_terokctl("--help")
+        for subcmd in ("task", "project", "config", "sickbay", "tui"):
+            assert subcmd in result.stdout
+
+
+class TestTuiOnNoArgs:
+    """Bare ``terok`` in a terminal execs ``terok-tui``; scripts get help."""
+
+    def test_tty_no_args_execs_terok_tui(self) -> None:
+        """``terok`` with no args and a TTY on stdin/stdout execs the TUI."""
+        with (
+            patch("os.execlp") as mock_exec,
+            patch("sys.argv", ["terok"]),
+            patch("sys.stdin.isatty", return_value=True),
+            patch("sys.stdout.isatty", return_value=True),
+        ):
+            from terok.cli.main import main
+
+            main()
+
+            mock_exec.assert_called_once_with("terok-tui", "terok-tui")
+
+    def test_non_tty_no_args_falls_through_to_argparse(self) -> None:
+        """Without a TTY, bare ``terok`` errors out — automation-safe default."""
+        with (
+            patch("os.execlp") as mock_exec,
+            patch("sys.argv", ["terok"]),
+            patch("sys.stdin.isatty", return_value=False),
+            patch("sys.stdout.isatty", return_value=False),
+            pytest.raises(SystemExit),
+        ):
+            from terok.cli.main import main
+
+            main()
+
+        # Assert outside the ``with`` — pytest.raises short-circuits the block
+        # the moment SystemExit fires, so anything above this line never ran.
+        mock_exec.assert_not_called()
+
+    def test_missing_terok_tui_falls_through_to_argparse(self) -> None:
+        """If ``terok-tui`` isn't on PATH, argparse's usage error is the fallback."""
+        with (
+            patch("os.execlp", side_effect=FileNotFoundError) as mock_exec,
+            patch("sys.argv", ["terok"]),
+            patch("sys.stdin.isatty", return_value=True),
+            patch("sys.stdout.isatty", return_value=True),
+            pytest.raises(SystemExit),
+        ):
+            from terok.cli.main import main
+
+            main()
+
+        mock_exec.assert_called_once_with("terok-tui", "terok-tui")
+
+    def test_terokctl_no_args_never_launches_tui(self) -> None:
+        """``terokctl`` is the stable surface — no-args always prints usage."""
+        with (
+            patch("os.execlp") as mock_exec,
+            patch("sys.argv", ["terokctl"]),
+            patch("sys.stdin.isatty", return_value=True),
+            patch("sys.stdout.isatty", return_value=True),
+            pytest.raises(SystemExit),
+        ):
+            from terok.cli.main import terokctl_main
+
+            terokctl_main()
+
+        mock_exec.assert_not_called()

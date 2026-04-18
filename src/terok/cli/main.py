@@ -58,35 +58,62 @@ _DISPATCHERS = [
 ]
 
 
-def main() -> None:
-    """Parse CLI arguments and dispatch to the appropriate command handler."""
+def main(prog: str = "terok") -> None:
+    """Parse CLI arguments and dispatch to the appropriate command handler.
+
+    ``prog`` selects which surface this invocation presents:
+
+    * ``"terok"`` — human-friendly entry point.  Bare ``terok`` in an
+      interactive terminal execs ``terok-tui`` instead of printing the
+      usage error.
+    * ``"terokctl"`` — scriptable surface.  Always parses arguments, so
+      no-args produces the argparse ``required subcommand`` error (stable,
+      predictable exit code).  The command tree is identical today; the
+      split exists so ``terok`` can evolve richer UX while ``terokctl``
+      preserves backwards compatibility.
+    """
+    # Fast-path: bare ``terok`` in a terminal launches the TUI.  Scripts
+    # piping ``terok`` get the argparse usage error instead — the TTY
+    # check keeps the convenience shortcut from surprising automation.
+    # If ``terok-tui`` isn't on PATH (partial install, exotic layout), fall
+    # through to argparse so the user sees a usage error rather than a
+    # traceback from ``execlp``.
+    if prog == "terok" and len(sys.argv) == 1 and sys.stdin.isatty() and sys.stdout.isatty():
+        import os
+
+        try:
+            os.execlp("terok-tui", "terok-tui")
+            return  # pragma: no cover — execlp never returns on success
+        except FileNotFoundError:
+            pass
+
     # Get version info for --version flag
     version, branch = get_version_info()
     version_string = format_version_string(version, branch)
 
     parser = argparse.ArgumentParser(
-        prog="terok",
+        prog=prog,
         description="terok – generate/build images and run per-project task containers",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Quick start:\n"
-            "  1. Bootstrap:  terok setup                        (install host services)\n"
-            "  2. Project:    terok project-wizard                (create a project)\n"
-            "  3. Auth:       terok auth claude <project>         (authenticate agents)\n"
-            "  4. Work:       terok task start <project_id>       (new CLI task)\n"
-            "  5. Login:      terok login <project_id> <task_id>\n"
+            f"  1. Bootstrap:  {prog} setup                        (install host services)\n"
+            f"  2. Project:    {prog} project-wizard                (create a project)\n"
+            f"  3. Auth:       {prog} auth claude <project>         (authenticate agents)\n"
+            f"  4. Work:       {prog} task start <project_id>       (new CLI task)\n"
+            f"  5. Login:      {prog} login <project_id> <task_id>\n"
             "\n"
             "Standalone agent (no project):\n"
-            "  terok executor run claude .          (headless against cwd)\n"
-            "  terok executor run claude . -p 'fix' (with prompt)\n"
+            f"  {prog} executor run claude .          (headless against cwd)\n"
+            f"  {prog} executor run claude . -p 'fix' (with prompt)\n"
             "\n"
-            "Tip: enable tab completion with: terok completions install\n"
+            f"Tip: enable tab completion with: {prog} completions install\n"
         ),
     )
     parser.add_argument(
         "--version",
         action="version",
-        version=f"terok {version_string}\nLicense: Apache-2.0\nCopyright: 2025 Jiri Vyskocil",
+        version=f"{prog} {version_string}\nLicense: Apache-2.0\nCopyright: 2025 Jiri Vyskocil",
     )
     parser.add_argument(
         "--experimental",
@@ -187,6 +214,16 @@ def main() -> None:
             return
 
     parser.error("Unknown command")
+
+
+def terokctl_main() -> None:
+    """Entry point for the ``terokctl`` scriptable surface.
+
+    Same command tree as ``terok``, but no-args prints the argparse
+    usage error instead of launching the TUI — the stable, predictable
+    behavior scripts and automation want.
+    """
+    main(prog="terokctl")
 
 
 if __name__ == "__main__":

@@ -95,6 +95,7 @@ asyncio_mode = "auto"
 
 [tool.poetry.scripts]
 terok = "terok.cli.main:main"
+terokctl = "terok.cli.main:terokctl_main"
 terok-tui = "terok.tui.app:main"
 terok-web = "terok.tui.serve:main"
 terok-clearance = "terok.tui.clearance_screen:main"
