@@ -291,6 +291,13 @@ def test_check_vault_states(
             "terok.cli.commands.sickbay.is_vault_systemd_available",
             return_value=systemd_avail,
         ),
+        # systemd-idle branch consults is_vault_socket_active(); pin it to
+        # False so the test doesn't read host state (the only parametrised
+        # case that reaches this branch is ``socket-inactive``).
+        patch(
+            "terok.cli.commands.sickbay.is_vault_socket_active",
+            return_value=False,
+        ),
     ):
         status, label, detail = _check_vault()
 

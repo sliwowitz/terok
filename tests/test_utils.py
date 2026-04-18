@@ -46,7 +46,7 @@ def project_env(
 ) -> Iterator[types.SimpleNamespace]:
     """Create a temp project directory, write project config, and patch env vars.
 
-    Yields a namespace with: base, config_root, state_dir, credentials_dir, config_file, gate_dir.
+    Yields a namespace with: base, config_root, state_dir, vault_dir, config_file, gate_dir.
     """
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)

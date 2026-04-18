@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
-# SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
 """Terok TUI application built on Textual."""
@@ -34,6 +33,26 @@ try:  # pragma: no cover - simple availability probe
     _HAS_TEXTUAL = importlib.util.find_spec("textual") is not None
 except Exception:  # pragma: no cover - textual not installed
     _HAS_TEXTUAL = False
+
+
+def _vault_migration_warning() -> str | None:
+    """Return a startup warning when a pre-0.8 ``credentials/`` dir is present.
+
+    Returns ``None`` when there is nothing to warn about (no legacy dir, or
+    the sandbox paths module couldn't be imported — the TUI must never
+    crash on startup because of a diagnostic check).
+    """
+    try:
+        from terok_sandbox.paths import namespace_state_dir
+
+        if namespace_state_dir("credentials").is_dir():
+            return (
+                "Legacy credentials/ directory detected. "
+                "Run 'python3 tools/terok-migrate-vault.py' to migrate to vault/."
+            )
+    except Exception:
+        return None
+    return None
 
 
 if _HAS_TEXTUAL:
@@ -347,19 +366,9 @@ if _HAS_TEXTUAL:
                 pass
 
             # Vault migration warning
-            try:
-                from terok_sandbox.paths import namespace_state_dir
-
-                old_creds = namespace_state_dir("credentials")
-                if old_creds.is_dir():
-                    self.notify(
-                        "Legacy credentials/ directory detected. "
-                        "Run 'terok setup' to migrate to vault/.",
-                        severity="warning",
-                        timeout=15,
-                    )
-            except Exception:
-                pass
+            warning = _vault_migration_warning()
+            if warning is not None:
+                self.notify(warning, severity="warning", timeout=15)
 
             # Startup gate server health check
             self.run_worker(
