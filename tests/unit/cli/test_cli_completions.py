@@ -106,18 +106,20 @@ def test_install_completions_writes_to_selected_target(
     expected_shell: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Completion install writes the generated script to the resolved target path."""
-    targets = install_targets(tmp_path)
-    monkeypatch.setattr(completions, "_INSTALL_TARGETS", targets)
+    """Install writes completion scripts for both ``terok`` and ``terokctl``."""
+    monkeypatch.setattr(completions, "_XDG_DATA_HOME", tmp_path / "data")
+    monkeypatch.setattr(completions, "_XDG_CONFIG_HOME", tmp_path / "config")
     if detected_shell is not None:
         monkeypatch.setattr(completions, "_detect_shell", lambda: detected_shell)
 
     completions._install_completions(requested_shell)
 
-    target = targets[expected_shell]
-    assert target.is_file()
-    assert "# completion" in target.read_text(encoding="utf-8")
-    assert str(target) in capsys.readouterr().out
+    output = capsys.readouterr().out
+    for prog in completions._PROGS:
+        target = completions._target_for(expected_shell, prog)
+        assert target.is_file(), f"{prog} completion not written"
+        assert "# completion" in target.read_text(encoding="utf-8")
+        assert str(target) in output
 
 
 def test_is_completion_installed_returns_false_when_nothing_found(
@@ -189,15 +191,18 @@ def test_dispatch_install_calls_install_helper() -> None:
 
 @patch("terok.cli.commands.completions.shellcode", return_value="# completion")
 def test_dispatch_prints_shellcode_for_selected_shell(
-    _mock_shellcode: MagicMock,
+    mock_shellcode: MagicMock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Dispatch prints generated shellcode for direct shell subcommands."""
+    """Dispatch emits shellcode for each managed binary (terok, terokctl)."""
     args = argparse.Namespace(cmd="completions", action="bash")
 
     assert completions.dispatch(args)
 
-    assert "# completion" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert output.count("# completion") == len(completions._PROGS)
+    called_progs = [call.args[0] for call in mock_shellcode.call_args_list]
+    assert called_progs == [[p] for p in completions._PROGS]
 
 
 @pytest.mark.parametrize(
