@@ -488,12 +488,19 @@ class RawShieldGlobalSection(BaseModel):
     on_task_restart: Literal["retain", "up"] = "retain"
 
 
+SERVICES_TCP_OPTOUT_YAML = "services: {mode: tcp}"
+"""User-facing opt-out snippet shown in SELinux hints — keep in one place
+so setup, sickbay, tests and docs stay in sync."""
+
+
 class RawServicesSection(BaseModel):
     """Global ``services:`` section — transport mode for host ↔ container IPC."""
 
     model_config = ConfigDict(extra="forbid")
 
-    mode: Literal["tcp", "socket"] = "tcp"
+    mode: Literal["tcp", "socket"] = "socket"
+    """Transport for host↔container IPC.  Default ``socket`` since 0.7.3;
+    set to ``tcp`` to opt out.  See ``docs/selinux.md``."""
 
 
 class RawVaultSection(BaseModel):

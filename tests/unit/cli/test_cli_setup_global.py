@@ -503,16 +503,18 @@ class TestSelinuxPrereqPrint:
         assert ok is True
 
     def test_warns_when_policy_missing(self, capsys: pytest.CaptureFixture) -> None:
-        """Policy-missing prints the sudo-bash fix hint and returns False."""
+        """Policy-missing prints two-option fix hint (install or opt out) and returns False."""
 
         ok, out = _run_selinux_check(capsys, SelinuxCheckResult(SelinuxStatus.POLICY_MISSING))
         assert "SELinux:" in out
         assert "policy NOT installed" in out
+        # Both remedies surfaced — install the policy *or* opt out to tcp.
         assert "install_policy.sh" in out
+        assert "services: {mode: tcp}" in out
         assert ok is False
 
     def test_warns_with_missing_tools_hint(self, capsys: pytest.CaptureFixture) -> None:
-        """Missing tools → include the dnf install prerequisite, return False."""
+        """Missing tools → dnf prerequisite plus both remedies, return False."""
 
         ok, out = _run_selinux_check(
             capsys,
@@ -521,6 +523,7 @@ class TestSelinuxPrereqPrint:
         assert "Policy tools missing: checkmodule" in out
         assert "selinux-policy-devel" in out
         assert "install_policy.sh" in out
+        assert "services: {mode: tcp}" in out
         assert ok is False
 
     def test_warns_when_libselinux_unloadable(self, capsys: pytest.CaptureFixture) -> None:

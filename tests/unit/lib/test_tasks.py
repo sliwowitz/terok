@@ -39,12 +39,18 @@ from tests.test_utils import (
     write_project,
 )
 from tests.testfs import CONTAINER_SSH_DIR
-from tests.testnet import CONTAINER_HOSTNAME, GATE_PORT
+from tests.testnet import GATE_PORT
 
 
 def _gate_repo_fragment(project_id: str, *, port: int = GATE_PORT) -> str:
-    """Return the host-side gate URL fragment embedded in task env vars."""
-    return f"@{CONTAINER_HOSTNAME}:{port}/{project_id}.git"
+    """Return the gate URL fragment embedded in task env vars.
+
+    Intentionally mode-agnostic: socket transport builds URLs with
+    ``localhost:9418`` (container-local socat bridge), tcp transport
+    with ``host.containers.internal:<port>``.  We only assert on the
+    repo path so these tests pass regardless of ``services.mode``.
+    """
+    return f":{port}/{project_id}.git"
 
 
 class TestTask:

@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from terok_sandbox import GateServerStatus
 
+from terok.cli.commands import sickbay as _sickbay_module
 from terok.cli.commands.sickbay import (
     _check_keyring,
     _check_shield,
@@ -112,7 +113,19 @@ def test_cmd_sickbay_reports_health(
     mock_ec = MagicMock(health="ok", hooks="per-container", dns_tier="dnsmasq")
     mock_cfg = MagicMock()
     mock_cfg.return_value.ssh_keys_json_path = ssh_keys
+
+    # _check_vault_migration hits the real filesystem via namespace_state_dir;
+    # swap just that entry in _GLOBAL_CHECKS for a stub so the test stays
+    # hermetic without masking unrelated lookups.
+    def _stub_vault_migration() -> tuple[str, str, str]:
+        return ("ok", "Vault migration", "no legacy directory")
+
+    patched_checks = [
+        _stub_vault_migration if fn.__name__ == "_check_vault_migration" else fn
+        for fn in _sickbay_module._GLOBAL_CHECKS
+    ]
     with (
+        patch("terok.cli.commands.sickbay._GLOBAL_CHECKS", patched_checks),
         patch("terok.cli.commands.sickbay.get_server_status", return_value=status),
         patch("terok.cli.commands.sickbay.check_units_outdated", return_value=outdated),
         patch("terok.cli.commands.sickbay.is_systemd_available", return_value=systemd_available),
@@ -297,6 +310,14 @@ def test_check_vault_states(
         patch(
             "terok.cli.commands.sickbay.is_vault_socket_active",
             return_value=False,
+        ),
+        # Pin services.mode to match the fixture's default ``transport=tcp``
+        # so the running-branch mismatch check doesn't fire.  These
+        # parametrised cases are about reachability / systemd state, not
+        # transport-config consistency.
+        patch(
+            "terok.cli.commands.sickbay.get_services_mode",
+            return_value="tcp",
         ),
     ):
         status, label, detail = _check_vault()

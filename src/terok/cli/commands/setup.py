@@ -18,8 +18,10 @@ import sys
 
 from terok_executor import AUTH_PROVIDERS
 
+from ...lib.core.config import global_config_path
 from ...lib.core.images import require_agent_installed
 from ...lib.core.projects import load_project
+from ...lib.core.yaml_schema import SERVICES_TCP_OPTOUT_YAML
 from ...lib.domain.facade import (
     authenticate,
     build_images,
@@ -433,17 +435,23 @@ def _check_selinux_policy(*, color: bool) -> bool:
     match result.status:
         case SelinuxStatus.POLICY_MISSING:
             print(f"  terok_socket_t   {_warn_label(color)} (policy NOT installed)")
+            print("                   Containers cannot connect to service sockets.")
+            print("                   Fix (pick one):")
             if result.missing_policy_tools:
                 tools = ", ".join(result.missing_policy_tools)
                 print(f"                   Policy tools missing: {tools}")
                 print(
-                    f"                   Fix: "
+                    f"                     install policy: "
                     f"{bold('sudo dnf install selinux-policy-devel policycoreutils', color)}, "
                     f"then {bold(install_cmd, color)}"
                 )
             else:
-                print("                   Containers cannot connect to service sockets.")
-                print(f"                   Fix: {bold(install_cmd, color)}")
+                print(f"                     install policy: {bold(install_cmd, color)}")
+            print(
+                f"                     or opt out:     add "
+                f"{bold(SERVICES_TCP_OPTOUT_YAML, color)}"
+                f" to {global_config_path()}"
+            )
             print()
             return False
         case SelinuxStatus.LIBSELINUX_MISSING:
