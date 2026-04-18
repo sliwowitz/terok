@@ -500,16 +500,18 @@ class TestCheckSelinuxPolicy:
         assert "not enforcing" in detail
 
     def test_warn_when_policy_missing(self) -> None:
-        """Policy-missing renders as warn with install hint."""
+        """Policy-missing renders both remedies (install-or-opt-out)."""
 
         sev, _, detail = self._run(SelinuxCheckResult(SelinuxStatus.POLICY_MISSING))
         assert sev == "warn"
         assert "terok_socket_t NOT installed" in detail
         assert "sudo bash" in detail
         assert "install_policy.sh" in detail
+        # Opt-out must be surfaced — the user may not have root.
+        assert "services: {mode: tcp}" in detail
 
     def test_warn_also_names_missing_tools(self) -> None:
-        """Policy-missing + missing tools renders the dnf-install prerequisite."""
+        """Policy-missing + missing tools renders the dnf prerequisite plus both remedies."""
 
         sev, _, detail = self._run(
             SelinuxCheckResult(
@@ -521,6 +523,7 @@ class TestCheckSelinuxPolicy:
         assert "policy tools missing" in detail
         assert "checkmodule" in detail
         assert "selinux-policy-devel" in detail
+        assert "services: {mode: tcp}" in detail
 
     def test_warn_when_libselinux_unloadable(self) -> None:
         """Libselinux-missing renders as warn naming the silent-fail vector."""

@@ -36,9 +36,10 @@ from terok_sandbox import (
     is_vault_systemd_available,
 )
 
-from ...lib.core.config import get_services_mode, make_sandbox_config
+from ...lib.core.config import get_services_mode, global_config_path, make_sandbox_config
 from ...lib.core.project_model import ProjectConfig
 from ...lib.core.projects import list_projects, load_project
+from ...lib.core.yaml_schema import SERVICES_TCP_OPTOUT_YAML
 from ...lib.orchestration.container_doctor import run_container_doctor
 from ...lib.orchestration.hooks import run_hook
 from ...lib.orchestration.tasks import container_name, tasks_meta_dir
@@ -421,20 +422,21 @@ def _check_selinux_policy() -> _CheckResult:
             return ("ok", label, "not needed (SELinux not enforcing)")
         case SelinuxStatus.POLICY_MISSING:
             install_cmd = selinux_install_command()
+            opt_out = f"or opt out: {SERVICES_TCP_OPTOUT_YAML} in {global_config_path()}"
             if result.missing_policy_tools:
                 tools = ", ".join(result.missing_policy_tools)
                 return (
                     "warn",
                     label,
                     f"terok_socket_t NOT installed; policy tools missing ({tools}). "
-                    "Fix: sudo dnf install selinux-policy-devel policycoreutils, "
-                    f"then {install_cmd}",
+                    "Fix (pick one): sudo dnf install selinux-policy-devel policycoreutils, "
+                    f"then {install_cmd}; {opt_out}",
                 )
             return (
                 "warn",
                 label,
                 "terok_socket_t NOT installed — containers cannot connect to sockets. "
-                f"Fix: {install_cmd}",
+                f"Fix (pick one): {install_cmd}; {opt_out}",
             )
         case SelinuxStatus.LIBSELINUX_MISSING:
             return (

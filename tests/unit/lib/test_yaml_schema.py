@@ -235,6 +235,16 @@ class RawGlobalConfigTests(unittest.TestCase):
         self.assertIsNone(cfg.default_agent)
         self.assertFalse(cfg.experimental)
 
+    def test_services_mode_default_is_socket(self) -> None:
+        """Default transport is ``socket`` (since 0.7.3)."""
+        cfg = RawGlobalConfig.model_validate({})
+        self.assertEqual(cfg.services.mode, "socket")
+
+    def test_services_mode_tcp_opt_out(self) -> None:
+        """``services: {mode: tcp}`` is a supported opt-out."""
+        cfg = RawGlobalConfig.model_validate({"services": {"mode": "tcp"}})
+        self.assertEqual(cfg.services.mode, "tcp")
+
     def test_experimental_flag(self) -> None:
         """``experimental: true`` is accepted as a top-level bool."""
         cfg = RawGlobalConfig.model_validate({"experimental": True})
