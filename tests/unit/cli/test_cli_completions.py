@@ -201,8 +201,14 @@ def test_dispatch_prints_shellcode_for_selected_shell(
 
     output = capsys.readouterr().out
     assert output.count("# completion") == len(completions._PROGS)
-    called_progs = [call.args[0] for call in mock_shellcode.call_args_list]
-    assert called_progs == [[p] for p in completions._PROGS]
+    # Every managed binary gets shellcode emitted — but don't constrain the
+    # call shape (one call per prog vs one call with a list are both valid).
+    requested_progs = {
+        prog
+        for call in mock_shellcode.call_args_list
+        for prog in (call.args[0] if call.args else call.kwargs.get("progs", []))
+    }
+    assert set(completions._PROGS) <= requested_progs
 
 
 @pytest.mark.parametrize(

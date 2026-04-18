@@ -187,7 +187,24 @@ class TestTuiOnNoArgs:
 
             main()
 
-            mock_exec.assert_not_called()
+        # Assert outside the ``with`` — pytest.raises short-circuits the block
+        # the moment SystemExit fires, so anything above this line never ran.
+        mock_exec.assert_not_called()
+
+    def test_missing_terok_tui_falls_through_to_argparse(self) -> None:
+        """If ``terok-tui`` isn't on PATH, argparse's usage error is the fallback."""
+        with (
+            patch("os.execlp", side_effect=FileNotFoundError) as mock_exec,
+            patch("sys.argv", ["terok"]),
+            patch("sys.stdin.isatty", return_value=True),
+            patch("sys.stdout.isatty", return_value=True),
+            pytest.raises(SystemExit),
+        ):
+            from terok.cli.main import main
+
+            main()
+
+        mock_exec.assert_called_once_with("terok-tui", "terok-tui")
 
     def test_terokctl_no_args_never_launches_tui(self) -> None:
         """``terokctl`` is the stable surface — no-args always prints usage."""
@@ -202,4 +219,4 @@ class TestTuiOnNoArgs:
 
             terokctl_main()
 
-            mock_exec.assert_not_called()
+        mock_exec.assert_not_called()

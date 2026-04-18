@@ -75,11 +75,17 @@ def main(prog: str = "terok") -> None:
     # Fast-path: bare ``terok`` in a terminal launches the TUI.  Scripts
     # piping ``terok`` get the argparse usage error instead — the TTY
     # check keeps the convenience shortcut from surprising automation.
+    # If ``terok-tui`` isn't on PATH (partial install, exotic layout), fall
+    # through to argparse so the user sees a usage error rather than a
+    # traceback from ``execlp``.
     if prog == "terok" and len(sys.argv) == 1 and sys.stdin.isatty() and sys.stdout.isatty():
         import os
 
-        os.execlp("terok-tui", "terok-tui")
-        return  # pragma: no cover — execlp never returns
+        try:
+            os.execlp("terok-tui", "terok-tui")
+            return  # pragma: no cover — execlp never returns on success
+        except FileNotFoundError:
+            pass
 
     # Get version info for --version flag
     version, branch = get_version_info()
