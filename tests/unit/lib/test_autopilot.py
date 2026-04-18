@@ -30,7 +30,7 @@ from terok.lib.orchestration.task_runners import (
     task_followup_headless,
     task_run_headless,
 )
-from tests.test_utils import assert_hex_id, mock_git_config, write_project
+from tests.test_utils import assert_hex_id, captured_runspec, mock_git_config, write_project
 
 
 @dataclass
@@ -45,7 +45,7 @@ class TaskRunnerResult:
     @property
     def last_spec(self):
         """Return the last RunSpec passed to sandbox.run()."""
-        return self.run_mock.return_value.run.call_args[0][0]
+        return captured_runspec(self.run_mock)
 
 
 def make_project_config(
@@ -168,7 +168,9 @@ def run_headless_request(
     with unittest.mock.patch.dict(os.environ, runner_env_vars(base, config_file), clear=True):
         with (
             mock_git_config(),
-            unittest.mock.patch("terok.lib.orchestration.task_runners._sandbox") as sandbox_factory,
+            unittest.mock.patch(
+                "terok.lib.orchestration.task_runners._agent_runner"
+            ) as sandbox_factory,
             unittest.mock.patch(
                 "terok.lib.orchestration.task_runners.wait_for_exit", return_value=0
             ) as wait_mock,
