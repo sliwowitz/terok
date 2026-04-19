@@ -29,8 +29,6 @@ used by CLI commands that operate on ``project_id`` strings directly.
 
 from __future__ import annotations
 
-import json
-
 from terok_executor import (
     authenticate as _authenticate_raw,
 )
@@ -96,36 +94,26 @@ def list_projects() -> list[Project]:
 def derive_project(source_id: str, new_id: str) -> Project:
     """Derive a new project from an existing one and return it.
 
-    The derived project shares the source's git-gate mirror and SSH keypair.
-    If the source already has an ``ssh-keys.json`` entry, the same key files
-    are registered under the new scope so the vault can serve the
-    derived project without further setup.
+    The derived project shares the source's git-gate mirror and SSH keys —
+    every ``ssh_keys.id`` assigned to the source is assigned to the new
+    scope too, so the vault can serve the derived project without further
+    setup.  A silent no-op when the source has no registered keys.
     """
     _derive_project(source_id, new_id)
-    _share_ssh_key_registration(source_id, new_id)
+    _share_ssh_key_assignments(source_id, new_id)
     return Project(load_project(new_id))
 
 
-def _share_ssh_key_registration(source_id: str, new_id: str) -> None:
-    """Register all of the source's SSH keys under *new_id* in ``ssh-keys.json``.
-
-    Silent no-op when the source has no registered keys yet — ``project-init``
-    on the derived project will populate both scopes once the keys exist on
-    disk.  Every usable key (GitHub + GitLab + …) is shared so the sibling
-    can reach the same remotes as the source.
-    """
+def _share_ssh_key_assignments(source_id: str, new_id: str) -> None:
+    """Copy every SSH key assignment from *source_id* to *new_id*."""
     from ..core.config import make_sandbox_config
 
+    db = _open_vault_db(make_sandbox_config())
     try:
-        mapping = json.loads(make_sandbox_config().ssh_keys_json_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return
-
-    raw = mapping.get(source_id)
-    source_entries = raw if isinstance(raw, list) else [raw]
-    for key_entry in source_entries:
-        if isinstance(key_entry, dict) and {"private_key", "public_key"} <= key_entry.keys():
-            register_ssh_key(new_id, key_entry)
+        for row in db.list_ssh_keys_for_scope(source_id):
+            db.assign_ssh_key(new_id, row.id)
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -133,16 +121,26 @@ def _share_ssh_key_registration(source_id: str, new_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def register_ssh_key(project_id: str, init_result: dict) -> None:
-    """Register an SSH key in ``ssh-keys.json`` for the vault's SSH signer.
+def _open_vault_db(cfg):
+    """Open a ``CredentialDB`` at *cfg*'s ``db_path``."""
+    from terok_sandbox import CredentialDB
 
-    Call this after :meth:`SSHManager.init` with the returned result dict.
+    return CredentialDB(cfg.db_path)
+
+
+def register_ssh_key(project_id: str, key_id: int) -> None:
+    """Assign a freshly generated or imported key to *project_id*.
+
+    Call this after :meth:`SSHManager.init` with the returned ``key_id``.
+    Idempotent — a scope that already holds the assignment is left alone.
     """
-    from terok_sandbox import update_ssh_keys_json
-
     from ..core.config import make_sandbox_config
 
-    update_ssh_keys_json(make_sandbox_config().ssh_keys_json_path, project_id, init_result)
+    db = _open_vault_db(make_sandbox_config())
+    try:
+        db.assign_ssh_key(project_id, key_id)
+    finally:
+        db.close()
 
 
 def maybe_pause_for_ssh_key_registration(project_id: str) -> None:

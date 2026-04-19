@@ -416,7 +416,8 @@ def cmd_project_init(project_id: str) -> None:
 
     print("==> Initializing SSH...")
     result = make_ssh_manager(project).init()
-    register_ssh_key(project_id, result)
+    register_ssh_key(project_id, result["key_id"])
+    _print_ssh_init_summary(result)
     maybe_pause_for_ssh_key_registration(project_id)
 
     print("==> Generating Dockerfiles...")
@@ -430,3 +431,13 @@ def cmd_project_init(project_id: str) -> None:
     if not res["success"]:
         raise SystemExit(f"Gate sync failed: {', '.join(res['errors'])}")
     print(f"Gate ready at {res['path']}")
+
+
+def _print_ssh_init_summary(result: dict) -> None:
+    """Render the ``ssh-init`` result for the user (no filesystem paths)."""
+    print(f"  id:          {result['key_id']}")
+    print(f"  type:        {result['key_type']}")
+    print(f"  fingerprint: SHA256:{result['fingerprint']}")
+    print(f"  comment:     {result['comment']}")
+    print("Public key (register as a deploy key on the remote):")
+    print(f"  {result['public_line']}")

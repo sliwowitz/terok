@@ -78,7 +78,16 @@ class TestProjectInit:
         mock_load,
     ) -> None:
         call_order: list[str] = []
-        mock_ssh_cls.return_value.init.side_effect = lambda **kw: call_order.append("ssh")
+        mock_ssh_cls.return_value.init.side_effect = lambda **kw: (
+            call_order.append("ssh"),
+            {
+                "key_id": 1,
+                "key_type": "ed25519",
+                "fingerprint": "fp",
+                "comment": "c",
+                "public_line": "ssh-ed25519 AAAA c",
+            },
+        )[-1]
         mock_register.side_effect = lambda *a, **kw: call_order.append("register")
         mock_pause.side_effect = lambda *a, **kw: call_order.append("pause")
         mock_gen.side_effect = lambda *a, **kw: call_order.append("generate")
@@ -116,16 +125,24 @@ class TestProjectInit:
             cmd_project_init("badproj")
 
 
+_FAKE_SSH_INIT_RESULT = {
+    "key_id": 42,
+    "key_type": "ed25519",
+    "fingerprint": "fp",
+    "comment": "c",
+    "public_line": "ssh-ed25519 AAAA c",
+}
+
+
 class TestCliSshInit:
     """Tests for the ``project ssh-init`` CLI command."""
 
     @unittest.mock.patch("terok.cli.commands.project.make_ssh_manager")
     @unittest.mock.patch("terok.cli.commands.project.register_ssh_key")
     @unittest.mock.patch("terok.cli.commands.project.load_project")
-    def test_ssh_init_registers_key(self, mock_load, mock_register, mock_ssh_cls) -> None:
-        """ssh-init must forward the init() result to register_ssh_key."""
-        fake_result = {"private_key": "/tmp/terok-testing/k", "dir": "/tmp/terok-testing/d"}
-        mock_ssh_cls.return_value.init.return_value = fake_result
+    def test_ssh_init_registers_key_id(self, mock_load, mock_register, mock_ssh_cls) -> None:
+        """ssh-init forwards init()'s ``key_id`` to register_ssh_key."""
+        mock_ssh_cls.return_value.init.return_value = _FAKE_SSH_INIT_RESULT
         mock_load.return_value = unittest.mock.Mock(id="proj")
 
         from terok.cli.commands.project import dispatch
@@ -133,23 +150,23 @@ class TestCliSshInit:
         args = unittest.mock.Mock(
             cmd="project", project_cmd="ssh-init", project_id="proj", key_type="ed25519"
         )
-        args.key_name = None
+        args.comment = None
         args.force = False
 
         result = dispatch(args)
 
         assert result is True
         mock_ssh_cls.return_value.init.assert_called_once_with(
-            key_type="ed25519", key_name=None, force=False
+            key_type="ed25519", comment=None, force=False
         )
-        mock_register.assert_called_once_with("proj", fake_result)
+        mock_register.assert_called_once_with("proj", 42)
 
     @unittest.mock.patch("terok.cli.commands.project.make_ssh_manager")
     @unittest.mock.patch("terok.cli.commands.project.register_ssh_key")
     @unittest.mock.patch("terok.cli.commands.project.load_project")
-    def test_ssh_init_passes_result_not_none(self, mock_load, mock_register, mock_ssh_cls) -> None:
-        """register_ssh_key must receive the actual result dict, not None."""
-        mock_ssh_cls.return_value.init.return_value = {"key": "value"}
+    def test_ssh_init_extracts_key_id_field(self, mock_load, mock_register, mock_ssh_cls) -> None:
+        """register_ssh_key receives the integer ``key_id`` field, not the dict."""
+        mock_ssh_cls.return_value.init.return_value = _FAKE_SSH_INIT_RESULT
         mock_load.return_value = unittest.mock.Mock(id="proj2")
 
         from terok.cli.commands.project import dispatch
@@ -157,9 +174,8 @@ class TestCliSshInit:
         args = unittest.mock.Mock(cmd="project", project_cmd="ssh-init", project_id="proj2")
         dispatch(args)
 
-        actual_result = mock_register.call_args[0][1]
-        assert actual_result is not None
-        assert actual_result == {"key": "value"}
+        actual = mock_register.call_args[0][1]
+        assert actual == 42
 
 
 class TestSshPause:

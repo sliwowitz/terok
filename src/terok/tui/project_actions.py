@@ -25,7 +25,7 @@ from terok_sandbox import (
     uninstall_vault_systemd,
 )
 
-from ..lib.core.projects import effective_ssh_key_name, load_project, resolve_ssh_host_dir
+from ..lib.core.projects import load_project
 from ..lib.domain.facade import (
     authenticate,
     build_images,
@@ -37,6 +37,29 @@ from ..lib.domain.facade import (
 )
 from ..lib.domain.project import make_git_gate, make_ssh_manager
 from .shell_launch import launch_login
+
+
+def _lookup_vault_pub_line(scope: str) -> str | None:
+    """Render the scope's public key as ``ssh-<algo> <base64> <comment>``.
+
+    Returns ``None`` when no key is assigned to *scope*.
+    """
+    import base64
+
+    from terok_sandbox import CredentialDB
+
+    from ..lib.core.config import make_sandbox_config
+
+    db = CredentialDB(make_sandbox_config().db_path)
+    try:
+        records = db.load_ssh_keys_for_scope(scope)
+    finally:
+        db.close()
+    if not records:
+        return None
+    rec = records[-1]
+    algo = "ssh-ed25519" if rec.key_type == "ed25519" else "ssh-rsa"
+    return f"{algo} {base64.b64encode(rec.public_blob).decode('ascii')} {rec.comment}".rstrip()
 
 
 class ProjectActionsMixin:
@@ -61,28 +84,19 @@ class ProjectActionsMixin:
         if not (upstream.startswith("git@") or upstream.startswith("ssh://")):
             return
 
-        key_name = effective_ssh_key_name(project, key_type="ed25519")
-        pub_key_path = resolve_ssh_host_dir(project) / f"{key_name}.pub"
-
         print("\nHint: this project uses an SSH upstream.")
         print(
             "Gate sync failures are often caused by a missing SSH key registration on the remote."
         )
-        print(f"Public key path: {pub_key_path}")
 
-        if pub_key_path.is_file():
-            try:
-                pub_key_text = pub_key_path.read_text(encoding="utf-8", errors="ignore").strip()
-            except Exception:
-                pub_key_text = ""
-            if pub_key_text:
-                print("Public key:")
-                print(f"  {pub_key_text}")
-            else:
-                print("Public key file exists but is empty.")
+        pub_line = _lookup_vault_pub_line(project.id)
+        if pub_line is None:
+            print(f"No SSH key assigned to scope {project.id!r} in the vault.")
+            print(f"Run 'terok project ssh-init {project_id}' to generate one,")
+            print("then register the printed public key as a deploy key upstream.")
         else:
-            print(f"Public key file not found at {pub_key_path}.")
-            print(f"Run 'terok project ssh-init {project_id}' to generate it.")
+            print("Public key (register as a deploy key on the remote):")
+            print(f"  {pub_line}")
 
     async def _run_suspended(
         self,

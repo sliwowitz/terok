@@ -234,22 +234,6 @@ def _check_unfired_hooks(
     return results
 
 
-def _is_key_path(value: object) -> bool:
-    """Check whether a value is a non-empty string pointing to an existing file."""
-    return isinstance(value, str) and bool(value) and Path(value).is_file()
-
-
-def _keys_healthy(entry: object) -> bool:
-    """Check whether all key files in a scope entry exist on disk."""
-    keys = entry if isinstance(entry, list) else [entry]
-    return bool(keys) and all(
-        isinstance(k, dict)
-        and _is_key_path(k.get("private_key"))
-        and _is_key_path(k.get("public_key"))
-        for k in keys
-    )
-
-
 def _sanitize_id(value: str) -> str:
     """Strip C0/C1 control characters from a project ID for safe terminal output."""
     import unicodedata
@@ -268,39 +252,25 @@ def _abbreviate(ids: list[str], limit: int = 3) -> str:
 
 def _check_ssh_signer() -> _CheckResult:
     """Check SSH signer key registration against known projects."""
-    import json
+    from terok_sandbox import CredentialDB
 
     label = "SSH signer"
     cfg = make_sandbox_config()
-    keys_path = cfg.ssh_keys_json_path
-
-    if not keys_path.is_file():
-        return ("warn", label, "no ssh-keys.json — run 'terok project ssh-init <project>'")
-
-    try:
-        mapping = json.loads(keys_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        return ("error", label, f"cannot read ssh-keys.json — {exc}")
-
-    if not isinstance(mapping, dict):
-        return ("error", label, "ssh-keys.json has invalid schema (expected object)")
 
     projects = list_projects()
     if not projects:
         return ("ok", label, "no projects configured")
 
-    broken = [p.id for p in projects if p.id in mapping and not _keys_healthy(mapping[p.id])]
-    unregistered = [p.id for p in projects if p.id not in mapping]
-    registered = len(projects) - len(broken) - len(unregistered)
+    db = CredentialDB(cfg.db_path)
+    try:
+        assigned_scopes = set(db.list_scopes_with_ssh_keys())
+    finally:
+        db.close()
+
+    unregistered = [p.id for p in projects if p.id not in assigned_scopes]
+    registered = len(projects) - len(unregistered)
     total = len(projects)
 
-    if broken:
-        return (
-            "error",
-            label,
-            f"{len(broken)}/{total} project(s) have missing key files: "
-            f"{_abbreviate(broken)} — re-run 'terok project ssh-init <project>'",
-        )
     if unregistered:
         return (
             "warn",
