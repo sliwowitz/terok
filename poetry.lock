@@ -983,14 +983,14 @@ test = ["pytest (==6.2.5)", "pytest-mock (==3.4.0)"]
 
 [[package]]
 name = "filelock"
-version = "3.28.0"
+version = "3.29.0"
 description = "A platform independent file lock."
 optional = false
 python-versions = ">=3.10"
 groups = ["dev"]
 files = [
-    {file = "filelock-3.28.0-py3-none-any.whl", hash = "sha256:de9af6712788e7171df1b28b15eba2446c69721433fa427a9bee07b17820a9db"},
-    {file = "filelock-3.28.0.tar.gz", hash = "sha256:4ed1010aae813c4ee8d9c660e4792475ee60c4a0ba76073ceaf862bd317e3ca6"},
+    {file = "filelock-3.29.0-py3-none-any.whl", hash = "sha256:96f5f6344709aa1572bbf631c640e4ebeeb519e08da902c39a001882f30ac258"},
+    {file = "filelock-3.29.0.tar.gz", hash = "sha256:69974355e960702e789734cb4871f884ea6fe50bd8404051a3530bc07809cf90"},
 ]
 
 [[package]]
@@ -2372,6 +2372,17 @@ watchdog = ">=2.0"
 i18n = ["babel (>=2.9.0)"]
 
 [[package]]
+name = "pwinput"
+version = "1.0.3"
+description = "A cross-platform Python module that displays **** for password input. Works on Windows, unlike getpass. Formerly called stdiomask."
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pwinput-1.0.3.tar.gz", hash = "sha256:ca1a8bd06e28872d751dbd4132d8637127c25b408ea3a349377314a5491426f3"},
+]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 description = "C parser in Python"
@@ -3047,7 +3058,7 @@ tomli-w = ">=1.0,<2.0"
 
 [[package]]
 name = "terok-dbus"
-version = "0.5.6"
+version = "0.6.0"
 description = "D-Bus desktop notification package for terok"
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -3062,11 +3073,11 @@ dbus-fast = ">=2.0,<5.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-dbus.git"
 reference = "feat/dbus-clearance-bridge"
-resolved_reference = "9e1f7d885cc205e6cc71d7e9b47244f6acd935eb"
+resolved_reference = "e7f73696c1b24750d917aee56d76ddedd5eeb425"
 
 [[package]]
 name = "terok-executor"
-version = "0.0.89"
+version = "0.0.96"
 description = "Single-agent task runner for hardened Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -3076,6 +3087,7 @@ develop = false
 
 [package.dependencies]
 Jinja2 = ">=3.1"
+pwinput = ">=1.0.3"
 "ruamel.yaml" = ">=0.18"
 terok-sandbox = {git = "https://github.com/sliwowitz/terok-sandbox.git", branch = "feat/dbus-clearance-bridge"}
 tomli-w = ">=1.0"
@@ -3084,11 +3096,11 @@ tomli-w = ">=1.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-executor.git"
 reference = "feat/dbus-clearance-bridge"
-resolved_reference = "2b68b3496ed39e68114764b9497a50e12a3fdaf2"
+resolved_reference = "054392f84700d65344f9977871d0765af0228b0a"
 
 [[package]]
 name = "terok-sandbox"
-version = "0.0.74"
+version = "0.0.79"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -3106,11 +3118,11 @@ terok-shield = {git = "https://github.com/sliwowitz/terok-shield.git", branch = 
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/dbus-clearance-bridge"
-resolved_reference = "ef5003d99dcded8bdeace4b20c065d4ce48a960d"
+resolved_reference = "4fe6463eac36831950d1e60e57c5245dd3619bad"
 
 [[package]]
 name = "terok-shield"
-version = "0.6.20"
+version = "0.7.0"
 description = "nftables-based egress firewalling for Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -3126,7 +3138,7 @@ PyYAML = ">=6.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-shield.git"
 reference = "feat/dbus-clearance-bridge"
-resolved_reference = "d06e03170c71173c58543220da3aee021d769c80"
+resolved_reference = "f30be6b719a0e4125d208c84fd9213478d816e48"
 
 [[package]]
 name = "textual"
