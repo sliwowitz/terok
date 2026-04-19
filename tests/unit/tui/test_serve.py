@@ -164,13 +164,7 @@ class TestPasswordHandling:
 class TestBasicAuthMiddleware:
     """Tests for the basic-auth aiohttp middleware."""
 
-    def _run(self, coro):
-        """Run *coro* to completion using a fresh event loop."""
-        import asyncio
-
-        return asyncio.new_event_loop().run_until_complete(coro)
-
-    def test_rejects_without_credentials(self) -> None:
+    async def test_rejects_without_credentials(self) -> None:
         """A request without Authorization gets a 401 + Basic challenge."""
         from aiohttp.test_utils import make_mocked_request
 
@@ -178,11 +172,11 @@ class TestBasicAuthMiddleware:
 
         mw = _basic_auth_middleware("secret")
         req = make_mocked_request("GET", "/")
-        resp = self._run(mw(req, lambda _: None))
+        resp = await mw(req, lambda _: None)
         assert resp.status == 401
         assert "Basic" in resp.headers["WWW-Authenticate"]
 
-    def test_accepts_correct_credentials(self) -> None:
+    async def test_accepts_correct_credentials(self) -> None:
         """Valid Basic auth passes through to the inner handler."""
         from base64 import b64encode
 
@@ -198,10 +192,10 @@ class TestBasicAuthMiddleware:
         async def inner(_request: web.Request) -> web.Response:
             return web.Response(status=204)
 
-        resp = self._run(mw(req, inner))
+        resp = await mw(req, inner)
         assert resp.status == 204
 
-    def test_rejects_wrong_password(self) -> None:
+    async def test_rejects_wrong_password(self) -> None:
         """Wrong password still yields a 401 rather than passing through."""
         from base64 import b64encode
 
@@ -212,5 +206,5 @@ class TestBasicAuthMiddleware:
         mw = _basic_auth_middleware("secret")
         token = b64encode(b"terok:wrong").decode()
         req = make_mocked_request("GET", "/", headers={"Authorization": f"Basic {token}"})
-        resp = self._run(mw(req, lambda _: None))
+        resp = await mw(req, lambda _: None)
         assert resp.status == 401

@@ -147,6 +147,29 @@ def _toad_browser_url(public_host: str, port: int, token: str) -> str:
     return f"http://{_url_host(public_host)}:{port}/?token={token}"
 
 
+def _agent_config_dir(project: ProjectConfig, task_id: str) -> Path:
+    """Return the agent-config mount path for *task_id* under *project*."""
+    return project.tasks_root / str(task_id) / "agent-config"
+
+
+def _rehydrate_toad_token(project: ProjectConfig, task_id: str, meta: dict, cname: str) -> str:
+    """Load the saved token from *meta* and refresh its file on disk.
+
+    Used by every code path that reuses an existing toad container
+    (resume, restart) — the agent-config dir may have been cleaned up
+    between runs, so the file is rewritten even when the token itself
+    is unchanged.
+    """
+    saved_token = meta.get("web_token")
+    if not isinstance(saved_token, str):
+        raise SystemExit(
+            f"Existing toad container {cname} has no saved web_token in metadata "
+            f"(created before the Caddy auth gate landed).  Re-create the task."
+        )
+    _ensure_toad_token(_agent_config_dir(project, task_id), existing=saved_token)
+    return saved_token
+
+
 def _resume_toad_container(
     *,
     project: ProjectConfig,
@@ -172,16 +195,7 @@ def _resume_toad_container(
             f"(got {actual}).  Re-create the task to use the new port."
         )
     ensure_vault()
-    saved_token = meta.get("web_token")
-    if not isinstance(saved_token, str):
-        raise SystemExit(
-            f"Existing toad container {cname} has no saved web_token in metadata "
-            f"(created before the Caddy auth gate landed).  Re-create the task."
-        )
-    # Token file may have been cleared by a host-side cleanup; re-write
-    # it so the in-container Caddy can read it on startup.
-    agent_config_dir = project.tasks_root / str(task_id) / "agent-config"
-    _ensure_toad_token(agent_config_dir, existing=saved_token)
+    saved_token = _rehydrate_toad_token(project, task_id, meta, cname)
     color_enabled = _supports_color()
     url = _toad_browser_url(pub_host, saved_port, saved_token)
     if container_state == "running":
@@ -681,12 +695,9 @@ def task_run_toad(
     agent_config_dir = _prepare_agent_config(project, project_id, task_id, agents, preset)
     volumes.append(VolumeSpec(agent_config_dir, _CONTAINER_TEROK_CONFIG, sharing=Sharing.PRIVATE))
 
-    # Mint the auth token once per task; same value is reused on restart.
     token = _ensure_toad_token(agent_config_dir)
     meta["web_token"] = token
 
-    # Pin the caddy/toad port contract to the host-side constants so any
-    # future change here is picked up by the in-container supervisor.
     env["TOAD_PUBLIC_PORT"] = str(_TOAD_PUBLIC_PORT)
     env["TOAD_INTERNAL_PORT"] = str(_TOAD_INTERNAL_PORT)
 
@@ -1189,15 +1200,7 @@ def task_restart(project_id: str, task_id: str) -> None:
                 )
         task_dir = project.tasks_root / str(task_id)
         if mode == "toad":
-            # Rehydrate the per-task auth token so Caddy can read it after
-            # restart — same guarantees task_run_toad's resume path offers.
-            saved_token = meta.get("web_token")
-            if not isinstance(saved_token, str):
-                raise SystemExit(
-                    f"Existing toad container {cname} has no saved web_token in metadata "
-                    f"(created before the Caddy auth gate landed).  Re-create the task."
-                )
-            _ensure_toad_token(task_dir / "agent-config", existing=saved_token)
+            _rehydrate_toad_token(project, task_id, meta, cname)
         _podman_start(cname)
         _assert_running(cname)
         run_hook(
