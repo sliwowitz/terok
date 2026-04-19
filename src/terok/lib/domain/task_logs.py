@@ -69,9 +69,9 @@ def task_logs(
     mode = meta.get("mode")
     if not mode:
         raise SystemExit(
-            f"Task {task_id} has never been run (no mode set). "
-            f"Start it first with 'terokctl task attach {project_id} {task_id} --mode cli' "
-            f"(or --mode toad)."
+            f"Task {task_id} has never been run (no mode set).\n"
+            f"  Start a fresh task: terok task run {project_id}\n"
+            f"  Or run this stub:   terokctl task attach {project_id} {task_id} --mode cli"
         )
 
     # Validate --tail early so both live and persisted paths behave consistently

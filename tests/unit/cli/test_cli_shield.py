@@ -291,19 +291,27 @@ def test_dispatch_runtime_error_prints_message(
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
-        pytest.param({"root": True, "user": False}, {"root": True, "user": False}, id="setup-root"),
-        pytest.param({"root": False, "user": True}, {"root": False, "user": True}, id="setup-user"),
+        pytest.param(
+            {"root": True, "user": False},
+            {"root": True, "user": False},
+            id="install-hooks-root",
+        ),
+        pytest.param(
+            {"root": False, "user": True},
+            {"root": False, "user": True},
+            id="install-hooks-user",
+        ),
     ],
 )
 @patch("terok_sandbox.run_setup")
-def test_setup_dispatch(
-    mock_setup: MagicMock,
+def test_install_hooks_dispatch(
+    mock_install: MagicMock,
     kwargs: dict[str, bool],
     expected: dict[str, bool],
 ) -> None:
-    """The setup subcommand delegates to the facade with the parsed flags."""
+    """The install-hooks subcommand delegates to the facade with the parsed flags."""
     assert dispatch(argparse.Namespace(cmd="shield", shield_cmd="install-hooks", **kwargs))
-    mock_setup.assert_called_once_with(**expected)
+    mock_install.assert_called_once_with(**expected)
 
 
 @patch("terok_shield.cli.interactive.run_interactive")

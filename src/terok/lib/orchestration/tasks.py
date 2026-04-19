@@ -856,9 +856,9 @@ def _validate_login(project: ProjectConfig, task_id: str) -> tuple[str, str]:
     mode = meta.get("mode")
     if not mode:
         raise SystemExit(
-            f"Task {task_id} has never been run (no mode set). "
-            f"Start it first with 'terokctl task attach {project.id} {task_id} --mode cli' "
-            f"(or --mode toad)."
+            f"Task {task_id} has never been run (no mode set).\n"
+            f"  Start a fresh task: terok task run {project.id}\n"
+            f"  Or run this stub:   terokctl task attach {project.id} {task_id} --mode cli"
         )
 
     cname = container_name(project.id, mode, task_id)
