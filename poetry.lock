@@ -3065,7 +3065,7 @@ url = "https://github.com/terok-ai/terok-dbus/releases/download/v0.5.6/terok_dbu
 
 [[package]]
 name = "terok-executor"
-version = "0.0.90"
+version = "0.0.92"
 description = "Single-agent task runner for hardened Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -3083,11 +3083,11 @@ tomli-w = ">=1.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-executor.git"
 reference = "feat/ssh-keys-in-vault"
-resolved_reference = "7886bbe425eda9a40b480d87f042f5620a9d6d7b"
+resolved_reference = "2a44ad4d5914158b567461a63cb714d47fac0d8b"
 
 [[package]]
 name = "terok-sandbox"
-version = "0.0.75"
+version = "0.0.77"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -3105,7 +3105,7 @@ terok-shield = {url = "https://github.com/terok-ai/terok-shield/releases/downloa
 type = "git"
 url = "https://github.com/sliwowitz/terok-sandbox.git"
 reference = "feat/ssh-keys-in-vault"
-resolved_reference = "ecf9e977aae38adb8329139b5d4f9d2872bcc9ef"
+resolved_reference = "2749a17cb5c56bec709f7de800d6d873001561ef"
 
 [[package]]
 name = "terok-shield"
