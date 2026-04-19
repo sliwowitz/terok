@@ -149,14 +149,19 @@ class TestLaunchWorkflows:
         args = _container_args(state, toad_container)
 
         assert "Toad is serving." in result.stdout
+        # URL in stdout carries the per-task token; the listener itself is
+        # at the bare host:port form — assert that prefix.
         assert localhost_url(web_port) in result.stdout
-        assert state["containers"][toad_container]["marker"] == "Serving http://0.0.0.0:8080"
+        assert state["containers"][toad_container]["marker"] == "TEROK_READY"
         assert args[args.index("-p") + 1] == f"{LOCALHOST}:{web_port}:{TOAD_PORT}"
         assert f"{PROJECT_ID}:l2-cli" in args
-        assert "toad --serve -H 0.0.0.0 -p 8080" in args[-1]
+        # terok-toad-entry (in-container supervisor) starts Caddy + toad;
+        # terok only forwards the public URL now.
+        assert "terok-toad-entry" in args[-1]
         assert f"--public-url {localhost_url(web_port).rstrip('/')}" in args[-1]
         assert meta["mode"] == "toad"
         assert meta["web_port"] == web_port
+        assert isinstance(meta.get("web_token"), str) and meta["web_token"]
         assert meta["unrestricted"] is True
 
     def test_task_restart_starts_existing_stopped_container(

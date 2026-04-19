@@ -51,7 +51,9 @@ class TestMain:
         assert "textual-serve" in captured.err
         assert "pip install textual-serve" in captured.err
 
-    def test_server_created_with_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_server_created_with_defaults(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+    ) -> None:
         """Server is instantiated with default host and port when no args given."""
         mock_server_instance = mock.MagicMock()
         mock_server_cls = mock.MagicMock(return_value=mock_server_instance)
@@ -62,6 +64,7 @@ class TestMain:
         monkeypatch.setitem(sys.modules, "textual_serve", mock.MagicMock())
         monkeypatch.setitem(sys.modules, "textual_serve.server", server_mod)
         monkeypatch.setattr("sys.argv", ["terok-web"])
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
 
         main()
 
@@ -70,7 +73,9 @@ class TestMain:
         )
         mock_server_instance.serve.assert_called_once()
 
-    def test_server_created_with_custom_args(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_server_created_with_custom_args(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+    ) -> None:
         """Server respects --host and --port arguments."""
         mock_server_instance = mock.MagicMock()
         mock_server_cls = mock.MagicMock(return_value=mock_server_instance)
@@ -81,6 +86,7 @@ class TestMain:
         monkeypatch.setitem(sys.modules, "textual_serve", mock.MagicMock())
         monkeypatch.setitem(sys.modules, "textual_serve.server", server_mod)
         monkeypatch.setattr("sys.argv", ["terok-web", "--host", "0.0.0.0", "--port", "9000"])
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
 
         main()
 

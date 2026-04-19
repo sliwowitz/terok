@@ -1,5 +1,4 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
-# SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
 """Serve the Terok TUI as a web application via textual-serve."""
@@ -41,45 +40,80 @@ def _valid_port(value: str) -> int:
     return port
 
 
-def _password_path() -> Path:
-    """Return the ephemeral file path that stores the current session password.
+def _secure_runtime_dir() -> Path:
+    """Return a 0700 user-owned runtime dir for the password file.
 
-    ``$XDG_RUNTIME_DIR`` is a tmpfs cleared on reboot, so the password
-    naturally rotates each session without any on-disk state leaking.
-    Falls back to ``/tmp/terok-$UID`` when XDG_RUNTIME_DIR is unset.
+    ``$XDG_RUNTIME_DIR`` is a tmpfs cleared on reboot — ideal.  When it is
+    unset the fallback is ``/tmp/terok-$UID``, but since ``/tmp`` is shared
+    the directory is created with ``O_NOFOLLOW``-like semantics: we refuse
+    to reuse a path not owned by us or with looser permissions than 0700.
     """
     base = os.environ.get("XDG_RUNTIME_DIR")
     if base:
         root = Path(base) / "terok"
     else:
-        # Fallback when XDG_RUNTIME_DIR is unset: keep the password in a
-        # per-UID dir under /tmp so it is still isolated from other users.
         root = Path(f"/tmp/terok-{os.getuid()}")  # nosec B108  # noqa: S108
-    root.mkdir(parents=True, exist_ok=True)
-    return root / "serve.password"
+    try:
+        root.mkdir(mode=0o700, parents=True, exist_ok=False)
+    except FileExistsError:
+        st = root.lstat()
+        if not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode):
+            raise SystemExit(f"Refusing to use {root}: not a plain directory.")
+        if st.st_uid != os.getuid():
+            raise SystemExit(
+                f"Refusing to use {root}: owned by uid {st.st_uid}, not {os.getuid()}."
+            )
+        if stat.S_IMODE(st.st_mode) & 0o077:
+            raise SystemExit(
+                f"Refusing to use {root}: mode {oct(stat.S_IMODE(st.st_mode))}, expected 0700."
+            )
+    return root
+
+
+def _password_path() -> Path:
+    """Return the ephemeral file path that stores the current session password."""
+    return _secure_runtime_dir() / "serve.password"
 
 
 def _load_or_mint_password() -> str:
     """Read the current password from the runtime dir, or mint a fresh one.
 
     The file is created with mode 0600.  Existing files are refused if
-    they are world- or group-readable, to avoid another local user
-    sneaking a readable copy into the runtime dir between sessions.
+    they are world- or group-readable, if they are not owned by the
+    invoking user, or if the path is a symlink — these would let another
+    local user leak or overwrite credentials on shared hosts.
     """
     path = _password_path()
-    if path.exists():
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode & 0o077:
-            raise SystemExit(
-                f"Refusing to read {path}: mode is {oct(mode)}, expected 0600. "
-                f"Delete it or fix the permissions."
-            )
-        value = path.read_text().strip()
-        if value:
-            return value
-    value = secrets.token_urlsafe(16)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return _mint_password(path)
+    try:
+        st = os.fstat(fd)
+        if st.st_uid != os.getuid():
+            raise SystemExit(
+                f"Refusing to read {path}: owned by uid {st.st_uid}, not {os.getuid()}."
+            )
+        if stat.S_IMODE(st.st_mode) & 0o077:
+            raise SystemExit(
+                f"Refusing to read {path}: mode {oct(stat.S_IMODE(st.st_mode))}, expected 0600."
+            )
+        value = os.read(fd, 4096).decode().strip()
+    finally:
+        os.close(fd)
+    if value:
+        return value
+    return _mint_password(path)
+
+
+def _mint_password(path: Path) -> str:
+    """Write a fresh password into *path* (0600, no symlink follow) and return it."""
+    value = secrets.token_urlsafe(16)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        st = os.fstat(fd)
+        if st.st_uid != os.getuid():
+            raise SystemExit(f"Refusing to write {path}: not owned by current uid.")
         os.write(fd, value.encode())
     finally:
         os.close(fd)
@@ -201,9 +235,11 @@ def main() -> None:
     password = _load_or_mint_password()
     server = _build_server("terok-tui", args.host, args.port, args.public_url, password)
 
-    display_host = args.host if args.public_url is None else args.public_url
+    # When --public-url is given it's already a full URL; only assemble one
+    # ourselves when the caller left it unset.
+    display_url = args.public_url or f"http://{args.host}:{args.port}/"
     print(
-        f"terok-web: serving at http://{display_host}:{args.port}/ "
+        f"terok-web: serving at {display_url} "
         f"(user '{_AUTH_USER}', password in {_password_path()})",
         file=sys.stderr,
     )
