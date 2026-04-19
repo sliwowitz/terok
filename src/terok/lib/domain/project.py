@@ -197,11 +197,14 @@ def make_git_gate(config: ProjectConfig, *, use_personal_ssh: bool | None = None
 
 
 def make_ssh_manager(config: ProjectConfig) -> SSHManager:
-    """Construct an :class:`SSHManager` from a :class:`ProjectConfig` (adapter factory)."""
-    from terok_sandbox import CredentialDB
+    """Construct an :class:`SSHManager` from a :class:`ProjectConfig` (adapter factory).
 
-    db = CredentialDB(make_sandbox_config().db_path)
-    return SSHManager(scope=config.id, db=db)
+    The returned manager opens and owns its own ``CredentialDB``.  Use it
+    as a context manager (``with make_ssh_manager(cfg) as m: ...``) or
+    call :meth:`SSHManager.close` explicitly — matching the try/finally
+    pattern used elsewhere in the codebase.
+    """
+    return SSHManager(scope=config.id, db_path=make_sandbox_config().db_path)
 
 
 # ---------------------------------------------------------------------------

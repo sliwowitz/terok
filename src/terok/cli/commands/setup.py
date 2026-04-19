@@ -415,7 +415,8 @@ def cmd_project_init(project_id: str) -> None:
     project = load_project(project_id)
 
     print("==> Initializing SSH...")
-    result = make_ssh_manager(project).init()
+    with make_ssh_manager(project) as ssh:
+        result = ssh.init()
     register_ssh_key(project_id, result["key_id"])
     _print_ssh_init_summary(result)
     maybe_pause_for_ssh_key_registration(project_id)

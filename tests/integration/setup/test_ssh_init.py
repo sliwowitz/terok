@@ -23,8 +23,12 @@ git:
 class TestSshInit:
     """Verify ``project ssh-init`` provisions a vault-backed key via the real CLI."""
 
-    def test_ssh_init_is_idempotent(self, terok_env: TerokIntegrationEnv) -> None:
-        """Re-running ``ssh-init`` on the same scope returns the existing key."""
+    def test_ssh_init_is_additive(self, terok_env: TerokIntegrationEnv) -> None:
+        """Re-running ``ssh-init`` on the same scope adds a second key.
+
+        ``ssh-init`` is additive by default — each call produces a fresh
+        keypair alongside any existing ones.  Only ``--force`` rotates.
+        """
         terok_env.write_project(
             "demo",
             PROJECT_TEMPLATE.format(project_id="demo"),
@@ -33,15 +37,15 @@ class TestSshInit:
         first = terok_env.run_cli("project", "ssh-init", "demo")
         second = terok_env.run_cli("project", "ssh-init", "demo")
 
-        # Both runs print the summary, both surface a fingerprint, and both
-        # agree on the same key (force=False is idempotent).
-        assert "fingerprint" in first.stdout.lower()
-        assert "fingerprint" in second.stdout.lower()
-        # SHA256 fingerprints are stable hex; extract the hex digest from each
-        # and confirm they match.
         fp1 = _extract_fingerprint(first.stdout)
         fp2 = _extract_fingerprint(second.stdout)
-        assert fp1 is not None and fp1 == fp2
+        assert fp1 is not None and fp2 is not None
+        assert fp1 != fp2  # two independent keys
+
+        # The second key gets a ``tk-side:`` comment so only the first
+        # remains tk-main for the signer's promotion heuristic.
+        assert "tk-main:demo" in first.stdout
+        assert "tk-side:demo" in second.stdout
 
     def test_ssh_init_rotation_picks_new_key(self, terok_env: TerokIntegrationEnv) -> None:
         """``--force`` rotates: scope ends up with a fresh key, distinct fingerprint."""

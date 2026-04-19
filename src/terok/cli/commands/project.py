@@ -271,11 +271,12 @@ def _cmd_project_delete(project_id: str, *, force: bool = False) -> None:
 def _cmd_ssh_init(args: argparse.Namespace) -> None:
     """Provision a vault-managed SSH keypair for the project."""
     project = load_project(args.project_id)
-    result = make_ssh_manager(project).init(
-        key_type=getattr(args, "key_type", "ed25519"),
-        comment=getattr(args, "comment", None),
-        force=getattr(args, "force", False),
-    )
+    with make_ssh_manager(project) as ssh:
+        result = ssh.init(
+            key_type=getattr(args, "key_type", "ed25519"),
+            comment=getattr(args, "comment", None),
+            force=getattr(args, "force", False),
+        )
     register_ssh_key(project.id, result["key_id"])
     from .setup import _print_ssh_init_summary  # noqa: PLC0415 — avoids surface cycle
 
