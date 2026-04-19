@@ -3070,19 +3070,20 @@ description = "Single-agent task runner for hardened Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
-files = [
-    {file = "terok_executor-0.0.92-py3-none-any.whl", hash = "sha256:b958dd4ce6484e10aba21b58f468d406ae2e33d4a2f65f2003c078c87f683ecf"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 Jinja2 = ">=3.1"
 "ruamel.yaml" = ">=0.18"
-terok_sandbox = {url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.77/terok_sandbox-0.0.77-py3-none-any.whl"}
+terok-sandbox = {url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.77/terok_sandbox-0.0.77-py3-none-any.whl"}
 tomli-w = ">=1.0"
 
 [package.source]
-type = "url"
-url = "https://github.com/terok-ai/terok-executor/releases/download/v0.0.92/terok_executor-0.0.92-py3-none-any.whl"
+type = "git"
+url = "https://github.com/sliwowitz/terok-executor.git"
+reference = "feat/caddy-roster"
+resolved_reference = "2b3e7a327baba1640647f49abc39cb54b02b4148"
 
 [[package]]
 name = "terok-sandbox"
@@ -3611,4 +3612,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "19d07702aea39b87bc991fc7de952a284a74ceab129c433ee191e30ad67e48ca"
+content-hash = "be22bbf29c88787d174d459fe83238f51fb12b2fced19b28c442dc446f69f8e3"

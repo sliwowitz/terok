@@ -534,10 +534,13 @@ class TestTask:
 
             spec = captured_runspec(sandbox_factory)
             bash_cmd = spec.command[-1]
+            # The in-container supervisor (``terok-toad-entry``) now owns
+            # the port wiring; terok only passes --public-url through.
+            assert bash_cmd.startswith("terok-toad-entry")
             assert "--public-url http://127.0.0.1:7861" in bash_cmd
-            assert "-p 8080" in bash_cmd
 
-            # Port forwarding maps host port to container toad port
+            # Host publishes port 8080 (Caddy); toad listens on loopback
+            # 8081 inside the container and is not published.
             extra = list(spec.extra_args)
             port_idx = extra.index("-p")
             assert extra[port_idx + 1] == "127.0.0.1:7861:8080"

@@ -67,10 +67,15 @@ def render_task_details(
     if task.status == "running" and image_old:
         lines.append(Text.assemble("Image:     ", Text("old", style=warning_style)))
     if task.web_port:
+        base_url = f"http://{get_public_host()}:{task.web_port}/"
+        # First-hit URL carries the token; Caddy swaps it for an HttpOnly
+        # cookie and redirects to the clean path.  Old tasks (no token)
+        # fall back to the bare URL.
+        link_url = f"{base_url}?token={task.web_token}" if task.web_token else base_url
         lines.append(
             Text.assemble(
                 "Web URL:   ",
-                Text(f"http://{get_public_host()}:{task.web_port}/", style=accent_style),
+                Text(base_url, style=accent_style + Style(link=link_url)),
             )
         )
     if task.mode == "cli" and project_id:

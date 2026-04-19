@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import os
+import secrets
 import shlex
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -69,7 +71,11 @@ if TYPE_CHECKING:
 
 _LOCALHOST = "127.0.0.1"
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-_TOAD_CONTAINER_PORT = 8080
+_TOAD_PUBLIC_PORT = 8080
+"""Port that Caddy binds inside the container — the one podman publishes."""
+_TOAD_INTERNAL_PORT = 8081
+"""Loopback port that toad binds inside the container — reached only via Caddy."""
+_TOAD_TOKEN_FILE_NAME = "toad.token"
 _ANTHROPIC_API_HOST = "api.anthropic.com"
 _FALSE_STRINGS = frozenset({"false", "0", "no", "off"})
 _CONTAINER_TEROK_CONFIG = "/home/dev/.terok"
@@ -96,6 +102,31 @@ def _apply_unrestricted_env(env: dict[str, str]) -> None:
 
     env["TEROK_UNRESTRICTED"] = "1"
     env.update(collect_all_auto_approve_env())
+
+
+def _ensure_toad_token(agent_config_dir: Path, existing: str | None = None) -> str:
+    """Write the toad auth token into *agent_config_dir* (0600) and return it.
+
+    When *existing* is given (e.g. loaded from task metadata on restart),
+    the same token is rehydrated into the file; otherwise a fresh 32-byte
+    urlsafe token is minted.  The token is the shared secret that Caddy
+    inside the container validates before forwarding to ``textual-serve``;
+    it also ends up in the URL query string for the first browser hit
+    that seeds the auth cookie.
+    """
+    token = existing or secrets.token_urlsafe(32)
+    token_path = agent_config_dir / _TOAD_TOKEN_FILE_NAME
+    fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, token.encode())
+    finally:
+        os.close(fd)
+    return token
+
+
+def _toad_browser_url(public_host: str, port: int, token: str) -> str:
+    """Return the first-hit URL that seeds the Caddy-set auth cookie."""
+    return f"http://{public_host}:{port}/?token={token}"
 
 
 @dataclass(frozen=True)
@@ -562,8 +593,18 @@ def task_run_toad(
                 f"(got {actual}).  Re-create the task to use the new port."
             )
         ensure_vault()
+        saved_token = meta.get("web_token")
+        if not isinstance(saved_token, str):
+            raise SystemExit(
+                f"Existing toad container {cname} has no saved web_token in metadata "
+                f"(created before the Caddy auth gate landed).  Re-create the task."
+            )
+        # Token file may have been cleared by a host-side cleanup; re-write
+        # it so the in-container Caddy can read it on startup.
+        agent_config_dir = project.tasks_root / str(task_id) / "agent-config"
+        _ensure_toad_token(agent_config_dir, existing=saved_token)
         color_enabled = _supports_color()
-        url = f"http://{pub_host}:{saved_port}/"
+        url = _toad_browser_url(pub_host, saved_port, saved_token)
         if container_state == "running":
             print(f"Container {_green(cname, color_enabled)} is already running.")
             print(f"Toad: {_blue(url, color_enabled)}")
@@ -597,6 +638,15 @@ def task_run_toad(
     agent_config_dir = _prepare_agent_config(project, project_id, task_id, agents, preset)
     volumes.append(VolumeSpec(agent_config_dir, _CONTAINER_TEROK_CONFIG, sharing=Sharing.PRIVATE))
 
+    # Mint the auth token once per task; same value is reused on restart.
+    token = _ensure_toad_token(agent_config_dir)
+    meta["web_token"] = token
+
+    # Pin the caddy/toad port contract to the host-side constants so any
+    # future change here is picked up by the in-container supervisor.
+    env["TOAD_PUBLIC_PORT"] = str(_TOAD_PUBLIC_PORT)
+    env["TOAD_INTERNAL_PORT"] = str(_TOAD_INTERNAL_PORT)
+
     # Resolve unrestricted mode: CLI flag → config → default (True)
     if unrestricted is None:
         _effective = resolve_agent_config(
@@ -622,12 +672,11 @@ def task_run_toad(
     bind_addr = _LOCALHOST if pub_host in _LOOPBACK_HOSTS else "0.0.0.0"  # nosec B104
 
     task_dir = project.tasks_root / str(task_id)
-    toad_cmd = (
-        f"init-ssh-and-repo.sh"
-        f" && toad --serve -H 0.0.0.0 -p {_TOAD_CONTAINER_PORT}"
-        f" --public-url http://{pub_host}:{port}"
-        f" /workspace"
-    )
+    # ``terok-toad-entry`` (from the caddy/toad roster entries) owns the
+    # in-container choreography: it starts Caddy on ``_TOAD_PUBLIC_PORT``,
+    # launches toad on loopback ``_TOAD_INTERNAL_PORT``, waits for both to
+    # bind, and emits the ``TEROK_READY`` readiness marker.
+    toad_cmd = f"terok-toad-entry --public-url http://{pub_host}:{port} /workspace"
     run_hook(
         "pre_start",
         project.hook_pre_start,
@@ -646,7 +695,7 @@ def task_run_toad(
         volumes=volumes,
         project=project,
         task_dir=task_dir,
-        extra_args=["-p", f"{bind_addr}:{port}:{_TOAD_CONTAINER_PORT}"],
+        extra_args=["-p", f"{bind_addr}:{port}:{_TOAD_PUBLIC_PORT}"],
         command=["bash", "-lc", toad_cmd],
     )
     _apply_shield_policy(project, cname, task_dir, is_restart=False)
@@ -663,8 +712,8 @@ def task_run_toad(
     )
 
     def _toad_ready(line: str) -> bool:
-        """Return True when textual-serve reports it is serving."""
-        return "Serving " in line
+        """Return True when the supervisor wrapper reports both listeners are up."""
+        return "TEROK_READY" in line
 
     ready = stream_initial_logs(
         container_name=cname,
@@ -692,7 +741,7 @@ def task_run_toad(
     meta_path.write_text(_yaml_dump(meta))
 
     color_enabled = _supports_color()
-    url = f"http://{pub_host}:{port}/"
+    url = _toad_browser_url(pub_host, port, token)
     print(
         f"\n>> Toad is serving."
         f"\n- Name: {_green(cname, color_enabled)}"
