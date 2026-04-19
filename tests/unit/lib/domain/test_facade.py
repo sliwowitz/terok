@@ -117,6 +117,62 @@ class TestRegisterSshKey:
         db.assign_ssh_key.assert_called_once_with("myproj", 42)
 
 
+class TestProvisionSshKey:
+    """provision_ssh_key mints via SSHManager and binds the fresh key_id."""
+
+    def test_mints_and_binds(self) -> None:
+        from terok.lib.domain import facade
+
+        init_result = {
+            "key_id": 7,
+            "key_type": "ed25519",
+            "fingerprint": "deadbeef",
+            "comment": "tk-main:myproj",
+            "public_line": "ssh-ed25519 AAAA… tk-main:myproj",
+        }
+        ssh_manager = MagicMock()
+        ssh_manager.__enter__ = MagicMock(return_value=ssh_manager)
+        ssh_manager.__exit__ = MagicMock(return_value=False)
+        ssh_manager.init.return_value = init_result
+
+        db = MagicMock()
+        with (
+            patch("terok.lib.domain.facade.load_project", return_value=MagicMock(id="myproj")),
+            patch("terok.lib.domain.project.make_ssh_manager", return_value=ssh_manager),
+            _patch_vault_db(db),
+        ):
+            result = facade.provision_ssh_key("myproj", key_type="ed25519", force=True)
+
+        ssh_manager.init.assert_called_once_with(key_type="ed25519", comment=None, force=True)
+        db.assign_ssh_key.assert_called_once_with("myproj", 7)
+        assert result is init_result
+
+
+class TestSummarizeSshInit:
+    """summarize_ssh_init prints every field from the SSHInitResult."""
+
+    def test_prints_all_metadata_and_public_line(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from terok.lib.domain import facade
+
+        facade.summarize_ssh_init(
+            {
+                "key_id": 3,
+                "key_type": "rsa",
+                "fingerprint": "abc123",
+                "comment": "tk-main:proj",
+                "public_line": "ssh-rsa AAAA… tk-main:proj",
+            }
+        )
+        out = capsys.readouterr().out
+        assert "id:          3" in out
+        assert "type:        rsa" in out
+        assert "fingerprint: SHA256:abc123" in out
+        assert "comment:     tk-main:proj" in out
+        assert "ssh-rsa AAAA… tk-main:proj" in out
+
+
 class TestMaybePauseForSshKeyRegistration:
     """maybe_pause_for_ssh_key_registration only pauses for SSH upstreams."""
 
