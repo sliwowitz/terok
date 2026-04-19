@@ -1,12 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Vault access — the domain primitive every helper reaches through.
-
-A single :func:`vault_db` context manager owns the open/close handshake
-around :class:`terok_sandbox.CredentialDB`.  Without it, the try/finally
-boilerplate multiplied across five call sites in an earlier iteration.
-"""
+"""Context-managed access to the shared vault :class:`CredentialDB`."""
 
 from __future__ import annotations
 

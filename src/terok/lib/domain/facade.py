@@ -105,8 +105,9 @@ def derive_project(source_id: str, new_id: str) -> Project:
 
 
 # ---------------------------------------------------------------------------
-# SSH provisioning flow — the story is:
-#     provision_ssh_key → register_ssh_key → summarize_ssh_init
+# SSH provisioning — ``provision_ssh_key`` is the single entry point for
+# generation; ``register_ssh_key`` is reused by import flows that already
+# have a ``key_id``; ``summarize_ssh_init`` is the caller's rendering hook.
 # ---------------------------------------------------------------------------
 
 
