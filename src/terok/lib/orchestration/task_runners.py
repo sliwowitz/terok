@@ -113,20 +113,38 @@ def _ensure_toad_token(agent_config_dir: Path, existing: str | None = None) -> s
     inside the container validates before forwarding to ``textual-serve``;
     it also ends up in the URL query string for the first browser hit
     that seeds the auth cookie.
+
+    The write refuses to follow a pre-existing symlink (``O_NOFOLLOW``) —
+    ``agent-config`` is a bind mount, so a stopped container that points
+    ``toad.token`` at an arbitrary host path would otherwise get its
+    content clobbered by the next ``_ensure_toad_token`` call.
     """
     token = existing or secrets.token_urlsafe(32)
-    token_path = agent_config_dir / _TOAD_TOKEN_FILE_NAME
-    fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    dir_fd = os.open(agent_config_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        os.write(fd, token.encode())
+        fd = os.open(
+            _TOAD_TOKEN_FILE_NAME,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=dir_fd,
+        )
+        try:
+            os.write(fd, token.encode())
+        finally:
+            os.close(fd)
     finally:
-        os.close(fd)
+        os.close(dir_fd)
     return token
+
+
+def _url_host(host: str) -> str:
+    """Return *host* formatted for an HTTP URL authority (brackets IPv6 literals)."""
+    return f"[{host}]" if ":" in host and not host.startswith("[") else host
 
 
 def _toad_browser_url(public_host: str, port: int, token: str) -> str:
     """Return the first-hit URL that seeds the Caddy-set auth cookie."""
-    return f"http://{public_host}:{port}/?token={token}"
+    return f"http://{_url_host(public_host)}:{port}/?token={token}"
 
 
 def _resume_toad_container(
@@ -701,7 +719,7 @@ def task_run_toad(
     # in-container choreography: it starts Caddy on ``_TOAD_PUBLIC_PORT``,
     # launches toad on loopback ``_TOAD_INTERNAL_PORT``, waits for both to
     # bind, and emits the ``TEROK_READY`` readiness marker.
-    toad_cmd = f"terok-toad-entry --public-url http://{pub_host}:{port} /workspace"
+    toad_cmd = f"terok-toad-entry --public-url http://{_url_host(pub_host)}:{port} /workspace"
     run_hook(
         "pre_start",
         project.hook_pre_start,
