@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -115,10 +116,17 @@ class TerokIntegrationEnv:
         human-facing default, ``"terokctl"`` is the scripting surface
         (exposes scripting-only verbs like ``task new`` / ``task attach``).
         """
+        # Validate up front — typos like ``prog="terrok"`` previously fell
+        # through to the terokctl entry silently because the old branch
+        # was ``"main" if prog == "terok" else "terokctl_main"``.
+        _ENTRY_FNS = {"terok": "main", "terokctl": "terokctl_main"}
+        if prog not in _ENTRY_FNS:
+            raise ValueError(f"run_cli prog must be one of {sorted(_ENTRY_FNS)}, got {prog!r}")
+        entry_fn = _ENTRY_FNS[prog]
+
         env = self.cli_env
         if extra_env:
             env.update(extra_env)
-        entry_fn = "main" if prog == "terok" else "terokctl_main"
         result = subprocess.run(
             [
                 sys.executable,
@@ -137,7 +145,7 @@ class TerokIntegrationEnv:
         if check and result.returncode != 0:
             raise AssertionError(
                 "CLI command failed:\n"
-                f"  command: {prog} {' '.join(args)}\n"
+                f"  command: {prog} {shlex.join(args)}\n"
                 f"  exit: {result.returncode}\n"
                 f"  stdout:\n{result.stdout}\n"
                 f"  stderr:\n{result.stderr}"
