@@ -61,7 +61,7 @@ Built `FROM` the L1 image.
 
 ## Runtime Behavior
 
-- `terok task run-cli` starts `<project>:l2-cli`.
+- `terokctl task attach --mode cli` starts `<project>:l2-cli`.
 - Mounts a per-task workspace to `/workspace` and shared credential directories.
 - The init script clones or syncs the project repository into `/workspace`.
 

@@ -80,8 +80,8 @@ Or do the same from the command line:
 ```bash
 terok project wizard                    # interactive setup
 terok auth claude myproj                # authenticate agent
-terok task start myproj                 # start a CLI agent task
-terok task start myproj --toad          # Toad multi-agent TUI (browser access)
+terok task run myproj                 # start a CLI agent task
+terok task run myproj --toad          # Toad multi-agent TUI (browser access)
 terok login myproj a3                   # attach to a running task by hex ID prefix
 ```
 
