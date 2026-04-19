@@ -126,22 +126,28 @@ class TestGateSyncAuthNotConfigured:
     """``_cmd_gate_sync`` translates ``GateAuthNotConfigured`` into a two-door hint."""
 
     def test_raises_systemexit_with_two_door_message(self) -> None:
-        """The hint names both remediation paths so the user isn't stuck."""
+        """The hint names both remediation paths so the user isn't stuck.
+
+        The exception is raised from ``gate.sync()`` (not from the
+        factory) so the test proves the ``sync()`` failure path is
+        actually reached — a factory-level raise would still pass even
+        if ``_cmd_gate_sync`` stopped calling ``sync()`` entirely.
+        """
         import pytest
         from terok_sandbox.gate.mirror import GateAuthNotConfigured
 
         from terok.cli.commands.project import _cmd_gate_sync
 
         args = MagicMock(project_id="proj", use_personal_ssh=False, force_reinit=False)
+        gate = MagicMock()
+        gate.sync.side_effect = GateAuthNotConfigured("proj")
         with (
             patch("terok.cli.commands.project.load_project"),
-            patch(
-                "terok.cli.commands.project.make_git_gate",
-                side_effect=GateAuthNotConfigured("proj"),
-            ),
+            patch("terok.cli.commands.project.make_git_gate", return_value=gate),
             pytest.raises(SystemExit) as excinfo,
         ):
             _cmd_gate_sync(args)
+        gate.sync.assert_called_once()
         msg = str(excinfo.value)
         assert "terok project ssh-init proj" in msg
         assert "--use-personal-ssh" in msg

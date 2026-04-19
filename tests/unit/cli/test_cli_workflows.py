@@ -173,17 +173,38 @@ class TestCliSshInit:
     @unittest.mock.patch("terok.cli.commands.project.register_ssh_key")
     @unittest.mock.patch("terok.cli.commands.project.load_project")
     def test_ssh_init_extracts_key_id_field(self, mock_load, mock_register, mock_ssh_cls) -> None:
-        """register_ssh_key receives the integer ``key_id`` field, not the dict."""
+        """register_ssh_key receives the integer ``key_id`` field, not the dict.
+
+        Uses a real :class:`argparse.Namespace` rather than ``Mock`` so that
+        ``getattr(args, 'key_type', <default>)`` actually exercises the
+        default values configured in the argparse layer — the ``Mock``
+        alternative returns auto-generated child mocks and silently bypasses
+        the defaults.
+        """
+        import argparse
+
         mock_ssh_cls.return_value.__enter__.return_value.init.return_value = _FAKE_SSH_INIT_RESULT
         mock_load.return_value = unittest.mock.Mock(id="proj2")
 
         from terok.cli.commands.project import dispatch
 
-        args = unittest.mock.Mock(cmd="project", project_cmd="ssh-init", project_id="proj2")
+        # Only the fields the dispatch path reads; defaults exercise the
+        # ``getattr(args, ...)`` paths verbatim.
+        args = argparse.Namespace(
+            cmd="project",
+            project_cmd="ssh-init",
+            project_id="proj2",
+            key_type="ed25519",
+            comment=None,
+            force=False,
+        )
         dispatch(args)
 
         actual = mock_register.call_args[0][1]
         assert actual == 42
+        # With real defaults, init is called with the exact default values.
+        ssh = mock_ssh_cls.return_value.__enter__.return_value
+        ssh.init.assert_called_once_with(key_type="ed25519", comment=None, force=False)
 
 
 class TestSshPause:

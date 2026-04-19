@@ -116,7 +116,11 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     p_ssh.add_argument(
         "--comment",
         default=None,
-        help="Comment embedded in the public key (default: tk-main:<project>)",
+        help=(
+            "Comment embedded in the public key "
+            "(default: tk-main:<project> for the scope's first key, "
+            "tk-side:<project>:<n> for subsequent additive inits)"
+        ),
     )
     p_ssh.add_argument(
         "--force",
