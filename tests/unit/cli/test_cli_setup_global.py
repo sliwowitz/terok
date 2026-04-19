@@ -436,7 +436,7 @@ def test_cmd_setup_all_ok(
     cmd_setup(check_only=False)
     out = capsys.readouterr().out
     assert "Setup complete" in out
-    assert "project-wizard" in out
+    assert "project wizard" in out
 
 
 @patch("terok.cli.commands.setup._ensure_gate", return_value=True)
