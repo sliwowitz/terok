@@ -359,6 +359,8 @@ def _run_container(
             hooks=hooks,
             extra_args=merged_args,
         )
+    except FileNotFoundError as exc:
+        raise SystemExit(f"podman not found; please install podman ({exc})") from exc
     except BuildError as exc:
         raise SystemExit(str(exc)) from exc
 

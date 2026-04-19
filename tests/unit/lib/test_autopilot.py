@@ -21,6 +21,8 @@ import pytest
 from terok.lib.util.yaml import dump as yaml_dump, load as yaml_load
 
 if TYPE_CHECKING:
+    from terok_sandbox import RunSpec
+
     from terok.lib.core.projects import ProjectConfig
 
 
@@ -43,8 +45,11 @@ class TaskRunnerResult:
     task_id: str | None = None
 
     @property
-    def last_spec(self):
-        """Return the last RunSpec passed to sandbox.run()."""
+    def last_spec(self) -> RunSpec:
+        """Return the ``RunSpec`` reconstructed from the most recent
+        ``AgentRunner.launch_prepared(...)`` call captured by the mocked
+        ``_agent_runner`` factory, rebuilt via
+        :func:`tests.test_utils.captured_runspec`."""
         return captured_runspec(self.run_mock)
 
 

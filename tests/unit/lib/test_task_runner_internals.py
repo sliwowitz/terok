@@ -517,6 +517,34 @@ class TestRunContainer:
                     task_dir=MOCK_TASK_DIR,
                 )
 
+    def test_missing_podman_becomes_system_exit(self) -> None:
+        """FileNotFoundError from the executor boundary surfaces as a
+        user-friendly SystemExit — matching the pattern in _podman_start,
+        so any path through the sandbox that lets FileNotFoundError leak
+        is caught here instead of crashing with a bare traceback.
+        """
+        project = self._make_project()
+        with (
+            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                return_value=False,
+            ),
+            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+        ):
+            sandbox_factory.return_value.launch_prepared.side_effect = FileNotFoundError(
+                "[Errno 2] No such file or directory: 'podman'"
+            )
+            with pytest.raises(SystemExit, match="podman not found"):
+                _run_container(
+                    cname="ctr",
+                    image="img",
+                    env={},
+                    volumes=[],
+                    project=project,
+                    task_dir=MOCK_TASK_DIR,
+                )
+
     def test_hooks_forwarded(self) -> None:
         """LifecycleHooks are passed through to sandbox.run()."""
         from terok_sandbox import LifecycleHooks
