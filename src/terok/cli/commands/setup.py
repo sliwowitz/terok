@@ -24,9 +24,10 @@ from ...lib.domain.facade import (
     build_images,
     generate_dockerfiles,
     maybe_pause_for_ssh_key_registration,
-    register_ssh_key,
+    provision_ssh_key,
+    summarize_ssh_init,
 )
-from ...lib.domain.project import make_git_gate, make_ssh_manager
+from ...lib.domain.project import make_git_gate
 from ...lib.util.ansi import bold, green, red, supports_color, yellow
 
 
@@ -412,13 +413,8 @@ def cmd_setup(*, check_only: bool = False) -> None:
 
 def cmd_project_init(project_id: str) -> None:
     """Full project setup: ssh-init, generate, build, gate-sync."""
-    project = load_project(project_id)
-
     print("==> Initializing SSH...")
-    with make_ssh_manager(project) as ssh:
-        result = ssh.init()
-    register_ssh_key(project_id, result["key_id"])
-    _print_ssh_init_summary(result)
+    summarize_ssh_init(provision_ssh_key(project_id))
     maybe_pause_for_ssh_key_registration(project_id)
 
     print("==> Generating Dockerfiles...")
@@ -428,17 +424,7 @@ def cmd_project_init(project_id: str) -> None:
     build_images(project_id)
 
     print("==> Syncing git gate...")
-    res = make_git_gate(project).sync()
+    res = make_git_gate(load_project(project_id)).sync()
     if not res["success"]:
         raise SystemExit(f"Gate sync failed: {', '.join(res['errors'])}")
     print(f"Gate ready at {res['path']}")
-
-
-def _print_ssh_init_summary(result: dict) -> None:
-    """Render the ``ssh-init`` result for the user (no filesystem paths)."""
-    print(f"  id:          {result['key_id']}")
-    print(f"  type:        {result['key_type']}")
-    print(f"  fingerprint: SHA256:{result['fingerprint']}")
-    print(f"  comment:     {result['comment']}")
-    print("Public key (register as a deploy key on the remote):")
-    print(f"  {result['public_line']}")

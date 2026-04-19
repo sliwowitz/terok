@@ -33,28 +33,21 @@ from ..lib.domain.facade import (
     find_projects_sharing_gate,
     generate_dockerfiles,
     maybe_pause_for_ssh_key_registration,
-    register_ssh_key,
+    provision_ssh_key,
+    summarize_ssh_init,
 )
-from ..lib.domain.project import make_git_gate, make_ssh_manager
+from ..lib.domain.project import make_git_gate
 from .shell_launch import launch_login
 
 
 def _lookup_vault_pub_line(scope: str) -> str | None:
-    """Render the scope's public key as ``ssh-<algo> <base64> <comment>``.
-
-    Returns ``None`` when no key is assigned to *scope*.
-    """
+    """Render the scope's public key as ``ssh-<algo> <base64> <comment>``."""
     import base64
 
-    from terok_sandbox import CredentialDB
+    from ..lib.domain.facade import vault_db
 
-    from ..lib.core.config import make_sandbox_config
-
-    db = CredentialDB(make_sandbox_config().db_path)
-    try:
+    with vault_db() as db:
         records = db.load_ssh_keys_for_scope(scope)
-    finally:
-        db.close()
     if not records:
         return None
     rec = records[-1]
@@ -190,12 +183,8 @@ class ProjectActionsMixin:
             return
         pid = self.current_project_id
 
-        def _init_and_register() -> None:
-            result = make_ssh_manager(load_project(pid)).init()
-            register_ssh_key(pid, result)
-
         await self._run_suspended(
-            _init_and_register,
+            lambda: summarize_ssh_init(provision_ssh_key(pid)),
             success_msg=f"Initialized SSH dir for {pid}",
         )
 
@@ -249,8 +238,7 @@ class ProjectActionsMixin:
             nonlocal gate_ok
             print(f"=== Full Setup for {pid} ===\n")
             print("Step 1/4: Initializing SSH...")
-            result = make_ssh_manager(load_project(pid)).init()
-            register_ssh_key(pid, result)
+            summarize_ssh_init(provision_ssh_key(pid))
             maybe_pause_for_ssh_key_registration(pid)
             print("\nStep 2/4: Generating Dockerfiles...")
             generate_dockerfiles(pid)

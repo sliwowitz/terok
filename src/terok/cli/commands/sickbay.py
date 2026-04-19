@@ -252,20 +252,15 @@ def _abbreviate(ids: list[str], limit: int = 3) -> str:
 
 def _check_ssh_signer() -> _CheckResult:
     """Check SSH signer key registration against known projects."""
-    from terok_sandbox import CredentialDB
+    from ...lib.domain.facade import vault_db
 
     label = "SSH signer"
-    cfg = make_sandbox_config()
-
     projects = list_projects()
     if not projects:
         return ("ok", label, "no projects configured")
 
-    db = CredentialDB(cfg.db_path)
-    try:
+    with vault_db() as db:
         assigned_scopes = set(db.list_scopes_with_ssh_keys())
-    finally:
-        db.close()
 
     unregistered = [p.id for p in projects if p.id not in assigned_scopes]
     registered = len(projects) - len(unregistered)

@@ -5,7 +5,18 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
+
+
+def _patch_vault_db(db):
+    """Patch ``facade.vault_db`` to yield *db*."""
+
+    @contextmanager
+    def _cm():
+        yield db
+
+    return patch("terok.lib.domain.facade.vault_db", _cm)
 
 
 class TestRegisterSshKey:
@@ -16,10 +27,9 @@ class TestRegisterSshKey:
         from terok.lib.domain.facade import register_ssh_key
 
         db = MagicMock()
-        with patch("terok.lib.domain.facade._open_vault_db", return_value=db):
+        with _patch_vault_db(db):
             register_ssh_key("myproj", 7)
         db.assign_ssh_key.assert_called_once_with("myproj", 7)
-        db.close.assert_called_once()
 
     def test_propagates_errors_from_db(self) -> None:
         """Errors from the DB layer propagate (no silent swallowing)."""
@@ -29,9 +39,5 @@ class TestRegisterSshKey:
 
         db = MagicMock()
         db.assign_ssh_key.side_effect = RuntimeError("disk full")
-        with (
-            patch("terok.lib.domain.facade._open_vault_db", return_value=db),
-            pytest.raises(RuntimeError, match="disk full"),
-        ):
+        with _patch_vault_db(db), pytest.raises(RuntimeError, match="disk full"):
             register_ssh_key("proj", 1)
-        db.close.assert_called_once()

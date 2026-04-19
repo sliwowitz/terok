@@ -14,9 +14,10 @@ from ...lib.domain.facade import (
     derive_project,
     find_projects_sharing_gate,
     generate_dockerfiles,
-    register_ssh_key,
+    provision_ssh_key,
+    summarize_ssh_init,
 )
-from ...lib.domain.project import make_git_gate, make_ssh_manager
+from ...lib.domain.project import make_git_gate
 from ...lib.domain.wizards.new_project import offer_edit_then_init, run_wizard
 from ._completers import complete_project_ids as _complete_project_ids, set_completer
 from .setup import cmd_project_init
@@ -274,17 +275,13 @@ def _cmd_project_delete(project_id: str, *, force: bool = False) -> None:
 
 def _cmd_ssh_init(args: argparse.Namespace) -> None:
     """Provision a vault-managed SSH keypair for the project."""
-    project = load_project(args.project_id)
-    with make_ssh_manager(project) as ssh:
-        result = ssh.init(
-            key_type=getattr(args, "key_type", "ed25519"),
-            comment=getattr(args, "comment", None),
-            force=getattr(args, "force", False),
-        )
-    register_ssh_key(project.id, result["key_id"])
-    from .setup import _print_ssh_init_summary  # noqa: PLC0415 — avoids surface cycle
-
-    _print_ssh_init_summary(result)
+    result = provision_ssh_key(
+        args.project_id,
+        key_type=getattr(args, "key_type", "ed25519"),
+        comment=getattr(args, "comment", None),
+        force=getattr(args, "force", False),
+    )
+    summarize_ssh_init(result)
 
 
 def _cmd_gate_sync(args: argparse.Namespace) -> None:

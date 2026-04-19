@@ -295,15 +295,10 @@ def _archive_project(project_id: str) -> str | None:
 
 def _unassign_vault_ssh_keys(scope: str, deleted: list[str]) -> None:
     """Drop every SSH-key assignment for *scope*; record the count in *deleted*."""
-    from terok_sandbox import CredentialDB
+    from .facade import vault_db
 
-    from ..core.config import make_sandbox_config
-
-    db = CredentialDB(make_sandbox_config().db_path)
-    try:
+    with vault_db() as db:
         count = db.unassign_all_ssh_keys(scope)
-    finally:
-        db.close()
     if count:
         deleted.append(f"{count} SSH key assignment(s) for scope {scope!r}")
 

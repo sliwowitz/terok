@@ -66,6 +66,17 @@ class TestDeriveProject:
         assert isinstance(result, Project)
 
 
+def _patch_vault_db(db):
+    """Patch ``facade.vault_db`` to yield *db* — returns the ``patch`` context."""
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _cm():
+        yield db
+
+    return patch("terok.lib.domain.facade.vault_db", _cm)
+
+
 class TestShareSshKeyAssignments:
     """Copy every SSH key assignment from the source scope to the new scope."""
 
@@ -76,21 +87,20 @@ class TestShareSshKeyAssignments:
         row_b = MagicMock(id=2)
         db = MagicMock()
         db.list_ssh_keys_for_scope.return_value = [row_a, row_b]
-        with patch("terok.lib.domain.facade._open_vault_db", return_value=db):
+        with _patch_vault_db(db):
             facade._share_ssh_key_assignments("src", "new")
         db.list_ssh_keys_for_scope.assert_called_once_with("src")
         assert db.assign_ssh_key.call_args_list == [
             (("new", 1),),
             (("new", 2),),
         ]
-        db.close.assert_called_once()
 
     def test_silent_noop_when_source_has_no_keys(self) -> None:
         from terok.lib.domain import facade
 
         db = MagicMock()
         db.list_ssh_keys_for_scope.return_value = []
-        with patch("terok.lib.domain.facade._open_vault_db", return_value=db):
+        with _patch_vault_db(db):
             facade._share_ssh_key_assignments("src", "new")
         db.assign_ssh_key.assert_not_called()
 
@@ -102,10 +112,9 @@ class TestRegisterSshKey:
         from terok.lib.domain import facade
 
         db = MagicMock()
-        with patch("terok.lib.domain.facade._open_vault_db", return_value=db):
+        with _patch_vault_db(db):
             facade.register_ssh_key("myproj", 42)
         db.assign_ssh_key.assert_called_once_with("myproj", 42)
-        db.close.assert_called_once()
 
 
 class TestMaybePauseForSshKeyRegistration:

@@ -319,6 +319,16 @@ class TestProject:
 class TestShareSshKeyAssignments:
     """Source's vault key assignments are shared with the derived scope."""
 
+    @staticmethod
+    def _patch_vault_db(db):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def _cm():
+            yield db
+
+        return unittest.mock.patch("terok.lib.domain.facade.vault_db", _cm)
+
     def test_delegates_to_db_assign(self) -> None:
         """Every assignment on the source scope becomes an assignment on the new scope."""
         from terok.lib.domain.facade import _share_ssh_key_assignments
@@ -327,14 +337,13 @@ class TestShareSshKeyAssignments:
         row_b = unittest.mock.MagicMock(id=22)
         db = unittest.mock.MagicMock()
         db.list_ssh_keys_for_scope.return_value = [row_a, row_b]
-        with unittest.mock.patch("terok.lib.domain.facade._open_vault_db", return_value=db):
+        with self._patch_vault_db(db):
             _share_ssh_key_assignments("alpha", "beta")
         db.list_ssh_keys_for_scope.assert_called_once_with("alpha")
         assert [c.args for c in db.assign_ssh_key.call_args_list] == [
             ("beta", 11),
             ("beta", 22),
         ]
-        db.close.assert_called_once()
 
     def test_missing_source_entry_is_noop(self) -> None:
         """No assignments on source — derived project is left unregistered."""
@@ -342,6 +351,6 @@ class TestShareSshKeyAssignments:
 
         db = unittest.mock.MagicMock()
         db.list_ssh_keys_for_scope.return_value = []
-        with unittest.mock.patch("terok.lib.domain.facade._open_vault_db", return_value=db):
+        with self._patch_vault_db(db):
             _share_ssh_key_assignments("alpha", "beta")
         db.assign_ssh_key.assert_not_called()

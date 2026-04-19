@@ -21,15 +21,10 @@ from ..core.task_display import container_name as _container_name
 
 def _scope_has_vault_key(scope: str) -> bool:
     """Return ``True`` iff the vault has at least one SSH key assigned to *scope*."""
-    from terok_sandbox import CredentialDB
+    from .facade import vault_db
 
-    from ..core.config import make_sandbox_config
-
-    db = CredentialDB(make_sandbox_config().db_path)
-    try:
+    with vault_db() as db:
         return bool(db.list_ssh_keys_for_scope(scope))
-    finally:
-        db.close()
 
 
 if TYPE_CHECKING:
