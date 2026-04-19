@@ -3065,25 +3065,24 @@ url = "https://github.com/terok-ai/terok-dbus/releases/download/v0.5.6/terok_dbu
 
 [[package]]
 name = "terok-executor"
-version = "0.0.88"
+version = "0.0.89"
 description = "Single-agent task runner for hardened Podman containers"
 optional = false
 python-versions = ">=3.12,<4.0"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_executor-0.0.89-py3-none-any.whl", hash = "sha256:2c29a16fff923b93be581256553ab44523fe93eb1498b7e71d42aad63a06b2d5"},
+]
 
 [package.dependencies]
 Jinja2 = ">=3.1"
 "ruamel.yaml" = ">=0.18"
-terok-sandbox = {url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.74/terok_sandbox-0.0.74-py3-none-any.whl"}
+terok_sandbox = {url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.0.74/terok_sandbox-0.0.74-py3-none-any.whl"}
 tomli-w = ">=1.0"
 
 [package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-executor.git"
-reference = "feat/agentrunner-task-api"
-resolved_reference = "1698c998a2584d8cc44710d5498e6e9aef1ae1c8"
+type = "url"
+url = "https://github.com/terok-ai/terok-executor/releases/download/v0.0.89/terok_executor-0.0.89-py3-none-any.whl"
 
 [[package]]
 name = "terok-sandbox"
@@ -3612,4 +3611,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "82cb4b4e4b34baa951851e59186fc32d3a0f3b97dd76b79581f616a80b271455"
+content-hash = "4c62eda53677bfabcbe72bb3d4fb460985291be3b4768303a075e528d8f9cec1"
