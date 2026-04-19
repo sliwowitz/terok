@@ -41,18 +41,14 @@ from .shell_launch import launch_login
 
 
 def _lookup_vault_pub_line(scope: str) -> str | None:
-    """Render the scope's public key as ``ssh-<algo> <base64> <comment>``."""
-    import base64
+    """Return the scope's most-recent public key line, or ``None`` if unassigned."""
+    from terok_sandbox import public_line_of
 
     from ..lib.domain.facade import vault_db
 
     with vault_db() as db:
         records = db.load_ssh_keys_for_scope(scope)
-    if not records:
-        return None
-    rec = records[-1]
-    algo = "ssh-ed25519" if rec.key_type == "ed25519" else "ssh-rsa"
-    return f"{algo} {base64.b64encode(rec.public_blob).decode('ascii')} {rec.comment}".rstrip()
+    return public_line_of(records[-1]) if records else None
 
 
 class ProjectActionsMixin:

@@ -49,6 +49,7 @@ allowed_importers =
     terok.lib.domain.project_state
     terok.lib.domain.storage
     terok.lib.domain.task_logs
+    terok.lib.domain.vault
     terok.lib.orchestration.agent_config
     terok.lib.orchestration.container_doctor
     terok.lib.orchestration.container_exec

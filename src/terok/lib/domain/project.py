@@ -197,14 +197,12 @@ def make_git_gate(config: ProjectConfig, *, use_personal_ssh: bool | None = None
 
 
 def make_ssh_manager(config: ProjectConfig) -> SSHManager:
-    """Construct an :class:`SSHManager` from a :class:`ProjectConfig` (adapter factory).
+    """Return an :class:`SSHManager` for *config* that owns its vault DB.
 
-    The returned manager opens and owns its own ``CredentialDB``.  Use it
-    as a context manager (``with make_ssh_manager(cfg) as m: ...``) or
-    call :meth:`SSHManager.close` explicitly — matching the try/finally
-    pattern used elsewhere in the codebase.
+    Use it as a context manager (``with make_ssh_manager(cfg) as m: ...``);
+    the DB connection closes on exit.
     """
-    return SSHManager(scope=config.id, db_path=make_sandbox_config().db_path)
+    return SSHManager.open(scope=config.id, db_path=make_sandbox_config().db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +293,7 @@ def _archive_project(project_id: str) -> str | None:
 
 def _unassign_vault_ssh_keys(scope: str, deleted: list[str]) -> None:
     """Drop every SSH-key assignment for *scope*; record the count in *deleted*."""
-    from .facade import vault_db
+    from .vault import vault_db
 
     with vault_db() as db:
         count = db.unassign_all_ssh_keys(scope)

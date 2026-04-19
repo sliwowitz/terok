@@ -29,7 +29,6 @@ used by CLI commands that operate on ``project_id`` strings directly.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from terok_executor import (
@@ -79,6 +78,7 @@ from .project import (  # noqa: F401 — re-exported public API
 from .project_state import get_project_state, is_task_image_old
 from .task import Task  # noqa: F401 — re-exported public API
 from .task_logs import LogViewOptions, task_logs  # noqa: F401 — re-exported public API
+from .vault import vault_db  # noqa: F401 — re-exported public API
 
 # ---------------------------------------------------------------------------
 # Project factory functions
@@ -98,53 +98,16 @@ def list_projects() -> list[Project]:
 
 
 def derive_project(source_id: str, new_id: str) -> Project:
-    """Derive a new project from an existing one and return it.
-
-    The derived project shares the source's git-gate mirror and SSH keys —
-    every ``ssh_keys.id`` assigned to the source is assigned to the new
-    scope too, so the vault can serve the derived project without further
-    setup.  A silent no-op when the source has no registered keys.
-    """
+    """Copy *source_id*'s gate mirror and vault SSH assignments under *new_id*."""
     _derive_project(source_id, new_id)
     _share_ssh_key_assignments(source_id, new_id)
     return Project(load_project(new_id))
 
 
-def _share_ssh_key_assignments(source_id: str, new_id: str) -> None:
-    """Copy every SSH key assignment from *source_id* to *new_id*."""
-    with vault_db() as db:
-        for row in db.list_ssh_keys_for_scope(source_id):
-            db.assign_ssh_key(new_id, row.id)
-
-
 # ---------------------------------------------------------------------------
-# Workflow helpers
+# SSH provisioning flow — the story is:
+#     provision_ssh_key → register_ssh_key → summarize_ssh_init
 # ---------------------------------------------------------------------------
-
-
-@contextmanager
-def vault_db():
-    """Open a :class:`CredentialDB` for the shared vault and close on exit.
-
-    Every terok module that touches the vault directly goes through this
-    helper — opening a fresh ``CredentialDB`` per call site duplicates
-    the try/finally boilerplate five times otherwise.
-    """
-    from terok_sandbox import CredentialDB
-
-    from ..core.config import make_sandbox_config
-
-    db = CredentialDB(make_sandbox_config().db_path)
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def register_ssh_key(project_id: str, key_id: int) -> None:
-    """Assign a freshly generated or imported key to *project_id* (idempotent)."""
-    with vault_db() as db:
-        db.assign_ssh_key(project_id, key_id)
 
 
 def provision_ssh_key(
@@ -154,13 +117,10 @@ def provision_ssh_key(
     comment: str | None = None,
     force: bool = False,
 ) -> SSHInitResult:
-    """Generate a vault-backed keypair for *project_id* and return the summary.
+    """Generate a vault-backed keypair for *project_id* and assign it.
 
-    Composes the three-step SSH-init ritual used by both the CLI and the
-    TUI: open an ``SSHManager`` context, run ``init``, then assign the
-    returned ``key_id`` to the project's scope.  Callers render the
-    result themselves (see :func:`summarize_ssh_init`) — the helper's
-    job is just "the key is in the vault when this returns".
+    Single entry point for both the CLI and the TUI.  Rendering the
+    result for the user is the caller's job — see :func:`summarize_ssh_init`.
     """
     from .project import make_ssh_manager
 
@@ -171,6 +131,12 @@ def provision_ssh_key(
     return result
 
 
+def register_ssh_key(project_id: str, key_id: int) -> None:
+    """Assign a freshly generated or imported key to *project_id* (idempotent)."""
+    with vault_db() as db:
+        db.assign_ssh_key(project_id, key_id)
+
+
 def summarize_ssh_init(result: SSHInitResult) -> None:
     """Print the human-readable summary for an ``ssh-init`` result."""
     print(f"  id:          {result['key_id']}")
@@ -179,6 +145,13 @@ def summarize_ssh_init(result: SSHInitResult) -> None:
     print(f"  comment:     {result['comment']}")
     print("Public key (register as a deploy key on the remote):")
     print(f"  {result['public_line']}")
+
+
+def _share_ssh_key_assignments(source_id: str, new_id: str) -> None:
+    """Copy every SSH key assignment from *source_id* to *new_id*."""
+    with vault_db() as db:
+        for row in db.list_ssh_keys_for_scope(source_id):
+            db.assign_ssh_key(new_id, row.id)
 
 
 def maybe_pause_for_ssh_key_registration(project_id: str) -> None:

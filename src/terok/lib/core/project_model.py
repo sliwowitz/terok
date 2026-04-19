@@ -42,12 +42,7 @@ class ProjectConfig(BaseModel):
     staging_root: Path | None  # gatekeeping only
 
     ssh_use_personal: bool = False
-    """Opt in to the user's ``~/.ssh`` keys for host-side gate-sync.
-
-    Default ``False`` — "terok never touches your real keys" is the
-    advertised property.  Flip to ``True`` when the user wants their own
-    deploy key to be used instead of terok's vault-managed one.
-    """
+    """Opt in to the user's ``~/.ssh`` keys for host-side gate-sync (default off)."""
     expose_external_remote: bool = False
     human_name: str | None = None
     human_email: str | None = None
