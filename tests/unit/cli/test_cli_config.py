@@ -119,7 +119,7 @@ def test_config_command_color_output(tmp_path: Path, capsys: pytest.CaptureFixtu
     layout = make_config_layout(tmp_path)
 
     with patch_config_command(layout):
-        run_cli("config")
+        run_cli("config", "paths")
 
     output = capsys.readouterr().out
     assert "\x1b[32myes\x1b[0m" in output
