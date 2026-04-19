@@ -120,6 +120,39 @@ def test_run_forwards_optional_flags(
     assert getattr(capture_headless_request("myproject", "test", *extra_args), field) == expected
 
 
+def test_instructions_file_unicode_error_exits_cleanly(tmp_path: Path) -> None:
+    """Non-UTF-8 instructions file raises SystemExit with an actionable hint."""
+    bad = tmp_path / "binary.md"
+    bad.write_bytes(b"\xff\xfe\x00\x00\xff\xfe")  # UTF-16 BOM — not UTF-8
+
+    assert_cli_exit(
+        "task",
+        "run",
+        "myproject",
+        "test",
+        "--instructions",
+        str(bad),
+        message="UTF-8",
+    )
+
+
+def test_instructions_file_read_error_exits_cleanly(tmp_path: Path) -> None:
+    """OSError while reading instructions raises SystemExit with context."""
+    instructions_path = tmp_path / "unreadable.md"
+    instructions_path.write_text("x", encoding="utf-8")
+
+    with patch("pathlib.Path.read_text", side_effect=OSError("permission denied")):
+        assert_cli_exit(
+            "task",
+            "run",
+            "myproject",
+            "test",
+            "--instructions",
+            str(instructions_path),
+            message="Failed to read",
+        )
+
+
 def test_run_with_instructions_flag(tmp_path: Path) -> None:
     """The ``--instructions`` flag loads the referenced file contents."""
     instructions_path = tmp_path / "instructions.md"

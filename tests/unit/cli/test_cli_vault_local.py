@@ -40,6 +40,22 @@ class TestDispatch:
         """Dispatch returns False for commands that aren't ours."""
         assert dispatch(argparse.Namespace(cmd="task")) is False
 
+    def test_missing_sentinel_returns_false(self) -> None:
+        """A Namespace without the sentinel attribute is not handled."""
+        assert dispatch(argparse.Namespace(cmd="vault")) is False
+
+    def test_argv_without_vault_returns_false(self) -> None:
+        """If argv doesn't contain "vault", dispatch declines instead of raising."""
+        args = argparse.Namespace(_terok_local_cmd=_SENTINEL)
+        with patch.object(sys, "argv", ["terok"]):
+            assert dispatch(args) is False
+
+    def test_argv_without_serve_returns_false(self) -> None:
+        """If argv contains "vault" but not "serve", dispatch declines."""
+        args = argparse.Namespace(_terok_local_cmd=_SENTINEL)
+        with patch.object(sys, "argv", ["terok", "vault"]):
+            assert dispatch(args) is False
+
     def test_handles_vault_serve(self) -> None:
         """``vault serve`` invokes the token broker with stripped argv."""
         captured_argv: list[str] = []
