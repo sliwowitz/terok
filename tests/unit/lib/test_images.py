@@ -165,9 +165,9 @@ def test_installed_agents_missing_label_returns_empty(mock_runtime) -> None:
 
 
 def test_installed_agents_missing_image_returns_empty(mock_runtime) -> None:
-    # ``image_labels`` returns {} when the image is absent; same end-state
-    # as an unlabeled image, which is correct for the unrestricted-fallback
-    # semantics callers rely on.
+    # ``runtime.image(...).labels()`` returns {} when the image is absent —
+    # same end-state as an unlabeled image, which is correct for the
+    # unrestricted-fallback semantics callers rely on.
     _patch_labels(mock_runtime, {})
     assert images.installed_agents("terok-l1-cli:nope") == frozenset()
 

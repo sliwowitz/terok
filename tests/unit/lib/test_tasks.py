@@ -49,16 +49,20 @@ from tests.testfs import CONTAINER_SSH_DIR
 from tests.testnet import GATE_PORT
 
 
-def _set_state_sequence(mock_runtime, states: list[str | None]) -> None:
-    """Configure runtime.container(...).state to yield ``states`` across calls.
+def _set_state_sequence(mock_runtime, states: list[str | None]):
+    """Patch ``runtime.container(...).state`` to yield ``states`` across calls.
 
-    Each call to ``container(cname).state`` — an attribute read — pops the next
-    value from ``states``. Used when production code reads state multiple times
-    across a lifecycle transition.
+    Assigning ``PropertyMock`` directly to ``type(container)`` would leak to
+    later tests (the descriptor lives on the shared ``MagicMock`` class), so
+    we go through ``patch.object`` with ``create=True`` — the patch context
+    restores whatever was there (usually nothing) on exit.
     """
-    it = iter(states)
-    type(mock_runtime.container.return_value).state = unittest.mock.PropertyMock(
-        side_effect=lambda: next(it)
+    return unittest.mock.patch.object(
+        type(mock_runtime.container.return_value),
+        "state",
+        new_callable=unittest.mock.PropertyMock,
+        side_effect=iter(states).__next__,
+        create=True,
     )
 
 
@@ -456,7 +460,6 @@ class TestTask:
             clear_env=True,
         ):
             tid = task_new(project_id)
-            _set_state_sequence(mock_runtime, [None, "running"])
             cname = f"{project_id}-cli-{tid}"
             mock_runtime.container.return_value.login_command.return_value = [
                 "podman",
@@ -466,6 +469,7 @@ class TestTask:
                 "bash",
             ]
             with (
+                _set_state_sequence(mock_runtime, [None, "running"]),
                 mock_git_config(),
                 unittest.mock.patch(
                     "terok.lib.orchestration.task_runners._supports_color",
@@ -498,8 +502,10 @@ class TestTask:
             sandbox_live = ctx.base / "sandbox-live"
             workspace_dir = sandbox_live / "tasks" / project_id / tid / "workspace-dangerous"
             assert sorted(p.name for p in workspace_dir.iterdir()) == [".new-task-marker"]
-            _set_state_sequence(mock_runtime, [None, "running"])
-            with mock_git_config():
+            with (
+                _set_state_sequence(mock_runtime, [None, "running"]),
+                mock_git_config(),
+            ):
                 task_run_cli(project_id, tid)
 
             assert sorted(p.name for p in workspace_dir.iterdir()) == [".new-task-marker"]
@@ -616,8 +622,10 @@ class TestTask:
             meta_path.write_text(yaml_dump(meta))
 
             cname = f"{project_id}-cli-{tid}"
-            _set_state_sequence(mock_runtime, ["exited", "running"])
-            with mock_git_config():
+            with (
+                _set_state_sequence(mock_runtime, ["exited", "running"]),
+                mock_git_config(),
+            ):
                 buffer = StringIO()
                 with redirect_stdout(buffer):
                     task_run_cli(project_id, tid)

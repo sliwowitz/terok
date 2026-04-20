@@ -50,6 +50,7 @@ depends_on = [
     "terok.lib.orchestration.tasks",
     "terok.lib.core.config",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.core.version",
     "terok.lib.domain.facade",
     "terok.lib.domain.storage",
@@ -71,6 +72,7 @@ depends_on = [
     "terok.lib.orchestration.tasks",
     "terok.lib.core.config",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.core.version",
     "terok.lib.domain.facade",
     "terok.lib.util.emoji",
@@ -90,6 +92,7 @@ depends_on = [
     "terok.lib.core.config",
     "terok.lib.core.paths",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.orchestration.tasks",
 ]
 
@@ -160,6 +163,7 @@ depends_on = [
     "terok.lib.domain.log_format",
     "terok.lib.orchestration.tasks",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.util.yaml",
 ]
 
@@ -173,7 +177,7 @@ depends_on = ["terok.lib.util.ansi"]
 [[modules]]
 path = "terok.lib.domain.image_cleanup"
 layer = "domain"
-depends_on = ["terok.lib.core.projects"]
+depends_on = ["terok.lib.core.projects", "terok.lib.core.runtime"]
 
 # Storage usage aggregation across package stack
 [[modules]]
@@ -183,6 +187,7 @@ depends_on = [
     "terok.lib.domain.image_cleanup",
     "terok.lib.core.config",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
 ]
 
 # Agent config resolution (terok-specific stack composition)
@@ -200,6 +205,7 @@ depends_on = [
     "terok.lib.core.config",
     "terok.lib.core.images",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.core.task_display",
     "terok.lib.domain.vault",
 ]
@@ -234,6 +240,7 @@ depends_on = [
     "terok.lib.core.config",
     "terok.lib.core.images",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.core.task_display",
     "terok.lib.util.ansi",
     "terok.lib.util.yaml",
@@ -247,6 +254,7 @@ depends_on = [
     "terok.lib.orchestration.container_exec",
     "terok.lib.orchestration.hooks",
     "terok.lib.orchestration.ports",
+    "terok.lib.core.runtime",
     "terok.lib.core.task_display",
     "terok.lib.core.work_status",
     "terok.lib.core.config",
@@ -274,7 +282,13 @@ depends_on = [
 [[modules]]
 path = "terok.lib.orchestration.image"
 layer = "orchestration"
-depends_on = ["terok.lib.core.config", "terok.lib.core.images", "terok.lib.core.projects", "terok.lib.util.fs"]
+depends_on = [
+    "terok.lib.core.config",
+    "terok.lib.core.images",
+    "terok.lib.core.projects",
+    "terok.lib.core.runtime",
+    "terok.lib.util.fs",
+]
 
 # Task port allocation (delegates to terok-sandbox port registry)
 [[modules]]
@@ -292,7 +306,11 @@ depends_on = ["terok.lib.util.yaml"]
 [[modules]]
 path = "terok.lib.orchestration.container_exec"
 layer = "orchestration"
-depends_on = ["terok.lib.core.task_display", "terok.lib.util.logging_utils"]
+depends_on = [
+    "terok.lib.core.runtime",
+    "terok.lib.core.task_display",
+    "terok.lib.util.logging_utils",
+]
 
 # In-container health checks (layered doctor protocol via podman exec)
 [[modules]]
@@ -302,6 +320,7 @@ depends_on = [
     "terok.lib.orchestration.tasks",
     "terok.lib.core.config",
     "terok.lib.core.projects",
+    "terok.lib.core.runtime",
     "terok.lib.util.logging_utils",
 ]
 
