@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import subprocess
 import tempfile
 import unittest.mock
 from contextlib import redirect_stdout
@@ -169,16 +169,20 @@ def run_headless_request(
     config_file: Path,
     request: HeadlessRunRequest,
 ) -> TaskRunnerResult:
-    """Run ``task_run_headless`` with the standard patched test harness."""
+    """Run ``task_run_headless`` with the standard patched test harness.
+
+    Relies on the ``mock_runtime`` autouse fixture to intercept container
+    operations; container.wait() already returns 0 by default.
+    """
+    from terok.lib.core.runtime import get_runtime
+
+    wait_mock = get_runtime().container.return_value.wait
     with unittest.mock.patch.dict(os.environ, runner_env_vars(base, config_file), clear=True):
         with (
             mock_git_config(),
             unittest.mock.patch(
                 "terok.lib.orchestration.task_runners._agent_runner"
             ) as sandbox_factory,
-            unittest.mock.patch(
-                "terok.lib.orchestration.task_runners.wait_for_exit", return_value=0
-            ) as wait_mock,
             unittest.mock.patch("terok.lib.orchestration.task_runners._print_run_summary"),
         ):
             buffer = StringIO()
@@ -202,27 +206,39 @@ def run_followup_request(
     follow: bool = True,
 ) -> TaskRunnerResult:
     """Run ``task_followup_headless`` with the standard patched success harness."""
-    with unittest.mock.patch.dict(
-        os.environ, runner_env_vars(base, base / "config.yml"), clear=True
+    from terok.lib.core.runtime import get_runtime
+
+    runtime = get_runtime()
+    container = runtime.container.return_value
+    # ``start()`` is fire-and-forget now (raises on failure); default mock returns None.
+    start_mock = container.start
+    wait_mock = container.wait  # already returns 0 via fixture default
+
+    state_patch: contextlib.AbstractContextManager
+    if isinstance(container_state, list):
+        state_patch = unittest.mock.patch.object(
+            type(container),
+            "state",
+            new_callable=unittest.mock.PropertyMock,
+            side_effect=iter(container_state).__next__,
+            create=True,
+        )
+    else:
+        container.state = container_state
+        state_patch = contextlib.nullcontext()
+
+    with (
+        state_patch,
+        unittest.mock.patch.dict(
+            os.environ, runner_env_vars(base, base / "config.yml"), clear=True
+        ),
+        mock_git_config(),
+        unittest.mock.patch("terok.lib.orchestration.task_runners._print_run_summary"),
     ):
-        with (
-            mock_git_config(),
-            unittest.mock.patch("terok.lib.orchestration.task_runners.container_start") as run_mock,
-            unittest.mock.patch(
-                "terok.lib.orchestration.task_runners.get_container_state",
-                side_effect=container_state if isinstance(container_state, list) else None,
-                return_value=None if isinstance(container_state, list) else container_state,
-            ),
-            unittest.mock.patch(
-                "terok.lib.orchestration.task_runners.wait_for_exit", return_value=0
-            ) as wait_mock,
-            unittest.mock.patch("terok.lib.orchestration.task_runners._print_run_summary"),
-        ):
-            run_mock.return_value = subprocess.CompletedProcess([], 0, stderr="")
-            buffer = StringIO()
-            with redirect_stdout(buffer):
-                task_followup_headless(project_id, task_id, prompt, follow=follow)
-    return TaskRunnerResult(output=buffer.getvalue(), run_mock=run_mock, wait_mock=wait_mock)
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            task_followup_headless(project_id, task_id, prompt, follow=follow)
+    return TaskRunnerResult(output=buffer.getvalue(), run_mock=start_mock, wait_mock=wait_mock)
 
 
 def _spec_volumes(result: TaskRunnerResult) -> tuple:
@@ -548,8 +564,8 @@ class TestTaskFollowupHeadless:
             assert "initial prompt" in history
             assert "---" in history
 
-    def test_followup_uses_container_start(self) -> None:
-        """Follow-up uses container_start, not sandbox.run."""
+    def test_followup_uses_container_start(self, mock_runtime) -> None:
+        """Follow-up starts the task's container via the runtime."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             task_id = self._create_completed_task(base, "proj_start")
@@ -557,8 +573,7 @@ class TestTaskFollowupHeadless:
                 base, "proj_start", task_id, "continue", container_state=["exited", "running"]
             )
             result.run_mock.assert_called_once()
-            cname = result.run_mock.call_args[0][0]
-            assert cname == f"proj_start-run-{task_id}"
+            mock_runtime.container.assert_any_call(f"proj_start-run-{task_id}")
 
     def test_followup_rejects_non_run_mode(self) -> None:
         """Follow-up rejects tasks that aren't headless (mode != 'run')."""
@@ -583,7 +598,7 @@ class TestTaskFollowupHeadless:
                         task_followup_headless("proj_mode", task_id, "test")
                     assert "not a headless task" in str(ctx.value)
 
-    def test_followup_rejects_running_task(self) -> None:
+    def test_followup_rejects_running_task(self, mock_runtime) -> None:
         """Follow-up rejects tasks that are still running."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -602,32 +617,22 @@ class TestTaskFollowupHeadless:
                     meta["mode"] = "run"
                     meta_path.write_text(yaml_dump(meta))
 
-                    with (
-                        unittest.mock.patch(
-                            "terok.lib.orchestration.task_runners.get_container_state",
-                            return_value="running",
-                        ),
-                        pytest.raises(SystemExit) as ctx,
-                    ):
+                    mock_runtime.container.return_value.state = "running"
+                    with pytest.raises(SystemExit) as ctx:
                         task_followup_headless("proj_run", task_id, "test")
                     assert "still running" in str(ctx.value)
 
-    def test_followup_rejects_running_container(self) -> None:
+    def test_followup_rejects_running_container(self, mock_runtime) -> None:
         """Follow-up rejects when container is still running (stale metadata)."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             task_id = self._create_completed_task(base, "proj_crun")
+            mock_runtime.container.return_value.state = "running"
 
             with unittest.mock.patch.dict(
                 os.environ, runner_env_vars(base, base / "config.yml"), clear=True
             ):
-                with (
-                    mock_git_config(),
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.get_container_state",
-                        return_value="running",
-                    ),
-                ):
+                with mock_git_config():
                     with pytest.raises(SystemExit) as ctx:
                         task_followup_headless("proj_crun", task_id, "test")
                     assert "still running" in str(ctx.value)
@@ -646,12 +651,15 @@ class TestTaskFollowupHeadless:
             meta = read_task_meta(base, "proj_meta2", task_id)
             assert meta["exit_code"] == 0
 
-    def test_followup_no_follow_mode(self) -> None:
+    def test_followup_no_follow_mode(self, mock_runtime) -> None:
         """Follow-up with follow=False prints detached info and skips wait."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
 
             task_id = self._create_completed_task(base, "proj_meta2")
+            # Clear wait-call history from the setup phase so the assertion
+            # below only sees calls made by the follow-up itself.
+            mock_runtime.container.return_value.wait.reset_mock()
 
             result = run_followup_request(
                 base,
@@ -668,51 +676,46 @@ class TestTaskFollowupHeadless:
             meta = read_task_meta(base, "proj_meta2", task_id)
             assert meta["exit_code"] is None
 
-    def test_followup_container_not_found(self) -> None:
+    def test_followup_container_not_found(self, mock_runtime) -> None:
         """Follow-up raises SystemExit with 'not found' when container has been removed."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             task_id = self._create_completed_task(base, "proj_notfound")
+            mock_runtime.container.return_value.state = None
 
             with unittest.mock.patch.dict(
                 os.environ, runner_env_vars(base, base / "config.yml"), clear=True
             ):
-                with (
-                    mock_git_config(),
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.get_container_state",
-                        return_value=None,
-                    ),
-                ):
+                with mock_git_config():
                     with pytest.raises(SystemExit) as ctx:
                         task_followup_headless("proj_notfound", task_id, "test")
                     assert "not found" in str(ctx.value)
 
-    def test_followup_start_fails(self) -> None:
+    def test_followup_start_fails(self, mock_runtime) -> None:
         """Follow-up raises SystemExit when container remains exited after start."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
             task_id = self._create_completed_task(base, "proj_startfail")
+            container_mock = mock_runtime.container.return_value
 
-            with unittest.mock.patch.dict(
-                os.environ, runner_env_vars(base, base / "config.yml"), clear=True
+            with (
+                unittest.mock.patch.object(
+                    type(container_mock),
+                    "state",
+                    new_callable=unittest.mock.PropertyMock,
+                    side_effect=iter(["exited", "exited"]).__next__,
+                    create=True,
+                ),
+                unittest.mock.patch.dict(
+                    os.environ, runner_env_vars(base, base / "config.yml"), clear=True
+                ),
+                mock_git_config(),
             ):
-                with (
-                    mock_git_config(),
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.container_start"
-                    ) as run_mock,
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.get_container_state",
-                        side_effect=["exited", "exited"],
-                    ),
-                ):
-                    run_mock.return_value = subprocess.CompletedProcess([], 0, stderr="")
-                    with pytest.raises(SystemExit) as ctx:
-                        task_followup_headless("proj_startfail", task_id, "test")
-                    assert "failed to start" in str(ctx.value)
+                with pytest.raises(SystemExit) as ctx:
+                    task_followup_headless("proj_startfail", task_id, "test")
+                assert "failed to start" in str(ctx.value)
 
-    def test_sealed_followup_uses_inject_prompt(self) -> None:
+    def test_sealed_followup_uses_inject_prompt(self, mock_runtime) -> None:
         """Sealed projects inject the follow-up prompt via podman cp, not host files."""
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -730,28 +733,26 @@ class TestTaskFollowupHeadless:
             task_id = result.task_id
             assert task_id is not None
 
-            with unittest.mock.patch.dict(
-                os.environ, runner_env_vars(base, config_file), clear=True
+            container_mock = mock_runtime.container.return_value
+
+            with (
+                unittest.mock.patch.object(
+                    type(container_mock),
+                    "state",
+                    new_callable=unittest.mock.PropertyMock,
+                    side_effect=iter(["exited", "running"]).__next__,
+                    create=True,
+                ),
+                unittest.mock.patch.dict(
+                    os.environ, runner_env_vars(base, config_file), clear=True
+                ),
+                mock_git_config(),
+                unittest.mock.patch("terok.lib.orchestration.task_runners._print_run_summary"),
+                unittest.mock.patch("terok_sandbox.Sandbox") as mock_sandbox_cls,
             ):
-                with (
-                    mock_git_config(),
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.container_start"
-                    ) as run_mock,
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.get_container_state",
-                        side_effect=["exited", "running"],
-                    ),
-                    unittest.mock.patch(
-                        "terok.lib.orchestration.task_runners.wait_for_exit", return_value=0
-                    ),
-                    unittest.mock.patch("terok.lib.orchestration.task_runners._print_run_summary"),
-                    unittest.mock.patch("terok_sandbox.Sandbox") as mock_sandbox_cls,
-                ):
-                    run_mock.return_value = subprocess.CompletedProcess([], 0, stderr="")
-                    buffer = StringIO()
-                    with redirect_stdout(buffer):
-                        task_followup_headless("proj_sealed", task_id, "sealed follow-up")
+                buffer = StringIO()
+                with redirect_stdout(buffer):
+                    task_followup_headless("proj_sealed", task_id, "sealed follow-up")
 
                     # inject_prompt should have been called via Sandbox.copy_to
                     mock_sandbox_cls.return_value.copy_to.assert_called_once()
