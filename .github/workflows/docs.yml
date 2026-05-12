@@ -75,8 +75,11 @@ jobs:
 
       # On master we strictly require the Tests & Analysis run for *this* commit
       # to have finished successfully — published docs must agree with published
-      # code. We poll the runs API instead of using workflow_run as the docs
-      # trigger so this build still surfaces as its own PR check elsewhere.
+      # code. Tests & Analysis only contains the fast in-repo jobs (unit-tests,
+      # ruff, bandit); the third-party SonarQube scan lives in sonar.yml, so
+      # waiting on workflow completion here no longer drags in Sonar wait time.
+      # Polling rather than `workflow_run` keeps this build visible as its own
+      # PR check.
       - name: Wait for Tests & Analysis on this commit (master)
         if: github.ref == 'refs/heads/master'
         uses: actions/github-script@v7
@@ -103,9 +106,7 @@ jobs:
                 );
                 return;
               }
-              core.info(
-                `Tests & Analysis for ${context.sha}: ${run?.status ?? 'not yet started'} — waiting`
-              );
+              core.info(`Tests & Analysis for ${context.sha}: ${run?.status ?? 'not yet started'} — waiting`);
               await sleep(20_000);
             }
             core.setFailed('Timed out after 20m waiting for Tests & Analysis');
