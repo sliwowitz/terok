@@ -112,14 +112,15 @@ def render_task_details(
         perm_label = "unrestricted" if task.unrestricted else "restricted"
         lines.append(Text(f"Perms:     {perm_label}"))
     if task.shield_state:
+        primary_color = variables.get("primary", "blue")
         success_color = variables.get("success", "green")
         error_color = variables.get("error", "red")
         warning_color = variables.get("warning", "yellow")
 
         container_live = task.container_state == "running"
-        # INACTIVE + container not running + hooks healthy → "ready" (no alarm)
+        # OFFLINE + container not running + hooks healthy → "ready" (no alarm)
         hooks_ok = shield_hooks_ok is not False  # True or unknown (None)
-        if task.shield_state == "INACTIVE" and not container_live and hooks_ok:
+        if task.shield_state == "OFFLINE" and not container_live and hooks_ok:
             lines.append(
                 Text.assemble(
                     "Shield:    ",
@@ -127,20 +128,29 @@ def render_task_details(
                 )
             )
         else:
+            # UP (enforcing): primary/blue — the normal, trusted state.
+            # DOWN (relaxed): success/green — operator-chosen, safe by
+            # virtue of private-range protection still in place.
+            # DISENGAGED (full bypass): warning/yellow — operator
+            # consciously stepped further out of the safe zone.
+            # QUARANTINE/OFFLINE/DISABLED/ERROR: error/red — emergency
+            # mode, not-present, or invalid.
             shield_colors = {
-                "UP": success_color,
-                "DOWN": warning_color,
-                "INACTIVE": error_color,
+                "UP": primary_color,
+                "DOWN": success_color,
+                "DISENGAGED": warning_color,
+                "QUARANTINE": error_color,
+                "OFFLINE": error_color,
                 "DISABLED": error_color,
             }
-            shield_color = shield_colors.get(task.shield_state, warning_color)
+            shield_color = shield_colors.get(task.shield_state, error_color)
             lines.append(
                 Text.assemble(
                     "Shield:    ",
                     Text(task.shield_state.lower(), style=Style(color=shield_color)),
                 )
             )
-            if task.shield_state in {"DISABLED", "INACTIVE"}:
+            if task.shield_state in {"DISABLED", "OFFLINE"}:
                 lines.append(
                     Text(
                         f"           {get_config().shield_security_hint}",
