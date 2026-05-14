@@ -10,10 +10,9 @@ import json
 import sys
 from typing import Any
 
-from terok_executor import PROVIDER_NAMES as _PROVIDER_NAMES
+from terok.lib.integrations.executor import PROVIDER_NAMES as _PROVIDER_NAMES
 
-from ...lib.core.config import get_logs_partial_streaming as _get_logs_partial_streaming
-from ...lib.domain.facade import (
+from ...lib.api import (
     HeadlessRunRequest,
     LogViewOptions,
     build_images,
@@ -34,6 +33,7 @@ from ...lib.domain.facade import (
     task_status,
     task_stop,
 )
+from ...lib.core.config import get_logs_partial_streaming as _get_logs_partial_streaming
 from ...lib.orchestration.tasks import resolve_task_id
 from ._completers import add_project_id, add_task_id, complete_preset_names, set_completer
 
@@ -387,8 +387,13 @@ def _setup_verdict_or_exit() -> None:
     invocation — one ``Path.is_file``, one JSON decode, a handful
     of ``importlib.metadata.version`` lookups.
     """
-    from terok_sandbox import SetupVerdict, needs_setup
-    from terok_sandbox.setup_stamp import _installed_versions, _read_stamp, stamp_path
+    from terok.lib.integrations.sandbox import (
+        SetupVerdict,
+        _installed_versions,
+        _read_stamp,
+        needs_setup,
+        stamp_path,
+    )
 
     verdict = needs_setup()
     if verdict is SetupVerdict.OK:

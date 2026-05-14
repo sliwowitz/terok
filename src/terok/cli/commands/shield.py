@@ -15,9 +15,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from terok_sandbox import make_shield
 from terok_shield.cli.registry import COMMANDS, ArgDef, CommandDef
 from terok_shield.run import ExecError
+
+from terok.lib.integrations.sandbox import make_shield
 
 from ...lib.core.config import make_sandbox_config
 from ...lib.orchestration.tasks import resolve_task_id
@@ -154,7 +155,7 @@ def dispatch(args: argparse.Namespace) -> bool:
                 "  terok shield install-hooks --root   # /etc/containers/oci/hooks.d\n"
                 "  terok shield install-hooks --user   # ~/.local/share/containers/oci/hooks.d"
             )
-        from terok_sandbox import run_setup as shield_run_setup
+        from terok.lib.integrations.sandbox import run_setup as shield_run_setup
 
         shield_run_setup(root=args.root, user=args.user)
         return True

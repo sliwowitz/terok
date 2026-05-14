@@ -19,12 +19,12 @@ from __future__ import annotations
 import argparse
 import sys
 
-from terok_executor import AUTH_PROVIDERS
+from terok.lib.integrations.executor import AUTH_PROVIDERS
 
+from ...lib.api import authenticate
 from ...lib.core.config import is_oauth_enabled_for
 from ...lib.core.images import require_agent_installed
 from ...lib.core.projects import load_project
-from ...lib.domain.facade import authenticate
 from ._completers import complete_project_ids as _complete_project_ids, set_completer
 
 

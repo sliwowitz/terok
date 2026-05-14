@@ -5,26 +5,22 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
+from tests.test_utils import patch_vault_db
 
 
 def _patch_vault_db(db):
-    """Patch ``facade.vault_db`` to yield *db*."""
-
-    @contextmanager
-    def _cm():
-        yield db
-
-    return patch("terok.lib.domain.facade.vault_db", _cm)
+    """Patch the SSH module's ``vault_db`` alias to yield *db*."""
+    return patch_vault_db(db, module="ssh")
 
 
 class TestRegisterSshKey:
-    """Tests for ``register_ssh_key`` in the domain facade."""
+    """Tests for ``register_ssh_key`` in the SSH workflow module."""
 
     def test_assigns_key_to_scope(self) -> None:
         """register_ssh_key delegates to ``CredentialDB.assign_ssh_key``."""
-        from terok.lib.domain.facade import register_ssh_key
+        from terok.lib.domain.ssh import register_ssh_key
 
         db = MagicMock()
         with _patch_vault_db(db):
@@ -35,7 +31,7 @@ class TestRegisterSshKey:
         """Errors from the DB layer propagate (no silent swallowing)."""
         import pytest
 
-        from terok.lib.domain.facade import register_ssh_key
+        from terok.lib.domain.ssh import register_ssh_key
 
         db = MagicMock()
         db.assign_ssh_key.side_effect = RuntimeError("disk full")

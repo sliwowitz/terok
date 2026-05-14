@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 
-from ...lib.domain.facade import cleanup_images, list_images
+from ...lib.api import cleanup_images, list_images
 from . import _storage_view
 from ._completers import complete_project_ids as _complete_project_ids, set_completer
 
@@ -136,7 +136,7 @@ def _cmd_build(
     sidecar: bool,
 ) -> None:
     """Build the host-wide default L0+L1 images via the executor primitive."""
-    from terok_executor import (
+    from terok.lib.integrations.executor import (
         BuildError,
         build_base_images,
         build_sidecar_image,

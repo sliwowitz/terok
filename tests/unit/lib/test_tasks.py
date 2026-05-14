@@ -18,18 +18,17 @@ import pytest
 from terok.lib.core.projects import load_project
 from terok.lib.domain.task_logs import LogViewOptions, task_logs
 from terok.lib.orchestration.environment import build_task_env_and_volumes
-from terok.lib.orchestration.task_runners import (
+from terok.lib.orchestration.task_runners import task_run_cli, task_run_toad
+from terok.lib.orchestration.task_runners.toad import (
     _ensure_toad_token,
     _rehydrate_toad_token,
     _toad_browser_url,
-    task_run_cli,
-    task_run_toad,
 )
 from terok.lib.orchestration.tasks import (
     TaskDeleteResult,
-    _read_task_meta,
     get_tasks,
     get_workspace_git_diff,
+    read_task_meta,
     task_delete,
     task_list,
     task_new,
@@ -117,7 +116,7 @@ class TestTask:
             meta_path = meta_dir / f"{returned_id}_dossier.json"
             assert meta_path.is_file()
 
-            meta = _read_task_meta(meta_dir, returned_id) or {}
+            meta = read_task_meta(meta_dir, returned_id) or {}
             assert meta["task_id"] == returned_id
             workspace_value = meta.get("workspace")
             assert workspace_value
@@ -143,7 +142,7 @@ class TestTask:
         """A pre-``project_id``-field record gets the field populated from the meta-dir path.
 
         Tasks created before ``project_id`` joined ``TaskMeta`` had only
-        ``task_id`` on disk; without backfill, the next ``_write_task_meta``
+        ``task_id`` on disk; without backfill, the next ``write_task_meta``
         would land an empty wire dossier (no ``project`` key) and the
         clearance UI would render a half-identity until some unrelated
         write happened to repopulate the field.  The backfill leans on
@@ -167,7 +166,7 @@ class TestTask:
                 yaml_dump({"task_id": tid, "name": "diligent-octopus", "mode": "cli"})
             )
 
-            meta = _read_task_meta(meta_dir, tid)
+            meta = read_task_meta(meta_dir, tid)
 
             assert meta is not None
             assert meta["project_id"] == project_id
@@ -192,7 +191,7 @@ class TestTask:
         ) as ctx:
             tid = task_new(project_id)
             meta_dir = ctx.state_dir / "projects" / project_id / "tasks"
-            meta = _read_task_meta(meta_dir, tid) or {}
+            meta = read_task_meta(meta_dir, tid) or {}
 
             assert "created_at" in meta
             parsed = datetime.fromisoformat(meta["created_at"])
@@ -242,7 +241,7 @@ class TestTask:
     def _task_list_output(project_id: str, states: dict[str, str | None], **filters: str) -> str:
         """Run ``task_list`` with mocked container states and capture stdout."""
         with unittest.mock.patch(
-            "terok.lib.orchestration.tasks.get_all_task_states",
+            "terok.lib.orchestration.tasks.query.get_all_task_states",
             return_value=states,
         ):
             buf = StringIO()
@@ -395,7 +394,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_gatekeeping(self, *_mocks) -> None:
         project_id = "proj9"
         with project_env(
@@ -423,7 +424,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_gatekeeping_with_ssh(self, *_mocks) -> None:
         """Gatekeeping mode does not bind-mount SSH (keys go via SSH agent proxy)."""
         project_id = "proj_gatekeeping_ssh"
@@ -456,7 +459,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_online(self, *_mocks) -> None:
         project_id = "proj10"
         with project_env(
@@ -512,7 +517,7 @@ class TestTask:
                 _set_state_sequence(mock_runtime, [None, "running"]),
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners._supports_color",
+                    "terok.lib.orchestration.task_runners.cli._supports_color",
                     return_value=True,
                 ),
             ):
@@ -567,11 +572,11 @@ class TestTask:
             with (
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.assign_web_port",
+                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
                     return_value=7861,
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners._agent_runner"
+                    "terok.lib.orchestration.task_runners.container._agent_runner"
                 ) as sandbox_factory,
             ):
                 task_run_toad(project_id, tid)
@@ -609,11 +614,11 @@ class TestTask:
             with (
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.assign_web_port",
+                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
                     return_value=7862,
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners._agent_runner"
+                    "terok.lib.orchestration.task_runners.container._agent_runner"
                 ) as sandbox_factory,
             ):
                 task_run_toad(project_id, tid)
@@ -675,7 +680,7 @@ class TestTask:
                 mock_runtime.container.return_value.start.assert_called_once_with()
 
                 # Verify metadata mode is preserved
-                meta = _read_task_meta(meta_dir, tid) or {}
+                meta = read_task_meta(meta_dir, tid) or {}
                 assert meta["mode"] == "cli"
 
     def test_get_workspace_git_diff_no_task(self) -> None:
@@ -717,7 +722,7 @@ class TestTask:
 
             expected = "diff --git a/f.txt b/f.txt\n+line\n"
             with unittest.mock.patch(
-                "terok.lib.orchestration.tasks.container_git_diff",
+                "terok.lib.orchestration.tasks.query.container_git_diff",
                 return_value=expected,
             ) as mock_diff:
                 result = get_workspace_git_diff(project_id, tid, "HEAD")
@@ -741,7 +746,7 @@ class TestTask:
 
             expected = "diff --git a/f.txt b/f.txt\n+prev\n"
             with unittest.mock.patch(
-                "terok.lib.orchestration.tasks.container_git_diff",
+                "terok.lib.orchestration.tasks.query.container_git_diff",
                 return_value=expected,
             ) as mock_diff:
                 result = get_workspace_git_diff(project_id, tid, "PREV")
@@ -764,7 +769,7 @@ class TestTask:
             meta_path.write_text(json.dumps(meta, indent=2))
 
             with unittest.mock.patch(
-                "terok.lib.orchestration.tasks.container_git_diff",
+                "terok.lib.orchestration.tasks.query.container_git_diff",
                 return_value=None,
             ):
                 result = get_workspace_git_diff(project_id, tid)
@@ -928,7 +933,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_gatekeeping_expose_external_remote_enabled(self, *_mocks) -> None:
         """Test expose_external_remote=true with upstream_url sets EXTERNAL_REMOTE_URL."""
         project_id = "proj_external_remote_enabled"
@@ -955,7 +962,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_gatekeeping_expose_external_remote_disabled(self, *_mocks) -> None:
         """Test expose_external_remote=false does not set EXTERNAL_REMOTE_URL."""
         project_id = "proj_external_remote_disabled"
@@ -982,7 +991,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_gatekeeping_expose_external_remote_no_upstream(self, *_mocks) -> None:
         """Test expose_external_remote=true without upstream_url does not set EXTERNAL_REMOTE_URL."""
         project_id = "proj_external_remote_no_upstream"
@@ -1008,7 +1019,9 @@ class TestTask:
         "terok.lib.orchestration.environment.get_gate_server_port",
         return_value=GATE_PORT,
     )
-    @unittest.mock.patch("terok_sandbox.create_token", return_value="tok" * 10 + "ab")
+    @unittest.mock.patch(
+        "terok.lib.integrations.sandbox.create_token", return_value="tok" * 10 + "ab"
+    )
     def test_build_task_env_online_propagates_gate_remote_url(self, *_mocks) -> None:
         """Online mode forwards GATE_REMOTE_URL through to the container env.
 
@@ -1172,11 +1185,11 @@ class TestResumeToadContainer:
             with (
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.assign_web_port",
+                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
                     return_value=7862,
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.ensure_vault",
+                    "terok.lib.orchestration.task_runners.toad.ensure_vault",
                 ),
                 redirect_stdout(buf),
             ):
@@ -1206,20 +1219,20 @@ class TestResumeToadContainer:
             with (
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.assign_web_port",
+                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
                     return_value=7863,
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.ensure_vault",
+                    "terok.lib.orchestration.task_runners.toad.ensure_vault",
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners._podman_start",
+                    "terok.lib.orchestration.task_runners.toad._podman_start",
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners._assert_running",
+                    "terok.lib.orchestration.task_runners.toad._assert_running",
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners._apply_shield_policy",
+                    "terok.lib.orchestration.task_runners.toad._apply_shield_policy",
                 ),
                 redirect_stdout(buf),
             ):
@@ -1243,7 +1256,7 @@ class TestResumeToadContainer:
             mock_runtime.container.return_value.state = "running"
             with (
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.assign_web_port",
+                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
                     return_value=9999,  # allocator returned a different port
                 ),
                 pytest.raises(SystemExit, match="no longer available"),
@@ -1796,14 +1809,14 @@ class TestTaskDeleteWarnings:
                 if token_side_effect:
                     patches.append(
                         unittest.mock.patch(
-                            "terok_sandbox.revoke_token_for_task",
+                            "terok.lib.integrations.sandbox.revoke_token_for_task",
                             side_effect=token_side_effect,
                         )
                     )
                 if rmtree_side_effect:
                     patches.append(
                         unittest.mock.patch(
-                            "terok.lib.orchestration.tasks.shutil.rmtree",
+                            "terok.lib.orchestration.tasks.lifecycle.shutil.rmtree",
                             side_effect=rmtree_side_effect,
                         )
                     )
@@ -1889,3 +1902,220 @@ class TestTaskDeleteWarnings:
         assert any("c1" in w for w in result.warnings)
         assert any("Workspace" in w for w in result.warnings)
         assert any("Web port kept claimed" in w for w in result.warnings)
+
+
+class TestArchiveMetaLoading:
+    """_load_archived_task_meta tolerates legacy task.yml and corrupt snapshots."""
+
+    def test_reads_legacy_yaml_snapshot(self, tmp_path: Path) -> None:
+        """An archive entry with only task.yml (no task.json) still loads."""
+        from terok.lib.orchestration.tasks.archive import _load_archived_task_meta
+
+        entry = tmp_path / "20260101T000000Z_g1v2h_old"
+        entry.mkdir()
+        (entry / "task.yml").write_text("task_id: g1v2h\nname: old-task\nmode: cli\n")
+        assert _load_archived_task_meta(entry) == {
+            "task_id": "g1v2h",
+            "name": "old-task",
+            "mode": "cli",
+        }
+
+    def test_json_takes_precedence_over_yaml(self, tmp_path: Path) -> None:
+        """When both task.json and task.yml exist, the JSON snapshot wins."""
+        from terok.lib.orchestration.tasks.archive import _load_archived_task_meta
+
+        entry = tmp_path / "entry"
+        entry.mkdir()
+        (entry / "task.json").write_text('{"task_id": "json"}')
+        (entry / "task.yml").write_text("task_id: yaml\n")
+        assert _load_archived_task_meta(entry) == {"task_id": "json"}
+
+    def test_corrupt_json_returns_none(self, tmp_path: Path) -> None:
+        """A malformed task.json yields None rather than raising."""
+        from terok.lib.orchestration.tasks.archive import _load_archived_task_meta
+
+        entry = tmp_path / "entry"
+        entry.mkdir()
+        (entry / "task.json").write_text("{not json")
+        assert _load_archived_task_meta(entry) is None
+
+    def test_missing_snapshot_returns_none(self, tmp_path: Path) -> None:
+        """An archive entry with neither task.json nor task.yml yields None."""
+        from terok.lib.orchestration.tasks.archive import _load_archived_task_meta
+
+        entry = tmp_path / "entry"
+        entry.mkdir()
+        assert _load_archived_task_meta(entry) is None
+
+    def test_empty_json_reads_as_empty_dict(self, tmp_path: Path) -> None:
+        """A whitespace-only task.json reads as an empty dict, not None."""
+        from terok.lib.orchestration.tasks.archive import _load_archived_task_meta
+
+        entry = tmp_path / "entry"
+        entry.mkdir()
+        (entry / "task.json").write_text("  \n")
+        assert _load_archived_task_meta(entry) == {}
+
+
+class TestArchiveListing:
+    """list / format / log-lookup over the archive tree."""
+
+    def test_list_skips_non_dirs_and_unparseable_entries(self) -> None:
+        """A stray file and a snapshot-less dir are both skipped."""
+        from terok.lib.orchestration.tasks import list_archived_tasks, tasks_archive_dir
+
+        pid = "proj_arc_skip"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid):
+            root = tasks_archive_dir(pid)
+            root.mkdir(parents=True)
+            (root / "stray-file.txt").write_text("not a dir")
+            (root / "20260101T000000Z_g1v2h").mkdir()  # dir, no snapshot
+            good = root / "20260102T000000Z_p7fmn_done"
+            good.mkdir()
+            (good / "task.json").write_text(
+                '{"task_id": "p7fmn", "name": "done", "mode": "run", "exit_code": 0}'
+            )
+            assert [a.task_id for a in list_archived_tasks(pid)] == ["p7fmn"]
+
+    def test_archive_list_formats_mode_and_exit(self) -> None:
+        """task_archive_list renders the mode= / exit= extras for a populated entry."""
+        from terok.lib.orchestration.tasks import task_archive_list, tasks_archive_dir
+
+        pid = "proj_arc_fmt"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid):
+            entry = tasks_archive_dir(pid) / "20260103T120000Z_k3v8h_fix-bug"
+            entry.mkdir(parents=True)
+            (entry / "task.json").write_text(
+                '{"task_id": "k3v8h", "name": "fix-bug", "mode": "run", "exit_code": 1}'
+            )
+            buf = StringIO()
+            with redirect_stdout(buf):
+                task_archive_list(pid)
+            out = buf.getvalue()
+            assert "k3v8h" in out and "fix-bug" in out
+            assert "mode=run" in out and "exit=1" in out
+
+    def test_archive_logs_returns_none_when_no_archive_dir(self) -> None:
+        """task_archive_logs yields None when the project has no archive tree yet."""
+        from terok.lib.orchestration.tasks import task_archive_logs
+
+        pid = "proj_arc_nodir"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid):
+            assert task_archive_logs(pid, "anything") is None
+
+
+class TestGetTaskMeta:
+    """get_task_meta hydrates a TaskMeta from disk plus live container state."""
+
+    def test_unknown_task_raises(self) -> None:
+        """A task with no metadata on disk raises SystemExit."""
+        from terok.lib.orchestration.tasks import get_task_meta
+
+        pid = "proj_gtm_unknown"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid):
+            with pytest.raises(SystemExit, match="Unknown task"):
+                get_task_meta(pid, "g1v2h")
+
+    def test_hydrates_live_container_state(self, mock_runtime) -> None:
+        """A task that has run gets its container_state filled from the runtime."""
+        from terok.lib.orchestration.tasks import (
+            dossier_path,
+            get_task_meta,
+            tasks_meta_dir,
+            write_task_meta,
+        )
+
+        pid = "proj_gtm_live"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid), mock_git_config():
+            task_id = task_new(pid)
+            meta_dir = tasks_meta_dir(pid)
+            meta = read_task_meta(meta_dir, task_id)
+            meta["mode"] = "cli"
+            write_task_meta(dossier_path(meta_dir, task_id), meta)
+            mock_runtime.container.return_value.state = "running"
+
+            tm = get_task_meta(pid, task_id)
+            assert tm.task_id == task_id
+            assert tm.mode == "cli"
+            assert tm.container_state == "running"
+
+    def test_no_mode_skips_live_state_lookup(self, mock_runtime) -> None:
+        """A never-run task (mode unset) reports no container state and skips the runtime."""
+        from terok.lib.orchestration.tasks import get_task_meta
+
+        pid = "proj_gtm_nomode"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid), mock_git_config():
+            task_id = task_new(pid)  # fresh task — mode is None
+            tm = get_task_meta(pid, task_id)
+            assert tm.mode is None
+            assert tm.container_state is None
+            mock_runtime.container.assert_not_called()
+
+
+class TestDossierHandle:
+    """_dossier_handle_to_dir_and_id decomposes a dossier-file handle."""
+
+    def test_canonical_handle(self, tmp_path: Path) -> None:
+        """The canonical <id>_dossier.json handle decomposes to (dir, id)."""
+        from terok.lib.orchestration.tasks.meta import _dossier_handle_to_dir_and_id
+
+        assert _dossier_handle_to_dir_and_id(tmp_path / "k3v8h_dossier.json") == (
+            tmp_path,
+            "k3v8h",
+        )
+
+    def test_legacy_json_handle(self, tmp_path: Path) -> None:
+        """A pre-self-describing <id>.json handle still decomposes."""
+        from terok.lib.orchestration.tasks.meta import _dossier_handle_to_dir_and_id
+
+        assert _dossier_handle_to_dir_and_id(tmp_path / "k3v8h.json") == (tmp_path, "k3v8h")
+
+    def test_foreign_filename_raises(self, tmp_path: Path) -> None:
+        """A non-dossier filename raises rather than silently inferring a task ID."""
+        from terok.lib.orchestration.tasks.meta import _dossier_handle_to_dir_and_id
+
+        with pytest.raises(ValueError, match="not a dossier-file handle"):
+            _dossier_handle_to_dir_and_id(tmp_path / "k3v8h_meta.yml")
+
+
+class TestMetaMutations:
+    """mark_task_deleting / update_task_exit_code are best-effort on-disk mutations."""
+
+    def test_mark_deleting_sets_flag(self) -> None:
+        """mark_task_deleting persists deleting=True to the metadata file."""
+        from terok.lib.orchestration.tasks import mark_task_deleting, tasks_meta_dir
+
+        pid = "proj_mtd"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid), mock_git_config():
+            task_id = task_new(pid)
+            mark_task_deleting(pid, task_id)
+            assert read_task_meta(tasks_meta_dir(pid), task_id)["deleting"] is True
+
+    def test_mark_deleting_unknown_task_is_noop(self) -> None:
+        """Marking a missing task does nothing and does not raise."""
+        from terok.lib.orchestration.tasks import mark_task_deleting
+
+        pid = "proj_mtd_missing"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid):
+            mark_task_deleting(pid, "g1v2h")  # must not raise
+
+    def test_mark_deleting_swallows_write_errors(self) -> None:
+        """A write failure is logged, not raised — deletion must proceed regardless."""
+        from terok.lib.orchestration.tasks import mark_task_deleting
+
+        pid = "proj_mtd_err"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid), mock_git_config():
+            task_id = task_new(pid)
+            with unittest.mock.patch(
+                "terok.lib.orchestration.tasks.meta.write_task_meta",
+                side_effect=OSError("disk full"),
+            ):
+                mark_task_deleting(pid, task_id)  # must not raise
+
+    def test_update_exit_code_unknown_task_is_noop(self) -> None:
+        """Updating the exit code of a missing task does nothing and does not raise."""
+        from terok.lib.orchestration.tasks import update_task_exit_code
+
+        pid = "proj_uec_missing"
+        with project_env(f"project:\n  id: {pid}\n", project_id=pid):
+            update_task_exit_code(pid, "g1v2h", 0)  # must not raise

@@ -18,7 +18,7 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any
 
-from terok_executor import (
+from terok.lib.integrations.executor import (
     BuildError,
     build_base_images,
     build_project_image,
@@ -156,7 +156,7 @@ def render_all_dockerfiles(project: ProjectConfig, *, family: str | None = None)
     omitted it is detected from ``project.base_image`` (with
     ``project.family`` as override).
     """
-    from terok_executor.container.build import render_l0, render_l1
+    from terok.lib.integrations.executor import render_l0, render_l1
 
     fam = family or detect_family(project.base_image, override=project.family)
     return {

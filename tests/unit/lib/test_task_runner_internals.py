@@ -16,11 +16,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from terok_executor import BuildError
 
-from terok.lib.orchestration.task_runners import (
-    _apply_unrestricted_env,
-    _run_container,
-    _str_to_bool,
-)
+from terok.lib.orchestration.task_runners.config import _apply_unrestricted_env, _str_to_bool
+from terok.lib.orchestration.task_runners.container import _run_container
 from tests.test_utils import captured_runspec
 from tests.testfs import MOCK_TASK_DIR
 
@@ -78,7 +75,7 @@ class TestPodmanStart:
 
     def test_raises_on_missing_podman(self, mock_runtime) -> None:
         """FileNotFoundError becomes SystemExit with install hint."""
-        from terok.lib.orchestration.task_runners import _podman_start
+        from terok.lib.orchestration.task_runners.container import _podman_start
 
         mock_runtime.container.return_value.start.side_effect = FileNotFoundError
         with pytest.raises(SystemExit, match="podman not found"):
@@ -86,7 +83,7 @@ class TestPodmanStart:
 
     def test_raises_on_start_failure(self, mock_runtime) -> None:
         """Runtime failure surfaces as a user-facing SystemExit."""
-        from terok.lib.orchestration.task_runners import _podman_start
+        from terok.lib.orchestration.task_runners.container import _podman_start
 
         mock_runtime.container.return_value.start.side_effect = RuntimeError("container not found")
         with pytest.raises(SystemExit, match="container not found"):
@@ -94,7 +91,7 @@ class TestPodmanStart:
 
     def test_raises_on_start_failure_empty_stderr(self, mock_runtime) -> None:
         """Any RuntimeError from the runtime is translated to SystemExit."""
-        from terok.lib.orchestration.task_runners import _podman_start
+        from terok.lib.orchestration.task_runners.container import _podman_start
 
         mock_runtime.container.return_value.start.side_effect = RuntimeError("rc=125")
         with pytest.raises(SystemExit):
@@ -116,11 +113,11 @@ class TestApplyShieldPolicy:
 
     def test_fresh_skips_when_drop_disabled(self, tmp_path: Path) -> None:
         """No shield_down call when drop_on_task_run is False."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         project = self._make_project(drop=False)
         with patch(
-            "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+            "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
             return_value=False,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=False)
@@ -128,15 +125,15 @@ class TestApplyShieldPolicy:
 
     def test_fresh_drops_and_persists(self, tmp_path: Path) -> None:
         """Fresh creation with drop=True calls shield_down and writes state."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         project = self._make_project(drop=True)
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners._shield_down_impl") as mock_down,
+            patch("terok.lib.orchestration.task_runners.shield._shield_down_impl") as mock_down,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=False)
         mock_down.assert_called_once_with("ctr", tmp_path)
@@ -144,91 +141,91 @@ class TestApplyShieldPolicy:
 
     def test_skips_when_bypass_active(self) -> None:
         """No-op when shield bypass is globally active."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         project = self._make_project(drop=True)
         with patch(
-            "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+            "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
             return_value=True,
         ):
             _apply_shield_policy(project, "ctr", MOCK_TASK_DIR, is_restart=False)
 
     def test_restart_retain_restores_down(self, tmp_path: Path) -> None:
         """Restart with retain policy restores a saved 'down' state."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         (tmp_path / "shield_desired_state").write_text("down\n")
         project = self._make_project(on_restart="retain")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners._shield_down_impl") as mock_down,
+            patch("terok.lib.orchestration.task_runners.shield._shield_down_impl") as mock_down,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=True)
         mock_down.assert_called_once_with("ctr", tmp_path, allow_all=False)
 
     def test_restart_retain_restores_down_all(self, tmp_path: Path) -> None:
         """Restart with retain policy restores a saved 'down_all' state."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         (tmp_path / "shield_desired_state").write_text("down_all\n")
         project = self._make_project(on_restart="retain")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners._shield_down_impl") as mock_down,
+            patch("terok.lib.orchestration.task_runners.shield._shield_down_impl") as mock_down,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=True)
         mock_down.assert_called_once_with("ctr", tmp_path, allow_all=True)
 
     def test_restart_retain_noop_when_up(self, tmp_path: Path) -> None:
         """Restart with retain + saved 'up' does nothing (hook already applied UP)."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         (tmp_path / "shield_desired_state").write_text("up\n")
         project = self._make_project(on_restart="retain")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners._shield_down_impl") as mock_down,
+            patch("terok.lib.orchestration.task_runners.shield._shield_down_impl") as mock_down,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=True)
         mock_down.assert_not_called()
 
     def test_restart_up_policy_noop(self, tmp_path: Path) -> None:
         """Restart with 'up' policy never calls shield_down."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         (tmp_path / "shield_desired_state").write_text("down\n")
         project = self._make_project(on_restart="up")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners._shield_down_impl") as mock_down,
+            patch("terok.lib.orchestration.task_runners.shield._shield_down_impl") as mock_down,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=True)
         mock_down.assert_not_called()
 
     def test_warns_on_failure(self) -> None:
         """Emits a warning when shield_down raises during fresh creation."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         project = self._make_project(drop=True)
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
             patch(
-                "terok.lib.orchestration.task_runners._shield_down_impl",
+                "terok.lib.orchestration.task_runners.shield._shield_down_impl",
                 side_effect=RuntimeError("nft missing"),
             ),
             pytest.warns(match="shield drop"),
@@ -237,32 +234,32 @@ class TestApplyShieldPolicy:
 
     def test_restart_retain_noop_when_no_file(self, tmp_path: Path) -> None:
         """Restart with retain + no persisted state file does nothing."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         project = self._make_project(on_restart="retain")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners._shield_down_impl") as mock_down,
+            patch("terok.lib.orchestration.task_runners.shield._shield_down_impl") as mock_down,
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=True)
         mock_down.assert_not_called()
 
     def test_restart_retain_warns_on_restore_failure(self, tmp_path: Path) -> None:
         """Restart with retain emits a warning when shield restore fails."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         (tmp_path / "shield_desired_state").write_text("down\n")
         project = self._make_project(on_restart="retain")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
             patch(
-                "terok.lib.orchestration.task_runners._shield_down_impl",
+                "terok.lib.orchestration.task_runners.shield._shield_down_impl",
                 side_effect=RuntimeError("nft not found"),
             ),
             pytest.warns(match="shield restore"),
@@ -271,12 +268,12 @@ class TestApplyShieldPolicy:
 
     def test_restart_unknown_policy_raises(self, tmp_path: Path) -> None:
         """Unknown on_task_restart value raises ValueError."""
-        from terok.lib.orchestration.task_runners import _apply_shield_policy
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
 
         project = self._make_project(on_restart="bogus")
         with (
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
             pytest.raises(ValueError, match="Unknown shield.on_task_restart"),
@@ -316,21 +313,23 @@ class TestApplyAuthProtectDenies:
         roster = MagicMock()
         roster.vault_routes = routes
         return (
-            patch("terok_executor.get_roster", return_value=roster),
+            patch("terok.lib.integrations.executor.get_roster", return_value=roster),
             patch(
                 "terok.lib.core.config.exposed_credential_providers",
                 return_value=exposed,
             ),
             patch(
-                "terok.lib.orchestration.task_runners._resolved_allow_entries",
+                "terok.lib.orchestration.task_runners.shield._resolved_allow_entries",
                 return_value=allow_entries,
             ),
-            patch("terok_sandbox.make_shield", return_value=shield_obj or MagicMock()),
+            patch(
+                "terok.lib.integrations.sandbox.make_shield", return_value=shield_obj or MagicMock()
+            ),
         )
 
     def test_denies_upstream_and_oauth_refresh_for_each_provider(self, tmp_path: Path) -> None:
         """Both upstream and oauth_refresh.token_url are denied per provider."""
-        from terok.lib.orchestration.task_runners import _apply_auth_protect_denies
+        from terok.lib.orchestration.task_runners.shield import _apply_auth_protect_denies
 
         mock_shield = MagicMock()
         routes = {
@@ -354,7 +353,7 @@ class TestApplyAuthProtectDenies:
 
     def test_skips_exposed_providers(self, tmp_path: Path) -> None:
         """Providers in expose_credential_providers don't get denies."""
-        from terok.lib.orchestration.task_runners import _apply_auth_protect_denies
+        from terok.lib.orchestration.task_runners.shield import _apply_auth_protect_denies
 
         mock_shield = MagicMock()
         routes = {"claude": self._route("https://api.anthropic.com")}
@@ -375,7 +374,7 @@ class TestApplyAuthProtectDenies:
         carries the classification — see
         [`VaultRoute.shared_domain`][terok_executor.roster.types.VaultRoute].
         """
-        from terok.lib.orchestration.task_runners import _apply_auth_protect_denies
+        from terok.lib.orchestration.task_runners.shield import _apply_auth_protect_denies
 
         mock_shield = MagicMock()
         routes = {
@@ -393,7 +392,7 @@ class TestApplyAuthProtectDenies:
 
     def test_opt_out_via_allow_profile(self, tmp_path: Path) -> None:
         """Hosts in the resolved allow profile set are skipped."""
-        from terok.lib.orchestration.task_runners import _apply_auth_protect_denies
+        from terok.lib.orchestration.task_runners.shield import _apply_auth_protect_denies
 
         mock_shield = MagicMock()
         routes = {"claude": self._route("https://api.anthropic.com")}
@@ -410,7 +409,7 @@ class TestApplyAuthProtectDenies:
 
     def test_warns_on_per_host_failure(self, tmp_path: Path) -> None:
         """A single deny() failure warns but doesn't abort the loop."""
-        from terok.lib.orchestration.task_runners import _apply_auth_protect_denies
+        from terok.lib.orchestration.task_runners.shield import _apply_auth_protect_denies
 
         mock_shield = MagicMock()
         mock_shield.deny.side_effect = [RuntimeError("nft missing"), None]
@@ -455,8 +454,10 @@ class TestRunContainer:
         vol = VolumeSpec(Path("/a"), "/b")
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -484,8 +485,10 @@ class TestRunContainer:
         """unrestricted is True when TEROK_UNRESTRICTED is in env."""
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -504,8 +507,10 @@ class TestRunContainer:
         """gpu_enabled is derived from has_gpu(project)."""
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=True),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=True),
         ):
             _run_container(
                 task_id="t1",
@@ -524,8 +529,10 @@ class TestRunContainer:
         """extra_args and command are converted to tuples in RunSpec."""
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -545,9 +552,9 @@ class TestRunContainer:
         # ``{project, task, name}``).  The shield reader rereads it on
         # every emit so renames surface live.  Caller-supplied extras come
         # after.
-        from terok.lib.orchestration.tasks import _dossier_path, tasks_meta_dir
+        from terok.lib.orchestration.tasks import dossier_path, tasks_meta_dir
 
-        expected_dossier_path = _dossier_path(tasks_meta_dir("p1"), "t1")
+        expected_dossier_path = dossier_path(tasks_meta_dir("p1"), "t1")
         assert spec.extra_args == (
             "--annotation",
             f"dossier.meta_path={expected_dossier_path}",
@@ -562,8 +569,10 @@ class TestRunContainer:
         project.memory_limit = "4g"
         project.cpu_limit = "2.0"
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -585,8 +594,10 @@ class TestRunContainer:
         project.memory_limit = None
         project.cpu_limit = None
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -611,12 +622,14 @@ class TestRunContainer:
         """
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=True),
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=True),
         ):
             sandbox_factory.return_value.launch_prepared.side_effect = BuildError("CDI broken")
             with pytest.raises(SystemExit, match="CDI broken"):
@@ -638,12 +651,14 @@ class TestRunContainer:
         """
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             sandbox_factory.return_value.launch_prepared.side_effect = FileNotFoundError(
                 "[Errno 2] No such file or directory: 'podman'"
@@ -666,12 +681,14 @@ class TestRunContainer:
         hooks = LifecycleHooks(pre_start=lambda: None)
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -690,12 +707,14 @@ class TestRunContainer:
         """command=None results in an empty tuple in the RunSpec."""
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
             patch(
-                "terok.lib.orchestration.task_runners.get_shield_bypass_firewall_no_protection",
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_bypass_firewall_no_protection",
                 return_value=False,
             ),
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -718,8 +737,10 @@ class TestRunContainer:
         project.is_sealed = True
 
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -738,8 +759,10 @@ class TestRunContainer:
         """sealed=False when project uses default shared isolation."""
         project = self._make_project()
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -759,8 +782,10 @@ class TestRunContainer:
         project = self._make_project()
         project.nested_containers = True
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",
@@ -786,8 +811,10 @@ class TestRunContainer:
         """run.nested_containers=false (default) leaves extra_args untouched."""
         project = self._make_project()  # nested_containers defaults False
         with (
-            patch("terok.lib.orchestration.task_runners._agent_runner") as sandbox_factory,
-            patch("terok.lib.orchestration.task_runners.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
         ):
             _run_container(
                 task_id="t1",

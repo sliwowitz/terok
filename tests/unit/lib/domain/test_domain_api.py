@@ -1,26 +1,38 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the domain.facade thin-wrapper factories."""
+"""Tests for the domain workflows exposed via ``terok.lib.api``.
+
+The functions live in ``terok.lib.domain.{project,ssh,auth}`` and
+``terok.lib.api`` re-exports them as the single public boundary.
+These tests patch each function's *defining* module, since that is
+where ``mock.patch`` resolves the names actually referenced at call
+time.
+"""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
+from tests.test_utils import patch_vault_db as _patch_vault_db
+
+# ---------------------------------------------------------------------------
+# Project factory functions (defined in terok.lib.domain.project)
+# ---------------------------------------------------------------------------
 
 
 class TestGetProject:
     """get_project loads config and wraps it in a Project aggregate."""
 
     def test_returns_project_wrapping_loaded_config(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
         from terok.lib.domain.project import Project
 
         fake_cfg = MagicMock()
         fake_cfg.id = "myproj"
-        with patch("terok.lib.domain.facade.load_project", return_value=fake_cfg) as loader:
-            result = facade.get_project("myproj")
+        with patch("terok.lib.domain.project.load_project", return_value=fake_cfg) as loader:
+            result = api.get_project("myproj")
         loader.assert_called_once_with("myproj")
         assert isinstance(result, Project)
 
@@ -29,66 +41,60 @@ class TestListProjects:
     """list_projects lifts every core config into a Project aggregate."""
 
     def test_wraps_each_core_config(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
         from terok.lib.domain.project import Project
 
         a, b = MagicMock(id="a"), MagicMock(id="b")
-        with patch("terok.lib.core.projects.list_projects", return_value=[a, b]) as lister:
-            result = facade.list_projects()
+        with patch("terok.lib.domain.project._list_projects", return_value=[a, b]) as lister:
+            result = api.list_projects()
         lister.assert_called_once()
         assert len(result) == 2
         assert all(isinstance(p, Project) for p in result)
 
     def test_empty_list_returns_empty(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
-        with patch("terok.lib.core.projects.list_projects", return_value=[]):
-            assert facade.list_projects() == []
+        with patch("terok.lib.domain.project._list_projects", return_value=[]):
+            assert api.list_projects() == []
 
 
 class TestDeriveProject:
     """derive_project composes the three domain steps and returns a Project."""
 
     def test_delegates_and_wraps_result(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
         from terok.lib.domain.project import Project
 
         derived_cfg = MagicMock(id="derived")
         with (
-            patch("terok.lib.domain.facade._derive_project") as derive,
-            patch("terok.lib.domain.facade._share_ssh_key_assignments") as share,
-            patch("terok.lib.domain.facade.load_project", return_value=derived_cfg) as loader,
+            patch("terok.lib.domain.project._derive_project") as derive,
+            patch("terok.lib.domain.project._share_ssh_key_assignments") as share,
+            patch("terok.lib.domain.project.load_project", return_value=derived_cfg) as loader,
         ):
-            result = facade.derive_project("source", "derived")
+            result = api.derive_project("source", "derived")
         derive.assert_called_once_with("source", "derived")
         share.assert_called_once_with("source", "derived")
         loader.assert_called_once_with("derived")
         assert isinstance(result, Project)
 
 
-def _patch_vault_db(db):
-    """Patch ``facade.vault_db`` to yield *db* — returns the ``patch`` context."""
-    from contextlib import contextmanager
-
-    @contextmanager
-    def _cm():
-        yield db
-
-    return patch("terok.lib.domain.facade.vault_db", _cm)
+# ---------------------------------------------------------------------------
+# SSH workflow (defined in terok.lib.domain.ssh)
+# ---------------------------------------------------------------------------
 
 
 class TestShareSshKeyAssignments:
     """Copy every SSH key assignment from the source scope to the new scope."""
 
     def test_delegates_to_db_assign_for_each_row(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib.domain import project
 
         row_a = MagicMock(id=1)
         row_b = MagicMock(id=2)
         db = MagicMock()
         db.list_ssh_keys_for_scope.return_value = [row_a, row_b]
-        with _patch_vault_db(db):
-            facade._share_ssh_key_assignments("src", "new")
+        with _patch_vault_db(db, module="project"):
+            project._share_ssh_key_assignments("src", "new")
         db.list_ssh_keys_for_scope.assert_called_once_with("src")
         assert db.assign_ssh_key.call_args_list == [
             (("new", 1),),
@@ -96,12 +102,12 @@ class TestShareSshKeyAssignments:
         ]
 
     def test_silent_noop_when_source_has_no_keys(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib.domain import project
 
         db = MagicMock()
         db.list_ssh_keys_for_scope.return_value = []
-        with _patch_vault_db(db):
-            facade._share_ssh_key_assignments("src", "new")
+        with _patch_vault_db(db, module="project"):
+            project._share_ssh_key_assignments("src", "new")
         db.assign_ssh_key.assert_not_called()
 
 
@@ -109,11 +115,11 @@ class TestRegisterSshKey:
     """register_ssh_key assigns a key_id to a scope via the vault DB."""
 
     def test_assigns_key_to_scope(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         db = MagicMock()
-        with _patch_vault_db(db):
-            facade.register_ssh_key("myproj", 42)
+        with _patch_vault_db(db, module="ssh"):
+            api.register_ssh_key("myproj", 42)
         db.assign_ssh_key.assert_called_once_with("myproj", 42)
 
 
@@ -121,7 +127,7 @@ class TestProvisionSshKey:
     """provision_ssh_key mints via SSHManager and binds the fresh key_id."""
 
     def test_mints_and_binds(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         init_result = {
             "key_id": 7,
@@ -137,11 +143,11 @@ class TestProvisionSshKey:
 
         db = MagicMock()
         with (
-            patch("terok.lib.domain.facade.load_project", return_value=MagicMock(id="myproj")),
+            patch("terok.lib.domain.ssh.load_project", return_value=MagicMock(id="myproj")),
             patch("terok.lib.domain.project.make_ssh_manager", return_value=ssh_manager),
-            _patch_vault_db(db),
+            _patch_vault_db(db, module="ssh"),
         ):
-            result = facade.provision_ssh_key("myproj", key_type="ed25519", force=True)
+            result = api.provision_ssh_key("myproj", key_type="ed25519", force=True)
 
         ssh_manager.init.assert_called_once_with(key_type="ed25519", comment=None, force=True)
         db.assign_ssh_key.assert_called_once_with("myproj", 7)
@@ -152,9 +158,9 @@ class TestSummarizeSshInit:
     """summarize_ssh_init prints every field from the SSHInitResult."""
 
     def test_prints_all_metadata_and_public_line(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
-        facade.summarize_ssh_init(
+        api.summarize_ssh_init(
             {
                 "key_id": 3,
                 "key_type": "rsa",
@@ -175,42 +181,47 @@ class TestMaybePauseForSshKeyRegistration:
     """maybe_pause_for_ssh_key_registration only pauses for SSH upstreams."""
 
     def test_pauses_for_git_at_upstream(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         project = MagicMock(upstream_url="git@example.com:org/repo.git")
         with (
-            patch("terok.lib.domain.facade.load_project", return_value=project),
+            patch("terok.lib.domain.ssh.load_project", return_value=project),
             patch("builtins.input", return_value=""),
         ):
-            facade.maybe_pause_for_ssh_key_registration("myproj")
+            api.maybe_pause_for_ssh_key_registration("myproj")
         assert "ACTION REQUIRED" in capsys.readouterr().out
 
     def test_pauses_for_ssh_scheme_upstream(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         project = MagicMock(upstream_url="ssh://git@example.com/org/repo.git")
         with (
-            patch("terok.lib.domain.facade.load_project", return_value=project),
+            patch("terok.lib.domain.ssh.load_project", return_value=project),
             patch("builtins.input", return_value=""),
         ):
-            facade.maybe_pause_for_ssh_key_registration("myproj")
+            api.maybe_pause_for_ssh_key_registration("myproj")
         assert "ACTION REQUIRED" in capsys.readouterr().out
 
     def test_noop_for_https_upstream(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         project = MagicMock(upstream_url="https://github.com/org/repo.git")
-        with patch("terok.lib.domain.facade.load_project", return_value=project):
-            facade.maybe_pause_for_ssh_key_registration("myproj")
+        with patch("terok.lib.domain.ssh.load_project", return_value=project):
+            api.maybe_pause_for_ssh_key_registration("myproj")
         assert "ACTION REQUIRED" not in capsys.readouterr().out
 
     def test_noop_for_empty_upstream(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         project = MagicMock(upstream_url=None)
-        with patch("terok.lib.domain.facade.load_project", return_value=project):
-            facade.maybe_pause_for_ssh_key_registration("myproj")
+        with patch("terok.lib.domain.ssh.load_project", return_value=project):
+            api.maybe_pause_for_ssh_key_registration("myproj")
         assert "ACTION REQUIRED" not in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Auth flow (defined in terok.lib.domain.auth)
+# ---------------------------------------------------------------------------
 
 
 class TestAuthenticate:
@@ -218,21 +229,21 @@ class TestAuthenticate:
 
     def test_project_scoped_uses_l2_image(self) -> None:
         """``authenticate(provider, project_id)`` reuses the project's L2 image."""
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         # sandbox_live_mounts_dir and the expose-token predicates are
         # lazy-imported inside the function body, so patching happens
-        # at their definition modules rather than on the facade.
+        # at their definition modules rather than on the auth module.
         with (
             patch(
-                "terok.lib.domain.facade.project_cli_image", return_value="terok-p1:latest"
+                "terok.lib.domain.auth.project_cli_image", return_value="terok-p1:latest"
             ) as mock_l2,
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=False),
-            patch("terok.lib.domain.facade._authenticate_raw") as mock_auth,
+            patch("terok.lib.domain.auth._authenticate_raw") as mock_auth,
         ):
-            facade.authenticate("claude", project_id="p1")
+            api.authenticate("claude", project_id="p1")
 
         mock_l2.assert_called_once_with("p1")
         mock_auth.assert_called_once()
@@ -244,19 +255,19 @@ class TestAuthenticate:
     def test_host_wide_passes_lazy_resolver_as_image(self) -> None:
         """``authenticate(provider)`` passes a callable so the L1 build defers
         past the OAuth-vs-API-key prompt — picking API key never triggers it."""
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         with (
             patch(
-                "terok.lib.domain.facade._resolve_host_auth_image",
+                "terok.lib.domain.auth._resolve_host_auth_image",
                 return_value="terok-l1-cli:ubuntu-24.04",
             ) as mock_resolve,
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=False),
-            patch("terok.lib.domain.facade._authenticate_raw") as mock_auth,
+            patch("terok.lib.domain.auth._authenticate_raw") as mock_auth,
         ):
-            facade.authenticate("claude")
+            api.authenticate("claude")
 
             # Resolver isn't invoked here — `_authenticate_raw` is patched, so
             # the executor never reaches the OAuth branch that would call the
@@ -272,77 +283,77 @@ class TestAuthenticate:
 
     def test_codex_expose_flag_forwards_expose_token(self) -> None:
         """``is_codex_oauth_exposed()`` True → ``expose_token=True`` for codex."""
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         with (
             patch(
-                "terok.lib.domain.facade._resolve_host_auth_image",
+                "terok.lib.domain.auth._resolve_host_auth_image",
                 return_value="terok-l1-cli:ubuntu-24.04",
             ),
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=True),
-            patch("terok.lib.domain.facade._authenticate_raw") as mock_auth,
+            patch("terok.lib.domain.auth._authenticate_raw") as mock_auth,
         ):
-            facade.authenticate("codex")
+            api.authenticate("codex")
 
         assert mock_auth.call_args.kwargs["expose_token"] is True
 
     def test_codex_expose_flag_does_not_leak_to_claude(self) -> None:
         """Codex expose flag must not flip expose_token for a Claude auth flow."""
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         with (
             patch(
-                "terok.lib.domain.facade._resolve_host_auth_image",
+                "terok.lib.domain.auth._resolve_host_auth_image",
                 return_value="terok-l1-cli:ubuntu-24.04",
             ),
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=True),
-            patch("terok.lib.domain.facade._authenticate_raw") as mock_auth,
+            patch("terok.lib.domain.auth._authenticate_raw") as mock_auth,
         ):
-            facade.authenticate("claude")
+            api.authenticate("claude")
 
         assert mock_auth.call_args.kwargs["expose_token"] is False
 
     def test_oauth_gate_is_passed_to_executor(self) -> None:
         """``is_oauth_enabled_for`` is forwarded as ``oauth_enabled`` so the
         per-provider prompt agrees with the listing screen's filter."""
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         with (
             patch(
-                "terok.lib.domain.facade._resolve_host_auth_image",
+                "terok.lib.domain.auth._resolve_host_auth_image",
                 return_value="terok-l1-cli:ubuntu-24.04",
             ),
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_oauth_enabled_for", return_value=False) as mock_gate,
-            patch("terok.lib.domain.facade._authenticate_raw") as mock_auth,
+            patch("terok.lib.domain.auth._authenticate_raw") as mock_auth,
         ):
-            facade.authenticate("codex")
+            api.authenticate("codex")
 
         mock_gate.assert_called_once_with("codex")
         assert mock_auth.call_args.kwargs["oauth_enabled"] is False
 
     def test_oauth_gate_open_passes_true(self) -> None:
         """When the gate is open, ``oauth_enabled=True`` reaches the executor."""
-        from terok.lib.domain import facade
+        from terok.lib import api
 
         with (
             patch(
-                "terok.lib.domain.facade._resolve_host_auth_image",
+                "terok.lib.domain.auth._resolve_host_auth_image",
                 return_value="terok-l1-cli:ubuntu-24.04",
             ),
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_oauth_enabled_for", return_value=True),
-            patch("terok.lib.domain.facade._authenticate_raw") as mock_auth,
+            patch("terok.lib.domain.auth._authenticate_raw") as mock_auth,
         ):
-            facade.authenticate("claude")
+            api.authenticate("claude")
 
         assert mock_auth.call_args.kwargs["oauth_enabled"] is True
 
@@ -352,21 +363,24 @@ class TestResolveHostAuthImage:
 
     def test_prefers_default_alias_when_provider_label_present(self) -> None:
         """Default alias wins iff the OCI label confirms it has the provider."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         def exists(tag: str) -> bool:
             return tag == "terok-l1-cli:ubuntu-24.04"
 
         with (
-            patch("terok.lib.domain.facade.image_exists", side_effect=exists),
-            patch("terok_executor.image_agents", return_value={"claude", "codex", "gh"}),
+            patch("terok.lib.domain.auth.image_exists", side_effect=exists),
+            patch(
+                "terok.lib.integrations.executor.image_agents",
+                return_value={"claude", "codex", "gh"},
+            ),
         ):
-            image = facade._resolve_host_auth_image("claude")
+            image = auth._resolve_host_auth_image("claude")
         assert image == "terok-l1-cli:ubuntu-24.04"
 
     def test_alias_present_but_label_missing_provider_falls_through(self) -> None:
         """Stale alias from a partial build must not silently route auth at it."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         # Stale alias points at a claude-only image; per-agent for codex
         # was previously built too.  Asking for codex must skip the alias
@@ -378,58 +392,58 @@ class TestResolveHostAuthImage:
             }
 
         with (
-            patch("terok.lib.domain.facade.image_exists", side_effect=exists),
-            patch("terok_executor.image_agents", return_value={"claude"}),
+            patch("terok.lib.domain.auth.image_exists", side_effect=exists),
+            patch("terok.lib.integrations.executor.image_agents", return_value={"claude"}),
         ):
-            image = facade._resolve_host_auth_image("codex")
+            image = auth._resolve_host_auth_image("codex")
         assert image == "terok-l1-cli:ubuntu-24.04-codex"
 
     def test_falls_back_to_per_agent_l1(self) -> None:
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         def exists(tag: str) -> bool:
             return tag == "terok-l1-cli:ubuntu-24.04-claude"
 
         with (
-            patch("terok.lib.domain.facade.image_exists", side_effect=exists),
-            patch("terok_executor.image_agents", return_value=set()),
+            patch("terok.lib.domain.auth.image_exists", side_effect=exists),
+            patch("terok.lib.integrations.executor.image_agents", return_value=set()),
         ):
-            image = facade._resolve_host_auth_image("claude")
+            image = auth._resolve_host_auth_image("claude")
         assert image == "terok-l1-cli:ubuntu-24.04-claude"
 
     def test_api_key_only_provider_skips_build_when_missing(self) -> None:
         """API-key-only providers never launch a container; any tag is fine."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         with (
-            patch("terok.lib.domain.facade.image_exists", return_value=False),
-            patch("terok_executor.image_agents", return_value=set()),
+            patch("terok.lib.domain.auth.image_exists", return_value=False),
+            patch("terok.lib.integrations.executor.image_agents", return_value=set()),
         ):
             # sonar is api-key-only — no prompt, no build, just a tag.
-            image = facade._resolve_host_auth_image("sonar")
+            image = auth._resolve_host_auth_image("sonar")
         assert image.startswith("terok-l1-cli:")
 
     def test_oauth_provider_exits_on_non_tty_without_image(self) -> None:
         """Non-TTY OAuth run with no image exits with a build hint, no prompt."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         with (
-            patch("terok.lib.domain.facade.image_exists", return_value=False),
-            patch("terok_executor.image_agents", return_value=set()),
+            patch("terok.lib.domain.auth.image_exists", return_value=False),
+            patch("terok.lib.integrations.executor.image_agents", return_value=set()),
             patch("sys.stdin.isatty", return_value=False),
             patch("sys.stdout.isatty", return_value=False),
             pytest.raises(SystemExit) as exc,
         ):
-            facade._resolve_host_auth_image("claude")
+            auth._resolve_host_auth_image("claude")
         assert "terok project build" in str(exc.value) or "terok executor" in str(exc.value)
 
     def test_y_choice_builds_full_default(self) -> None:
         """[Y] (default) routes to ensure_default_l1 with the user's agent set."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         with (
-            patch("terok.lib.domain.facade.image_exists", return_value=False),
-            patch("terok_executor.image_agents", return_value=set()),
+            patch("terok.lib.domain.auth.image_exists", return_value=False),
+            patch("terok.lib.integrations.executor.image_agents", return_value=set()),
             patch("sys.stdin.isatty", return_value=True),
             patch("sys.stdout.isatty", return_value=True),
             patch("terok.lib.core.config.get_global_image_agents", return_value="all"),
@@ -439,23 +453,23 @@ class TestResolveHostAuthImage:
             ),
             patch("builtins.input", return_value=""),  # empty → default Y
             patch(
-                "terok_executor.ensure_default_l1",
+                "terok.lib.integrations.executor.ensure_default_l1",
                 return_value="terok-l1-cli:ubuntu-24.04",
             ) as mock_ensure,
-            patch("terok_executor.build_base_images") as mock_per_agent,
+            patch("terok.lib.integrations.executor.build_base_images") as mock_per_agent,
         ):
-            tag = facade._resolve_host_auth_image("claude")
+            tag = auth._resolve_host_auth_image("claude")
         assert tag == "terok-l1-cli:ubuntu-24.04"
         mock_ensure.assert_called_once()
         mock_per_agent.assert_not_called()
 
     def test_one_choice_builds_minimal_per_agent(self) -> None:
         """[1] builds only the per-agent L1, not the full default."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         with (
-            patch("terok.lib.domain.facade.image_exists", return_value=False),
-            patch("terok_executor.image_agents", return_value=set()),
+            patch("terok.lib.domain.auth.image_exists", return_value=False),
+            patch("terok.lib.integrations.executor.image_agents", return_value=set()),
             patch("sys.stdin.isatty", return_value=True),
             patch("sys.stdout.isatty", return_value=True),
             patch("terok.lib.core.config.get_global_image_agents", return_value="all"),
@@ -464,10 +478,10 @@ class TestResolveHostAuthImage:
                 return_value="ubuntu:24.04",
             ),
             patch("builtins.input", return_value="1"),
-            patch("terok_executor.ensure_default_l1") as mock_ensure,
-            patch("terok_executor.build_base_images") as mock_per_agent,
+            patch("terok.lib.integrations.executor.ensure_default_l1") as mock_ensure,
+            patch("terok.lib.integrations.executor.build_base_images") as mock_per_agent,
         ):
-            tag = facade._resolve_host_auth_image("codex")
+            tag = auth._resolve_host_auth_image("codex")
         assert tag == "terok-l1-cli:ubuntu-24.04-codex"
         mock_per_agent.assert_called_once()
         # Per-agent build with just the requested provider, no alias retag
@@ -479,11 +493,11 @@ class TestResolveHostAuthImage:
 
     def test_n_choice_aborts(self) -> None:
         """[n] exits with the build-hint message."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         with (
-            patch("terok.lib.domain.facade.image_exists", return_value=False),
-            patch("terok_executor.image_agents", return_value=set()),
+            patch("terok.lib.domain.auth.image_exists", return_value=False),
+            patch("terok.lib.integrations.executor.image_agents", return_value=set()),
             patch("sys.stdin.isatty", return_value=True),
             patch("sys.stdout.isatty", return_value=True),
             patch("terok.lib.core.config.get_global_image_agents", return_value="all"),
@@ -494,24 +508,27 @@ class TestResolveHostAuthImage:
             patch("builtins.input", return_value="n"),
             pytest.raises(SystemExit) as exc,
         ):
-            facade._resolve_host_auth_image("codex")
+            auth._resolve_host_auth_image("codex")
         assert "terok project build" in str(exc.value) or "terok executor" in str(exc.value)
 
     def test_uses_configured_base_image(self) -> None:
         """Honors ``image.base_image`` from config — not hardcoded ubuntu."""
-        from terok.lib.domain import facade
+        from terok.lib.domain import auth
 
         def exists(tag: str) -> bool:
             return tag == "terok-l1-cli:fedora-43"
 
         with (
-            patch("terok.lib.domain.facade.image_exists", side_effect=exists),
-            patch("terok_executor.image_agents", return_value={"claude", "codex", "gh"}),
+            patch("terok.lib.domain.auth.image_exists", side_effect=exists),
+            patch(
+                "terok.lib.integrations.executor.image_agents",
+                return_value={"claude", "codex", "gh"},
+            ),
             patch(
                 "terok.lib.core.config.get_global_image_base_image",
                 return_value="fedora:43",
             ),
             patch("terok.lib.core.config.get_global_image_agents", return_value="all"),
         ):
-            image = facade._resolve_host_auth_image("claude")
+            image = auth._resolve_host_auth_image("claude")
         assert image == "terok-l1-cli:fedora-43"

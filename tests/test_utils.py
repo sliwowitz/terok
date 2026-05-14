@@ -13,7 +13,7 @@ from typing import Any
 
 from terok_sandbox import GateStalenessInfo
 
-from terok.lib.orchestration.tasks import _TASK_ID_CROCKFORD_4_5_RE
+from terok.lib.orchestration.tasks.identity import _TASK_ID_CROCKFORD_4_5_RE
 
 
 def mock_git_config():
@@ -160,3 +160,18 @@ def captured_runspec(agent_runner_mock: unittest.mock.Mock) -> Any:
         sealed=kwargs.get("sealed", False),
         hostname=kwargs.get("hostname"),
     )
+
+
+def patch_vault_db(db, *, module: str):
+    """Patch the ``vault_db`` alias in ``terok.lib.domain.<module>`` to yield *db*.
+
+    The domain modules (``project``, ``ssh``, …) each ``from .vault import
+    vault_db`` at module scope; a test intercepts whichever consumer it
+    exercises by naming that module.
+    """
+
+    @contextmanager
+    def _cm():
+        yield db
+
+    return unittest.mock.patch(f"terok.lib.domain.{module}.vault_db", _cm)

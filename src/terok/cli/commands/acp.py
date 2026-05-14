@@ -38,15 +38,15 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from terok_executor import acp_socket_is_live
+from terok.lib.integrations.executor import acp_socket_is_live
 
+from ...lib.api import list_projects
 from ...lib.core.config import is_experimental
 from ...lib.core.paths import acp_log_path, acp_socket_path
-from ...lib.domain.facade import list_projects
 from ._completers import add_project_id, add_task_id
 
 if TYPE_CHECKING:
-    from terok_executor import ACPEndpointStatus
+    from terok.lib.integrations.executor import ACPEndpointStatus
 
     from ...lib.domain.project import Project
 
@@ -121,7 +121,7 @@ def _cmd_list(project_id_filter: str | None) -> None:
 
 def _projects_to_show(project_id_filter: str | None) -> list[Project]:
     """Resolve project filter to the list of project objects to walk."""
-    from ...lib.domain.facade import get_project
+    from ...lib.api import get_project
 
     if project_id_filter:
         return [get_project(project_id_filter)]

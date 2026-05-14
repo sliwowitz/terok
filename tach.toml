@@ -21,19 +21,18 @@ ignore_type_checking_imports = true
 # ── Layer Architecture ──────────────────────────────────────────────
 #
 #   presentation      CLI and TUI frontends
-#   domain            Project/Task aggregates, facade, agent config, task CRUD
+#   domain            Project/Task aggregates, ssh/auth workflows, agent config, task CRUD
 #   orchestration     Container lifecycle, env/volumes, Dockerfile, ports
 #   core              Foundation types, config, and pure utilities
-#
-# NOTE: The sandbox layer has been extracted to the external terok-sandbox
-# package. Modules that previously depended on terok.lib.sandbox.* now
-# import directly from terok_sandbox.* (external, not tach-managed).
+#   integrations      Thin re-export adapters for sibling wheels
+#                     (terok-executor, terok-sandbox, terok-clearance).
 #
 layers = [
     "presentation",
     "domain",
     "orchestration",
     "core",
+    "integrations",
 ]
 
 [external]
@@ -46,6 +45,7 @@ exclude = ["pydevd_pycharm", "pydevd"]
 path = "terok.cli"
 layer = "presentation"
 depends_on = [
+    "terok.lib.api",
     "terok.lib.orchestration.agent_config",
     "terok.lib.domain.panic",
     "terok.lib.orchestration.container_doctor",
@@ -56,7 +56,6 @@ depends_on = [
     "terok.lib.core.runtime",
     "terok.lib.core.version",
     "terok.lib.core.yaml_schema",
-    "terok.lib.domain.facade",
     "terok.lib.domain.storage",
     "terok.lib.util.ansi",
     "terok.lib.util.emoji",
@@ -87,7 +86,7 @@ depends_on = [
 
 # ── DOMAIN LAYER ──────────────────────────────────────────────────
 #
-# ·· aggregates ··  DDD Project/Task, facade, high-level queries
+# ·· aggregates ··  DDD Project/Task, ssh/auth workflows, high-level queries
 #
 
 # Emergency panic (cross-project lockdown)
@@ -102,38 +101,49 @@ depends_on = [
     "terok.lib.orchestration.tasks",
 ]
 
-# Service facade (aggregates shared cross-cutting operations)
+# SSH provisioning workflow — mint, bind, render, pause for deploy-key registration.
 [[modules]]
-path = "terok.lib.domain.facade"
+path = "terok.lib.domain.ssh"
 layer = "domain"
 depends_on = [
-    "terok.lib.orchestration.image",
-    "terok.lib.orchestration.environment",
-    "terok.lib.domain.image_cleanup",
-    "terok.lib.domain.project_state",
-    "terok.lib.domain.task_logs",
-    "terok.lib.domain.vault",
-    "terok.lib.orchestration.task_runners",
-    "terok.lib.orchestration.tasks",
     "terok.lib.core.projects",
     "terok.lib.domain.project",
-    "terok.lib.domain.task",
+    "terok.lib.domain.vault",
+]
+
+# Host-wide and project-scoped auth flow.
+[[modules]]
+path = "terok.lib.domain.auth"
+layer = "domain"
+depends_on = [
+    "terok.lib.core.config",
+    "terok.lib.core.images",
+    "terok.lib.orchestration.image",
 ]
 
 # Public library API — single stable import boundary for presentation layers.
-# Re-exports operations from the facade, the domain types they manipulate,
-# the presentation tables, and a snapshot ``Config`` so consumers never
-# need to reach into internal modules.  Extending this is a design decision;
-# it should not grow opportunistically.
+# Re-exports operations from the domain and orchestration modules, the
+# value types they manipulate, the presentation tables, and a snapshot
+# ``Config`` so consumers never need to reach into internal modules.
+# Extending this is a design decision; it should not grow opportunistically.
 [[modules]]
 path = "terok.lib.api"
 layer = "domain"
 depends_on = [
-    "terok.lib.domain.facade",
+    "terok.lib.domain.auth",
+    "terok.lib.domain.image_cleanup",
     "terok.lib.domain.panic",
+    "terok.lib.domain.project",
+    "terok.lib.domain.project_state",
+    "terok.lib.domain.ssh",
+    "terok.lib.domain.task",
+    "terok.lib.domain.task_logs",
+    "terok.lib.domain.vault",
     "terok.lib.domain.wizards.new_project",
     "terok.lib.orchestration.agent_config",
     "terok.lib.orchestration.autopilot",
+    "terok.lib.orchestration.image",
+    "terok.lib.orchestration.task_runners",
     "terok.lib.orchestration.tasks",
     "terok.lib.core.config",
     "terok.lib.core.images",
@@ -173,6 +183,7 @@ depends_on = [
     "terok.lib.orchestration.task_runners",
     "terok.lib.orchestration.tasks",
     "terok.lib.core.config",
+    "terok.lib.core.images",
     "terok.lib.core.project_model",
     "terok.lib.core.projects",
     "terok.lib.domain.task",
@@ -268,10 +279,14 @@ depends_on = [
 #
 
 # Task container runners (CLI, headless, toad, restart)
+# Task container runners — package: container / shield / config / cli /
+# toad / headless / restart submodules behind a re-export __init__.
 [[modules]]
 path = "terok.lib.orchestration.task_runners"
 layer = "orchestration"
 depends_on = [
+    "terok.lib.integrations.executor",
+    "terok.lib.integrations.sandbox",
     "terok.lib.orchestration.agent_config",
     "terok.lib.orchestration.container_exec",
     "terok.lib.orchestration.environment",
@@ -284,23 +299,29 @@ depends_on = [
     "terok.lib.core.runtime",
     "terok.lib.core.task_state",
     "terok.lib.util.ansi",
+    "terok.lib.util.net",
     "terok.lib.util.yaml",
 ]
 
-# Task metadata, lifecycle, and queries
+# Task metadata, lifecycle, and queries — package: meta / identity /
+# naming / query / lifecycle / archive submodules behind a re-export
+# __init__.
 [[modules]]
 path = "terok.lib.orchestration.tasks"
 layer = "orchestration"
 depends_on = [
+    "terok.lib.integrations.executor",
+    "terok.lib.integrations.sandbox",
     "terok.lib.orchestration.container_exec",
     "terok.lib.orchestration.hooks",
     "terok.lib.orchestration.ports",
+    "terok.lib.core.config",
+    "terok.lib.core.paths",
+    "terok.lib.core.projects",
     "terok.lib.core.runtime",
     "terok.lib.core.task_display",
     "terok.lib.core.task_state",
     "terok.lib.core.work_status",
-    "terok.lib.core.config",
-    "terok.lib.core.projects",
     "terok.lib.util.ansi",
     "terok.lib.util.emoji",
     "terok.lib.util.fs",
@@ -544,6 +565,29 @@ depends_on = []
 utility = true
 
 
+# ── INTEGRATIONS LAYER ────────────────────────────────────────────
+#
+# Thin re-export adapters that own every import from a sibling wheel
+# (terok-executor, terok-sandbox, terok-clearance).  Outside these
+# modules, importing the sibling wheels is a contract violation —
+# see ``.importlinter``'s ``*-boundary`` contracts.
+
+[[modules]]
+path = "terok.lib.integrations.executor"
+layer = "integrations"
+depends_on = []
+
+[[modules]]
+path = "terok.lib.integrations.sandbox"
+layer = "integrations"
+depends_on = []
+
+[[modules]]
+path = "terok.lib.integrations.clearance"
+layer = "integrations"
+depends_on = []
+
+
 # ── Interfaces ────────────────────────────────────────────────────
 
 [[interfaces]]
@@ -657,16 +701,17 @@ expose = [
     "normalize_task_id_input",
     "CONTAINER_TEROK_CONFIG",
     "agent_config_dir",
-    # Meta-layer helpers — exported so the few writers outside tasks.py
+    # Meta-layer helpers — public so the writers outside tasks.py
     # (task_runners, sickbay) can land state via the same atomic-rename
-    # path tasks.py uses.  Underscore-prefixed because the on-disk
-    # shape isn't a public contract.
-    "_dossier_path",
-    "_meta_path",
-    "_read_task_meta",
-    "_write_task_meta",
-    "_iter_task_ids",
-    "_has_task_meta",
+    # path tasks.py uses.  The on-disk file layout is still subject to
+    # change; treat these as the "TaskMeta repository" boundary, not as
+    # a guarantee about file names.
+    "dossier_path",
+    "meta_path",
+    "read_task_meta",
+    "write_task_meta",
+    "iter_task_ids",
+    "task_exists",
 ]
 from = ["terok.lib.orchestration.tasks"]
 
@@ -819,64 +864,40 @@ expose = [
 ]
 from = ["terok.lib.domain.wizards.new_project"]
 
-# Facade interface (stable boundary for presentation layer)
-
-[[interfaces]]
-expose = [
-    "get_project",
-    "list_projects",
-    "derive_project",
-    "Project",
-    "Task",
-    "DeleteProjectResult",
-    "delete_project",
-    "generate_dockerfiles",
-    "build_images",
-    "project_image_exists",
-    "list_images",
-    "find_orphaned_images",
-    "cleanup_images",
-    "TaskDeleteResult",
-    "task_new",
-    "task_delete",
-    "task_rename",
-    "task_login",
-    "task_list",
-    "task_status",
-    "task_stop",
-    "task_archive_list",
-    "task_archive_logs",
-    "get_tasks",
-    "task_run_cli",
-    "task_run_toad",
-    "task_run_headless",
-    "HeadlessRunRequest",
-    "task_restart",
-    "task_followup_headless",
-    "task_logs",
-    "LogViewOptions",
-    "find_projects_sharing_gate",
-    "make_git_gate",
-    "make_ssh_manager",
-    "authenticate",
-    "get_project_state",
-    "is_task_image_old",
-    "register_ssh_key",
-    "maybe_pause_for_ssh_key_registration",
-    "project_needs_key_registration",
-    "provision_ssh_key",
-    "summarize_ssh_init",
-    "vault_db",
-]
-from = ["terok.lib.domain.facade"]
-
 [[interfaces]]
 expose = ["maybe_vault_db", "vault_db"]
 from = ["terok.lib.domain.vault"]
 
 [[interfaces]]
-expose = ["Project", "AgentManager", "DeleteProjectResult", "delete_project", "find_projects_sharing_gate", "validate_gate_upstream_match", "make_git_gate", "make_ssh_manager"]
+expose = [
+    "Project",
+    "AgentManager",
+    "DeleteProjectResult",
+    "delete_project",
+    "derive_project",
+    "find_projects_sharing_gate",
+    "get_project",
+    "list_projects",
+    "make_git_gate",
+    "make_ssh_manager",
+    "project_image_exists",
+    "validate_gate_upstream_match",
+]
 from = ["terok.lib.domain.project"]
+
+[[interfaces]]
+expose = [
+    "maybe_pause_for_ssh_key_registration",
+    "project_needs_key_registration",
+    "provision_ssh_key",
+    "register_ssh_key",
+    "summarize_ssh_init",
+]
+from = ["terok.lib.domain.ssh"]
+
+[[interfaces]]
+expose = ["authenticate"]
+from = ["terok.lib.domain.auth"]
 
 [[interfaces]]
 expose = ["Task"]
