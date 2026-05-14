@@ -97,9 +97,7 @@ def read_task_meta(meta_dir: Path, task_id: str) -> dict | None:
 
     A pre-self-describing layout (``<task_id>.json`` / ``<task_id>.yml``)
     is migrated to the new names in place before the read so callers
-    never see the legacy paths.  Likewise a layout from before the
-    dossier/bookkeeping split — a single JSON file mixing wire-dossier
-    keys with bookkeeping — is detected and re-split here.
+    never see the legacy paths.
     """
     _migrate_legacy_filenames(meta_dir, task_id)
     json_path = dossier_path(meta_dir, task_id)
@@ -108,46 +106,60 @@ def read_task_meta(meta_dir: Path, task_id: str) -> dict | None:
     if not (json_path.is_file() or yml_path.is_file()):
         return None
 
-    json_data: dict = {}
-    if json_path.is_file():
-        text = json_path.read_text(encoding="utf-8")
-        json_data = json.loads(text) if text.strip() else {}
-
-    # Pre-split single-JSON layout: one file mixed wire dossier with
-    # bookkeeping.  Detect, split, normalise.
-    spillover = {k: v for k, v in json_data.items() if k not in _DOSSIER_FROM_WIRE}
-    if spillover:
-        json_data = {k: v for k, v in json_data.items() if k in _DOSSIER_FROM_WIRE}
-
-    yml_data: dict = {}
-    if yml_path.is_file():
-        yml_data = _to_plain(_yaml_load(yml_path.read_text(encoding="utf-8")) or {})
-
-    # Spillover came from a caller writing the pre-split layout — treat
-    # it as more authoritative than any YAML on disk, since that YAML
-    # was written before the latest mutation and may be stale.
-    if spillover:
-        yml_data = {**yml_data, **spillover}
-
-    merged: dict = dict(yml_data)
-    for wire_key, value in json_data.items():
-        if wire_key in _DOSSIER_FROM_WIRE:
-            merged[_DOSSIER_FROM_WIRE[wire_key]] = value
-
-    # Backfill ``project_id`` from the meta-dir path for legacy records
-    # that predate the field landing in TaskMeta.  Without this, a
-    # task-rename on a legacy task lands a half-populated dossier (no
-    # ``project``) on the wire until some other code path happens to
-    # set it.  Path layout is ``<state>/projects/<project_id>/tasks``.
-    backfill_needed = not merged.get("project_id")
-    if backfill_needed and meta_dir.parent.parent.name == "projects":
-        merged["project_id"] = meta_dir.parent.name
-
-    if spillover or backfill_needed:
-        # Normalise on disk so the next read takes the fast path.
+    merged = _merge_dossier_into(_read_yml_meta(yml_path), _read_json_meta(json_path))
+    if _backfill_project_id(merged, meta_dir):
+        # Normalise on disk so the backfilled project_id persists.
         write_task_meta(dossier_path(meta_dir, task_id), merged)
 
     return merged
+
+
+def _read_json_meta(json_path: Path) -> dict:
+    """Read the wire-dossier JSON file — ``{}`` when absent or empty."""
+    if not json_path.is_file():
+        return {}
+    text = json_path.read_text(encoding="utf-8")
+    return json.loads(text) if text.strip() else {}
+
+
+def _read_yml_meta(yml_path: Path) -> dict:
+    """Read the bookkeeping YAML file as a plain dict — ``{}`` when absent."""
+    if not yml_path.is_file():
+        return {}
+    return _to_plain(_yaml_load(yml_path.read_text(encoding="utf-8")) or {})
+
+
+def _merge_dossier_into(yml_data: dict, dossier_data: dict) -> dict:
+    """Return *yml_data* merged with the wire-key-translated *dossier_data*.
+
+    Only recognised wire keys (``project`` / ``task`` / ``name``) are
+    translated and merged; any other key in the dossier file is ignored
+    rather than crashing this persistence boundary on an unexpected shape.
+    """
+    merged = dict(yml_data)
+    for wire_key, value in dossier_data.items():
+        internal_key = _DOSSIER_FROM_WIRE.get(wire_key)
+        if internal_key is not None:
+            merged[internal_key] = value
+    return merged
+
+
+def _backfill_project_id(merged: dict, meta_dir: Path) -> bool:
+    """Backfill ``project_id`` from the meta-dir path for legacy records.
+
+    Records that predate the field landing in TaskMeta carry no
+    ``project_id``; without it a task-rename lands a half-populated
+    dossier (no ``project``) on the wire.  Path layout is
+    ``<state>/projects/<project_id>/tasks``.  Returns ``True`` when a
+    value was filled in, so the caller knows the record needs
+    re-normalising on disk.
+    """
+    if merged.get("project_id"):
+        return False
+    if meta_dir.parent.parent.name != "projects":
+        return False
+    merged["project_id"] = meta_dir.parent.name
+    return True
 
 
 def write_task_meta(dossier_handle: Path, meta: dict) -> None:
