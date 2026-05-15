@@ -33,7 +33,6 @@ import asyncio
 import enum
 import itertools
 import json
-import os
 import shlex
 import sys
 import time
@@ -42,6 +41,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from textual import work
+
+from ..lib.util.subprocess_env import child_process_env
 
 if TYPE_CHECKING:
     from textual.app import App
@@ -52,25 +53,6 @@ else:
 
 #: Module path of the child-process entrypoint (the `_worker_entry` module).
 _WORKER_ENTRY_MODULE = "terok.tui._worker_entry"
-
-
-def child_process_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
-    """Build the environment for a spawned ``terok`` child process.
-
-    Threads the parent's ``sys.path`` through as ``PYTHONPATH`` so the
-    child can import ``terok`` regardless of how the parent was
-    launched.  Under Nix, ``sys.executable`` is a wrapper script that
-    rewrites the env on startup — but spawning it directly via
-    ``subprocess`` / ``create_subprocess_exec`` bypasses that wrapper,
-    leaving the child unable to find the ``terok`` package.  This shim
-    restores it (Franz Pöschel's fix in #717, which was lost when #797
-    replaced the function it lived in).
-
-    *overrides* are applied on top of the parent env; ``PYTHONPATH``
-    always wins so a stray ambient value can't shadow the parent's
-    real import path.
-    """
-    return {**os.environ, **(overrides or {}), "PYTHONPATH": os.pathsep.join(sys.path)}
 
 
 class LogStatus(enum.Enum):
@@ -268,7 +250,7 @@ class ConsoleLogMixin(_MixinBase):
         *env*, if given, layers extra environment variables onto the
         child's env (e.g. the askpass wiring a personal-SSH gate-sync
         needs); ``PYTHONPATH`` is still forced last (see
-        [`child_process_env`][terok.tui.console_log.child_process_env]).
+        [`child_process_env`][terok.lib.util.subprocess_env.child_process_env]).
         """
         command = " ".join([ref, *(str(arg) for arg in args)])
         return self._dispatch_console(worker_argv(ref, args), command, title, on_complete, env)
@@ -313,7 +295,7 @@ class ConsoleLogMixin(_MixinBase):
         ``start_new_session=True`` + ``stdin=DEVNULL`` detach the child
         from the controlling terminal so nothing below it can reach
         ``/dev/tty`` and draw over the Textual frame.  *env* layers
-        extra variables onto [`child_process_env`][terok.tui.console_log.child_process_env].
+        extra variables onto [`child_process_env`][terok.lib.util.subprocess_env.child_process_env].
         """
         try:
             proc = await asyncio.create_subprocess_exec(

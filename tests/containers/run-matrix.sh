@@ -59,6 +59,26 @@ declare -A DISTROS=(
     [fedora43]="fedora43"
     [fedora44]="fedora44"
     [podman]="podman"
+    [nix]="nix"
+)
+
+# The ``nix`` slot runs the same flavour the GitHub-Actions host CI
+# does — full unit suite plus host-only integration tests — but under
+# Nix-wrapped Python.  No podman / nftables, so the multi-phase
+# ``run_tests`` flow doesn't apply; we route through ``run_nix_tests``
+# instead.  Use of nix isn't an officially-supported install mode;
+# the slot exists so wrapped-Python regressions (#717 family) can't
+# slip past unit + host-only coverage on a different conceptual
+# install setup.
+declare -A SLOT_KIND=(
+    [debian12]="podman"
+    [ubuntu2404]="podman"
+    [ubuntu2604]="podman"
+    [debian13]="podman"
+    [fedora43]="podman"
+    [fedora44]="podman"
+    [podman]="podman"
+    [nix]="nix"
 )
 
 # Expected podman versions — pinned to the exact distro-shipped point
@@ -74,6 +94,7 @@ declare -A EXPECTED_VERSIONS=(
     [fedora43]="5.8.2"
     [fedora44]="5.8.2"
     [podman]="latest"
+    [nix]="n/a"
 )
 
 # Print "expected podman X.Y.Z" for distros with a version pin, or
@@ -83,11 +104,11 @@ declare -A EXPECTED_VERSIONS=(
 version_expectation() {
     local name="$1"
     local expected="${EXPECTED_VERSIONS[$name]:-}"
-    if [[ "$expected" == "latest" ]]; then
-        printf 'podman latest, version pinned by upstream'
-    else
-        printf 'expected podman %s' "$expected"
-    fi
+    case "$expected" in
+        latest) printf 'podman latest, version pinned by upstream' ;;
+        n/a) printf 'nix-wrapped Python (unit + host-only integration, no podman)' ;;
+        *) printf 'expected podman %s' "$expected" ;;
+    esac
 }
 
 # Print the parenthesised version summary for ``$name`` after a run.
@@ -99,7 +120,9 @@ version_summary() {
     local name="$1"
     local expected="${EXPECTED_VERSIONS[$name]:-}"
     local actual="${ACTUAL_VERSIONS[$name]:-?}"
-    if [[ "$expected" == "latest" || "$expected" == "$actual" ]]; then
+    if [[ "$expected" == "n/a" ]]; then
+        printf '%s(nix-wrapped Python %s)%s' "$C_DIM" "$actual" "$C_RESET"
+    elif [[ "$expected" == "latest" || "$expected" == "$actual" ]]; then
         printf '%s(podman %s)%s' "$C_DIM" "$actual" "$C_RESET"
     else
         printf '%s(WARNING: expected podman %s, got podman %s)%s' \
@@ -117,6 +140,7 @@ declare -A TEST_USERS=(
     [fedora43]="testrunner"
     [fedora44]="testrunner"
     [podman]="podman"
+    [nix]="testrunner"
 )
 
 usage() {
@@ -309,6 +333,118 @@ print(\\\"Shield hooks verified.\\\")
     return "$status"
 }
 
+run_nix_tests() {
+    # Run the same suite GitHub Actions runs (unit + host-only
+    # integration) but under Nix-wrapped Python.  Catches the
+    # wrapped-Python regressions (#717 family — every spawn of
+    # ``[sys.executable, "-m", "terok…"]`` must thread PYTHONPATH)
+    # and any other behaviour that quietly only works on the
+    # GitHub-Actions interpreter shape.
+    #
+    # No podman, no nft, no hooks — the Nix container is intentionally
+    # leaner than the multi-distro slots.  Marker-filtered integration
+    # mirrors ``make test-integration-host``.
+    local name="$1"
+    local image="$IMAGE_PREFIX:$name"
+    local ctr_name="$IMAGE_PREFIX-$name"
+
+    echo ""
+    echo -e "${C_CYAN}==> Testing ${C_BOLD}$name${C_CYAN} ($(version_expectation "$name"))${C_RESET}"
+    echo ""
+
+    podman run --rm --name "$ctr_name" \
+        --security-opt label=disable \
+        -v "$REPO_ROOT:$SOURCE_MOUNT:ro,Z" \
+        -v "$RESULTS_DIR:/results:rw,Z" \
+        "$image" \
+        bash -c "
+            set -e
+
+            # ── Prep workspace as root ──
+            cp -a $SOURCE_MOUNT $WORKSPACE_DIR
+            chown -R testrunner:testrunner $WORKSPACE_DIR
+
+            # Inner test script is self-contained and runs as
+            # testrunner.  Heredoc with a quoted delimiter keeps
+            # ``\$2``, etc. literal; ``$name`` (the slot name from
+            # the outer shell) is interpolated before write.
+            cat > /tmp/run-nix-tests.sh <<TESTSCRIPT
+#!/bin/bash
+set -e
+cd $WORKSPACE_DIR
+
+echo '--- nix-wrapped python ---'
+which python3.12
+python3.12 --version
+python3.12 --version | awk '{print \\\$2}' > /results/$name.python-version
+
+# Nix disables user site-packages (PYTHONNOUSERSITE), so install into
+# a venv — same shape the other matrix slots use.  The venv inherits
+# the wrapper's sys.path scrubbing, which is the wrapped-Python
+# failure mode (#717 family) we want to exercise.
+python3.12 -m venv .venv
+. .venv/bin/activate
+pip install --quiet --upgrade pip
+pip install --quiet poetry
+
+# ``test`` + ``docs`` is the minimum that makes the unit suite
+# collect: ``test`` for pytest, ``docs`` for the ``mkdocs_terok``
+# module that two unit tests import.
+#
+# Skipped on purpose:
+#   - ``stories`` pulls python-dbusmock → dbus-python, no wheel +
+#     needs ninja/meson/libdbus headers, for tests our marker filter
+#     excludes anyway.
+#   - ``dev`` carries pydevd-pycharm, ruff, mypy, tach — none load-
+#     bearing for running tests; ``-p no:tach`` below keeps pytest
+#     happy without the plugin.
+poetry install --with test --with docs --no-interaction
+
+echo ''
+echo '--- unit tests ---'
+poetry run pytest tests/unit -v --tb=short -p no:tach
+
+echo ''
+echo '--- host-only integration tests ---'
+# Same marker filter ``make test-integration-host`` uses on
+# GitHub-Actions: skip everything that wants podman or the internet.
+poetry run pytest tests/integration -v --tb=short -p no:tach \\
+    -m 'needs_host_features and not needs_internet and not needs_podman'
+TESTSCRIPT
+            chmod +x /tmp/run-nix-tests.sh
+
+            # Switch to testrunner via Python's setuid + execvp.
+            # nixos/nix's ``util-linux``/``shadow`` packages don't
+            # expose ``su`` on the profile bin (su needs SUID, which
+            # is a NixOS security-wrappers concern, not a profile
+            # one).  ``runuser`` has the same problem.  Python's
+            # ``os.setuid`` doesn't need any of that infrastructure
+            # and is portable across whatever the base image happens
+            # to ship.
+            exec python3.12 -c \"
+import os
+os.setgid(1000)
+os.setuid(1000)
+os.environ.update(HOME='/home/testrunner', USER='testrunner', LOGNAME='testrunner')
+os.execvp('/tmp/run-nix-tests.sh', ['/tmp/run-nix-tests.sh'])
+\"
+        "
+
+    local status=$?
+    local actual
+    actual=$(cat "$RESULTS_DIR/$name.python-version" 2>/dev/null || true)
+    ACTUAL_VERSIONS[$name]="${actual:-?}"
+
+    local vsummary
+    vsummary=$(version_summary "$name")
+    if [[ $status -eq 0 ]]; then
+        echo -e "${C_GREEN}==> $name: PASS${C_RESET} $vsummary"
+    else
+        echo -e "${C_RED}==> $name: FAIL${C_RESET} $vsummary" >&2
+    fi
+    return "$status"
+}
+
 BUILD_ONLY=false
 LIST_ONLY=false
 NO_CACHE=false
@@ -358,7 +494,11 @@ PASSED=()
 FAILED=()
 
 for target in "${TARGETS[@]}"; do
-    if run_tests "$target"; then
+    case "${SLOT_KIND[$target]}" in
+        nix) runner=run_nix_tests ;;
+        *) runner=run_tests ;;
+    esac
+    if "$runner" "$target"; then
         PASSED+=("$target")
     else
         FAILED+=("$target")
