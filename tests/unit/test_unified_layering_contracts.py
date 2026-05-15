@@ -48,10 +48,14 @@ import pytest
 # (``~/.config/terok/config.yml``) or a ``TEROK_CONFIG_FILE`` env
 # override can never silently disable the egress firewall — even
 # though the orchestrator-driven path through ``make_sandbox_config``
-# does read it.  Port fields (gate/token_broker/ssh_signer) flow
-# through sandbox's port-registry resolution rather than a config.yml
-# factory, so they're not pinned either.
-_TEROK_PROMISED_FIELDS: tuple[str, ...] = ("services_mode", "shield_audit")
+# does read it.
+_TEROK_PROMISED_FIELDS: tuple[str, ...] = (
+    "services_mode",
+    "shield_audit",
+    "gate_port",
+    "token_broker_port",
+    "ssh_signer_port",
+)
 
 
 def _write_user_config(tmp_path: Path, body: str) -> Path:
@@ -376,6 +380,76 @@ def test_meta_path_builders_reject_unsafe_task_id(bad: str, tmp_path: Path) -> N
             builder(tmp_path, bad)
     with pytest.raises(SystemExit, match="task_id"):
         agent_config_dir("myproj", bad)
+
+
+def test_sickbay_collects_checks_in_socket_mode(tmp_path: Path) -> None:
+    """`_collect_all_checks` must not raise on a socket-mode cfg with ``None`` ports.
+
+    Regression for the false-positive "Sandbox service ports are not all
+    configured" SystemExit that fired for every running task on hosts using
+    socket-mode services.yml (the default outside of TCP-mode setups).  In
+    socket mode the three TCP ports are *supposed* to be ``None`` — the
+    downstream assemblers already special-case it — so the early gate must
+    only fire in TCP mode.
+    """
+    from unittest.mock import MagicMock
+
+    from terok_sandbox import SandboxConfig
+
+    from terok.lib.orchestration import container_doctor
+
+    socket_cfg = SandboxConfig(
+        services_mode="socket",
+        gate_port=None,
+        token_broker_port=None,
+        ssh_signer_port=None,
+    )
+
+    with (
+        patch.object(container_doctor, "make_sandbox_config", return_value=socket_cfg),
+        patch.object(container_doctor, "get_roster", return_value=MagicMock()),
+        patch.object(container_doctor, "load_project") as load_proj,
+    ):
+        load_proj.return_value = MagicMock(
+            human_name="N",
+            human_email="n@x",
+            security_class="gatekeeping",
+        )
+        checks = container_doctor._collect_all_checks("any-project", tmp_path)
+
+    assert isinstance(checks, list)
+    # Port-drift checks are TCP-only and must be elided in socket mode.
+    labels = [c.label for c in checks]
+    assert "Token broker port drift" not in labels
+    assert "SSH signer port drift" not in labels
+
+
+def test_terok_doctor_checks_emits_port_drift_in_tcp_mode() -> None:
+    """Mirror of the socket-mode test: real ports → drift checks present.
+
+    Exercises the ``if … is not None: checks.append(_port_drift_check(…))``
+    branches in [`_terok_doctor_checks`][terok.lib.orchestration.container_doctor._terok_doctor_checks].
+    """
+    from unittest.mock import MagicMock
+
+    from terok.lib.orchestration import container_doctor
+
+    with patch.object(container_doctor, "load_project") as load_proj:
+        load_proj.return_value = MagicMock(
+            human_name="N",
+            human_email="n@x",
+            security_class="gatekeeping",
+        )
+        checks = container_doctor._terok_doctor_checks(
+            "any-project",
+            gate_port=18700,
+            token_broker_port=18701,
+            ssh_signer_port=18702,
+        )
+
+    labels = [c.label for c in checks]
+    assert "Token broker port drift" in labels
+    assert "SSH signer port drift" in labels
 
 
 def test_terok_gate_ownership() -> None:
