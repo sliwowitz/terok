@@ -39,7 +39,7 @@ def _make_vault_status(
 
 
 @pytest.mark.parametrize(
-    ("status", "outdated", "systemd_available", "exit_code", "expected"),
+    ("status", "outdated", "systemd_available", "exit_code", "expected", "unexpected"),
     [
         pytest.param(
             make_gate_server_status("systemd", running=True, transport="tcp"),
@@ -47,6 +47,7 @@ def _make_vault_status(
             False,
             None,
             ["Gate server", "ok", "systemd"],
+            [],
             id="all-ok",
         ),
         pytest.param(
@@ -55,6 +56,7 @@ def _make_vault_status(
             False,
             1,
             ["WARN", "outdated", "terok gate start"],
+            [],
             id="outdated-units",
         ),
         pytest.param(
@@ -63,6 +65,7 @@ def _make_vault_status(
             True,
             1,
             ["WARN", "gate start"],
+            [],
             id="not-running-with-systemd",
         ),
         pytest.param(
@@ -70,7 +73,11 @@ def _make_vault_status(
             None,
             False,
             1,
-            ["WARN", "gate start"],
+            ["WARN", "disabled", "no user systemd"],
+            # Lock the regression boundary: the old "run terok gate start"
+            # hint must NOT appear on no-systemd hosts — installing it
+            # wouldn't help, so suggesting it would be actively misleading.
+            ["terok gate start"],
             id="not-running-without-systemd",
         ),
         pytest.param(
@@ -79,6 +86,7 @@ def _make_vault_status(
             False,
             2,
             ["ERROR", "not active"],
+            [],
             id="socket-inactive",
         ),
     ],
@@ -89,6 +97,7 @@ def test_cmd_sickbay_reports_health(
     systemd_available: bool,
     exit_code: int | None,
     expected: list[str],
+    unexpected: list[str],
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
@@ -133,6 +142,10 @@ def test_cmd_sickbay_reports_health(
         patch("terok.cli.commands.sickbay.get_server_status", return_value=status),
         patch("terok.cli.commands.sickbay.check_units_outdated", return_value=outdated),
         patch("terok.cli.commands.sickbay.is_systemd_available", return_value=systemd_available),
+        # ``_check_gate_server`` now branches on git availability before
+        # systemd; pin to "present" so the parametrised cases above
+        # exercise the systemd / not-running branches as intended.
+        patch("terok.cli.commands.sickbay.shutil.which", return_value="/usr/bin/git"),
         patch("terok.cli.commands.sickbay.check_environment", return_value=mock_ec),
         patch("terok.cli.commands.sickbay.get_vault_status", return_value=_make_vault_status()),
         patch("terok.cli.commands.sickbay.is_vault_systemd_available", return_value=False),
@@ -149,6 +162,8 @@ def test_cmd_sickbay_reports_health(
     output = capsys.readouterr().out
     for needle in expected:
         assert needle in output
+    for needle in unexpected:
+        assert needle not in output, f"{needle!r} should not appear in {output!r}"
 
 
 @pytest.mark.parametrize(
