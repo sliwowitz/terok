@@ -11,11 +11,18 @@ and ``_project_runtime_flags`` assemble the podman invocation.
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 from typing import TYPE_CHECKING
 
+from terok.lib.core.config import is_experimental
 from terok.lib.integrations.executor import AgentRunner, BuildError
-from terok.lib.integrations.sandbox import LifecycleHooks, Sandbox, VolumeSpec
+from terok.lib.integrations.sandbox import (
+    DEFAULT_CID_ANNOTATION,
+    LifecycleHooks,
+    Sandbox,
+    VolumeSpec,
+)
 
 from ...core import runtime as _rt
 from ...core.config import make_sandbox_config
@@ -157,7 +164,9 @@ def _run_container(
         "--annotation",
         f"dossier.meta_path={task_dossier_path}",
     ]
-    merged_args = annotations + list(extra_args or ()) + _project_runtime_flags(project)
+    merged_args = (
+        annotations + list(extra_args or ()) + _project_runtime_flags(project, cname=cname)
+    )
     try:
         _agent_runner().launch_prepared(
             env=env,
@@ -186,7 +195,7 @@ def _agent_runner() -> AgentRunner:
     return AgentRunner(sandbox=Sandbox(make_sandbox_config()))
 
 
-def _project_runtime_flags(project: ProjectConfig) -> list[str]:
+def _project_runtime_flags(project: ProjectConfig, *, cname: str) -> list[str]:
     """Return extra ``podman run`` flags derived from project-level capabilities.
 
     ``run.nested_containers`` → ``--security-opt label=nested`` plus
@@ -196,11 +205,89 @@ def _project_runtime_flags(project: ProjectConfig) -> list[str]:
     ``/dev/fuse`` is required by rootless podman's fuse-overlayfs driver.
     Available on podman v4.5.0+ (April 2023); older podmans error with
     "unknown label option: nested" and the user is expected to upgrade.
+
+    ``run.runtime: krun`` → ``--runtime krun`` plus krun OCI annotations
+    for microVM sizing and a per-container vsock CID.  Validates the
+    krun-incompatible combinations before emitting any flag so the
+    operator sees a clear error rather than a podman launch failure.
     """
     flags: list[str] = []
     if project.nested_containers:
         flags += ["--security-opt", "label=nested", "--device", "/dev/fuse"]
+    if project.runtime == "krun":
+        _validate_krun_compatibility(project)
+        flags += ["--runtime", "krun"]
+        if project.krun_cpus is not None:
+            flags += ["--annotation", f"run.oci.krun.cpus={project.krun_cpus}"]
+        if project.krun_ram_mib is not None:
+            flags += ["--annotation", f"run.oci.krun.ram_mib={project.krun_ram_mib}"]
+        # The CID annotation is the contract between the orchestrator and
+        # `VsockSSHTransport`'s podman_annotation_resolver — the resolver
+        # reads it back per *container name* at exec time, so the binding
+        # is container-scoped on both ends.
+        flags += [
+            "--annotation",
+            f"{DEFAULT_CID_ANNOTATION}={_allocate_krun_cid(cname)}",
+        ]
     return flags
+
+
+def _validate_krun_compatibility(project: ProjectConfig) -> None:
+    """Reject combinations that can't be honoured under krun.
+
+    Both the env-var path ([`get_runtime`][terok.lib.core.runtime.get_runtime])
+    and the project-config path (this function) must gate on the global
+    ``experimental`` flag — otherwise a typo or accidental config edit
+    silently switches the workload to the less-audited experimental
+    backend.
+
+    - ``experimental``: required for krun selection by any path.
+    - ``nested_containers``: krun guests can't host nested podman/docker
+      with our current image; ask the operator to drop one of the two.
+    """
+    if not is_experimental():
+        raise SystemExit(
+            "run.runtime: krun requires the experimental flag.  Set "
+            "`experimental: true` in your config.yml, or pass "
+            "`--experimental` on the command line."
+        )
+
+    if project.nested_containers:
+        raise SystemExit(
+            "run.runtime: krun is incompatible with run.nested_containers: true — "
+            "the L0G guest image doesn't ship a nested-container stack.  "
+            "Pick one or move the nested workload to a podman task."
+        )
+
+
+def _allocate_krun_cid(cname: str) -> int:
+    """Deterministically assign a vsock CID to *cname*.
+
+    Stable across re-execs of the same container so the host-side
+    resolver finds the same guest.  Keyed on the container name (not
+    the project id) so two concurrent tasks under the same project
+    get distinct CIDs — same-project multi-task is the most likely
+    collision shape, and per-container keying eliminates it.
+
+    Stays in the unreserved range ``[3, 2**31)``.  CIDs 0, 1, 2 are
+    reserved by the vsock spec (``ANY``, ``HYPERVISOR``, ``HOST``);
+    the upper half stays clear of the vendor-reserved 2**32-1
+    sentinel and leaves headroom.
+
+    **Threat model note** — the vsock kernel module enforces CID
+    uniqueness at bind time: two guests cannot simultaneously hold
+    the same CID.  A hash collision therefore causes the second
+    ``podman run`` to fail at startup, not a silent wrong-guest
+    dispatch.  At realistic concurrency (tens to low hundreds of
+    containers) the birthday probability inside a 2**31 range is
+    negligible.  A proper free-CID tracker with a persistent
+    freelist + lock would still be needed before terok supports
+    very-high-concurrency deploys or wants graceful CID reuse after
+    crashes — tracked as a follow-up.
+    """
+    digest = hashlib.sha1(cname.encode("utf-8"), usedforsecurity=False).digest()
+    raw = int.from_bytes(digest[:8], "big")
+    return 3 + (raw % (2**31 - 3))
 
 
 __all__ = [
