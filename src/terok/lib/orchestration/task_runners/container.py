@@ -12,6 +12,7 @@ and ``_project_runtime_flags`` assemble the podman invocation.
 from __future__ import annotations
 
 import dataclasses
+import math
 import shlex
 from typing import TYPE_CHECKING
 
@@ -176,15 +177,21 @@ def _run_container(
     # event.  The JSON file IS the wire dossier — wire-shape keys, no
     # projection, no snapshot — so one annotation is enough.
     task_dossier_path = dossier_path(tasks_meta_dir(project.id), task_id)
-    annotations = [
-        "--annotation",
-        f"dossier.meta_path={task_dossier_path}",
-    ]
-    merged_args = (
-        annotations + list(extra_args or ()) + _project_runtime_flags(project, cname=cname)
-    )
+    annotations = {"dossier.meta_path": str(task_dossier_path)}
+    merged_args = list(extra_args or ()) + _project_runtime_flags(project, cname=cname)
     if project.runtime == "krun":
         hooks = _chain_krun_dns_rewrite(hooks, task_dir)
+        # ``--cpus`` is only a cgroup CFS quota — crun-krun does not
+        # read it to size the microVM and defaults to host CPU
+        # affinity instead (so ``nproc`` reports all host cores even
+        # when ``run.cpus`` is set lower).  Forward ``run.cpus`` via
+        # the explicit ``krun.cpus`` annotation crun-krun documents,
+        # rounding up to a whole vCPU and capped at 16 (krun's
+        # documented max).  Memory has an OCI fallback in crun-krun
+        # so no analogous annotation is needed for ``run.memory``.
+        if project.cpus is not None:
+            vcpus = max(1, min(16, math.ceil(float(project.cpus))))
+            annotations["krun.cpus"] = str(vcpus)
     try:
         _agent_runner(project).launch_prepared(
             env=env,
@@ -194,13 +201,14 @@ def _run_container(
             name=cname,
             task_dir=task_dir,
             gpu=has_gpu(project),
-            memory=project.memory_limit,
-            cpus=project.cpu_limit,
+            memory=project.memory,
+            cpus=project.cpus,
             unrestricted="TEROK_UNRESTRICTED" in env,
             sealed=project.is_sealed,
             hooks=hooks,
             extra_args=merged_args,
             hostname=cname,
+            annotations=annotations,
         )
     except FileNotFoundError as exc:
         raise SystemExit(f"podman not found; please install podman ({exc})") from exc
@@ -232,15 +240,20 @@ def _project_runtime_flags(project: ProjectConfig, *, cname: str) -> list[str]:
     Available on podman v4.5.0+ (April 2023); older podmans error with
     "unknown label option: nested" and the user is expected to upgrade.
 
-    ``run.runtime: krun`` → ``--runtime krun`` plus krun OCI annotations
-    for microVM sizing, a per-container ``-p 127.0.0.1:<host>:22`` port
-    forward bridging into the guest's sshd via podman's passt, **and** a
-    bind-mount of the live host SSH public key into the guest's
-    ``/etc/ssh/authorized_keys.d/terok``.  The L0 image ships an empty
-    placeholder there; the mount overlays it so the guest's sshd
-    accepts our private key.  Validates the krun-incompatible
-    combinations before emitting any flag so the operator sees a clear
-    error rather than a podman launch failure.
+    ``run.runtime: krun`` → ``--runtime krun``, a per-container
+    ``-p 127.0.0.1:<host>:22`` port forward bridging into the guest's
+    sshd via podman's passt, **and** a bind-mount of the live host SSH
+    public key into the guest's ``/etc/ssh/authorized_keys.d/terok``.
+    The L0 image ships an empty placeholder there; the mount overlays
+    it so the guest's sshd accepts our private key.  Validates the
+    krun-incompatible combinations before emitting any flag so the
+    operator sees a clear error rather than a podman launch failure.
+
+    Sizing under krun is asymmetric: ``run.memory`` rides on podman's
+    ``--memory`` (crun-krun reads the OCI memory limit as a fallback),
+    but ``run.cpus`` does **not** size the VM — it only sets the
+    cgroup CFS quota.  The vCPU annotation is emitted in
+    ``_run_container`` where the typed ``annotations=`` channel lives.
     """
     del cname  # signature kept for caller stability; no longer read here
     flags: list[str] = []
@@ -249,10 +262,6 @@ def _project_runtime_flags(project: ProjectConfig, *, cname: str) -> list[str]:
     if project.runtime == "krun":
         _validate_krun_compatibility(project)
         flags += ["--runtime", "krun"]
-        if project.krun_cpus is not None:
-            flags += ["--annotation", f"run.oci.krun.cpus={project.krun_cpus}"]
-        if project.krun_ram_mib is not None:
-            flags += ["--annotation", f"run.oci.krun.ram_mib={project.krun_ram_mib}"]
         # Reserve a free loopback TCP port and forward it to the guest's
         # sshd.  ``reserve_port`` binds-then-releases, so there's a
         # small race window before podman picks the port back up — same

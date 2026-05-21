@@ -442,12 +442,10 @@ class TestRunContainer:
         p.root = MOCK_TASK_DIR
         p.isolation = "shared"
         p.is_sealed = False
-        p.memory_limit = None
-        p.cpu_limit = None
+        p.memory = None
+        p.cpus = None
         p.nested_containers = False
         p.runtime = None
-        p.krun_cpus = None
-        p.krun_ram_mib = None
         return p
 
     def test_builds_runspec_and_delegates(self) -> None:
@@ -550,27 +548,25 @@ class TestRunContainer:
             )
 
         spec = captured_runspec(sandbox_factory)
-        # _run_container prepends a single ``dossier.meta_path`` annotation
-        # — the file at that path *is* the wire dossier (wire-shape JSON,
-        # ``{project, task, name}``).  The shield reader rereads it on
-        # every emit so renames surface live.  Caller-supplied extras come
-        # after.
+        # _run_container emits the dossier annotation through the typed
+        # ``annotations=`` kwarg (sandbox validates against
+        # SAFE_ANNOTATION_KEYS).  Caller-supplied extras land in
+        # ``extra_args`` untouched.  The file at the annotated path *is*
+        # the wire dossier (wire-shape JSON, ``{project, task, name}``);
+        # the shield reader rereads it on every emit so renames surface
+        # live.
         from terok.lib.orchestration.tasks import dossier_path, tasks_meta_dir
 
         expected_dossier_path = dossier_path(tasks_meta_dir("p1"), "t1")
-        assert spec.extra_args == (
-            "--annotation",
-            f"dossier.meta_path={expected_dossier_path}",
-            "-p",
-            "8080:80",
-        )
+        assert spec.annotations["dossier.meta_path"] == str(expected_dossier_path)
+        assert spec.extra_args == ("-p", "8080:80")
         assert spec.command == ("bash", "-lc", "toad --serve")
 
     def test_resource_limits_from_project(self) -> None:
-        """memory_limit and cpu_limit flow from ProjectConfig to RunSpec."""
+        """memory and cpus flow from ProjectConfig to RunSpec."""
         project = self._make_project()
-        project.memory_limit = "4g"
-        project.cpu_limit = "2.0"
+        project.memory = "4g"
+        project.cpus = "2.0"
         with (
             patch(
                 "terok.lib.orchestration.task_runners.container._agent_runner"
@@ -588,14 +584,14 @@ class TestRunContainer:
             )
 
         spec = captured_runspec(sandbox_factory)
-        assert spec.memory_limit == "4g"
-        assert spec.cpu_limit == "2.0"
+        assert spec.memory == "4g"
+        assert spec.cpus == "2.0"
 
     def test_resource_limits_default_none(self) -> None:
         """Resource limits are None when project has no limits set."""
         project = self._make_project()
-        project.memory_limit = None
-        project.cpu_limit = None
+        project.memory = None
+        project.cpus = None
         with (
             patch(
                 "terok.lib.orchestration.task_runners.container._agent_runner"
@@ -613,8 +609,100 @@ class TestRunContainer:
             )
 
         spec = captured_runspec(sandbox_factory)
-        assert spec.memory_limit is None
-        assert spec.cpu_limit is None
+        assert spec.memory is None
+        assert spec.cpus is None
+
+    def test_krun_cpus_annotation_emitted_with_rounding(self) -> None:
+        """Under krun, ``run.cpus`` also rides on the ``krun.cpus`` annotation
+        — the standard ``--cpus`` flag only sets the cgroup quota; crun-krun
+        ignores it for vCPU sizing.  Fractional cpus round up to whole vCPUs."""
+        project = self._make_project()
+        project.runtime = "krun"
+        project.cpus = "2.5"
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._project_runtime_flags",
+                return_value=[],  # bypass krun port-reservation etc.
+            ),
+            patch(
+                "terok.lib.orchestration.task_runners.container._chain_krun_dns_rewrite",
+                side_effect=lambda hooks, _: hooks,
+            ),
+        ):
+            _run_container(
+                task_id="t1",
+                cname="krun-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+
+        spec = captured_runspec(sandbox_factory)
+        assert spec.annotations["krun.cpus"] == "3"  # ceil(2.5)
+
+    def test_krun_cpus_annotation_skipped_when_unset(self) -> None:
+        """No ``krun.cpus`` annotation when ``run.cpus`` is unset — crun-krun
+        falls back to host CPU affinity, which is the historical default."""
+        project = self._make_project()
+        project.runtime = "krun"
+        project.cpus = None
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
+            patch(
+                "terok.lib.orchestration.task_runners.container._project_runtime_flags",
+                return_value=[],
+            ),
+            patch(
+                "terok.lib.orchestration.task_runners.container._chain_krun_dns_rewrite",
+                side_effect=lambda hooks, _: hooks,
+            ),
+        ):
+            _run_container(
+                task_id="t1",
+                cname="krun-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+
+        spec = captured_runspec(sandbox_factory)
+        assert "krun.cpus" not in spec.annotations
+
+    def test_krun_cpus_annotation_not_emitted_under_crun(self) -> None:
+        """``krun.cpus`` is krun-specific — under crun (or runtime=None),
+        the annotation must not appear regardless of ``run.cpus``."""
+        project = self._make_project()
+        project.runtime = None  # crun default
+        project.cpus = "2"
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch("terok.lib.orchestration.task_runners.container.has_gpu", return_value=False),
+        ):
+            _run_container(
+                task_id="t1",
+                cname="crun-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+
+        spec = captured_runspec(sandbox_factory)
+        assert "krun.cpus" not in spec.annotations
 
     def test_launch_build_error_becomes_system_exit(self) -> None:
         """BuildError from AgentRunner.launch_prepared() is surfaced as SystemExit.
