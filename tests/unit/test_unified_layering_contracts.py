@@ -88,9 +88,9 @@ def test_config_equality_contract(tmp_path: Path) -> None:
         # and the validated-section `@lru_cache` factories that
         # sandbox dataclass field-factories call through.
         from terok_sandbox import config as _sandbox_config
-        from terok_sandbox.paths import _config_section_cache
+        from terok_util.paths import _reset_config_caches_for_tests
 
-        _config_section_cache.clear()
+        _reset_config_caches_for_tests()
         _sandbox_config._shield_section.cache_clear()
         _sandbox_config._credentials_section.cache_clear()
 
@@ -215,7 +215,7 @@ def test_per_container_identity_forms() -> None:
         patch(
             "terok.lib.orchestration.tasks.lookup_container_by_pt",
         ) as lookup_mock,
-        patch("terok_sandbox.PodmanRuntime", return_value=fake_runtime),
+        patch("terok_executor.integrations.sandbox.PodmanRuntime", return_value=fake_runtime),
     ):
         lookup_mock.return_value = "resolved-container-name"
         stop_cmd.handler(name="myproj/mytask")

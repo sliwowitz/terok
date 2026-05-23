@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from terok_util import ensure_dir
+
 from terok.lib.integrations.executor import AgentRunner
 
 from ...core import runtime as _rt
@@ -28,7 +30,7 @@ from ...util.ansi import (
     yellow as _yellow,
 )
 from ...util.emoji import render_emoji
-from ...util.fs import archive_timestamp, create_archive_dir, ensure_dir
+from ...util.fs import archive_timestamp, create_archive_dir
 from ...util.host_cmd import WORKSPACE_DANGEROUS_DIRNAME
 from ...util.logging_utils import _log_debug
 from .identity import _generate_unique_id

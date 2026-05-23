@@ -52,7 +52,7 @@ from importlib import resources as importlib_resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
 
-from ...lib.util.template_utils import render_resource_template
+import jinja2
 
 _log = logging.getLogger(__name__)
 
@@ -367,7 +367,27 @@ def _render_desktop_file(bin_str: str) -> str:
         }
     else:
         variables = {"EXEC": bin_str, "TRY_EXEC": bin_str, "TERMINAL": "true"}
-    return render_resource_template(_resource_dir().joinpath(_TEMPLATE_NAME), variables)
+    # The fallback install path skips ``desktop-file-install`` validation,
+    # so refuse any value with a C0/DEL/C1 character before substitution —
+    # a stray control byte in ``Exec=`` / ``TryExec=`` corrupts the
+    # launcher's key syntax and the unvalidated path lands as-is.  In
+    # practice the values come from ``shutil.which`` results (path
+    # strings), but the cost of the guard is zero compared to debugging
+    # a silently-broken launcher.
+    for key, value in variables.items():
+        if any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in value):
+            raise ValueError(f"{key} contains a control character: {value!r}")
+    with importlib_resources.as_file(_resource_dir().joinpath(_TEMPLATE_NAME)) as template_path:
+        # ``StrictUndefined`` upgrades silent ``{{TYPO}}`` to a hard error;
+        # ``autoescape=False`` because ``.desktop`` syntax is not HTML and
+        # any escaping would corrupt ``Exec=`` quoting.
+        env = jinja2.Environment(  # nosec B701 — see comment above  # noqa: S701
+            loader=jinja2.FileSystemLoader(str(template_path.parent)),
+            keep_trailing_newline=True,
+            undefined=jinja2.StrictUndefined,
+            autoescape=False,
+        )
+        return env.get_template(template_path.name).render(**variables)
 
 
 # ── Manual cache refresh (fallback backend only) ──────────────────────

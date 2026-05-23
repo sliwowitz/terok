@@ -206,9 +206,9 @@ def test_core_state_dir_via_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
 
 def test_core_state_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """``core_state_dir()`` honors ``paths.root`` from config as namespace root."""
-    from terok_sandbox import paths as sandbox_paths
+    from terok_util import paths as util_paths
 
-    sandbox_paths._config_section_cache.clear()
+    util_paths._reset_config_caches_for_tests()
     target = tmp_path / "custom-root"
     monkeypatch.delenv("TEROK_STATE_DIR", raising=False)
     monkeypatch.delenv("TEROK_ROOT", raising=False)
@@ -219,7 +219,7 @@ def test_core_state_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     try:
         assert _paths.core_state_dir() == (target / "core").resolve()
     finally:
-        sandbox_paths._config_section_cache.clear()
+        util_paths._reset_config_caches_for_tests()
 
 
 def test_build_dir_via_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -613,7 +613,6 @@ def test_make_sandbox_config_credentials_propagation(
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
     sc = cfg.make_sandbox_config()
     assert sc.db_path == (tmp_path / "creds" / "credentials.db").resolve()
-    assert sc.ssh_keys_json_path == (tmp_path / "creds" / "ssh-keys.json").resolve()
 
 
 def test_make_sandbox_config_shield_bypass(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
