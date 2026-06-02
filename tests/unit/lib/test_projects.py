@@ -33,6 +33,7 @@ def project_yaml(
     shield_on_task_restart: str | None = None,
     timezone: str | None = None,
     ssh_use_personal: bool | None = None,
+    credentials_scope: str | None = None,
 ) -> str:
     """Build project YAML for tests with optional sections."""
     lines = ["project:", f"  id: {project_id}"]
@@ -52,6 +53,8 @@ def project_yaml(
         lines += ["run:", f"  timezone: {timezone}"]
     if ssh_use_personal is not None:
         lines += ["ssh:", f"  use_personal: {str(ssh_use_personal).lower()}"]
+    if credentials_scope is not None:
+        lines += ["credentials:", f"  scope: {credentials_scope}"]
     return "\n".join(lines) + "\n"
 
 
@@ -74,6 +77,21 @@ class TestProject:
             )
             assert project.staging_root == (build_dir() / project_id).resolve()
             assert project.git_authorship == "agent-human"
+            # Default credentials.scope: shared bucket, no per-project carve-out.
+            assert project.credentials_scope == "shared"
+            assert project.credential_set == "default"
+
+    def test_load_project_with_per_project_credentials(self) -> None:
+        """``credentials.scope: project`` flips credential_set + project_mounts_dir."""
+        project_id = "proj-creds"
+        with project_env(
+            project_yaml(project_id, credentials_scope="project"),
+            project_id=project_id,
+        ):
+            project = load_project(project_id)
+            assert project.credentials_scope == "project"
+            assert project.credential_set == project_id
+            assert project.project_mounts_dir == project.root / "mounts"
 
     @pytest.mark.parametrize(
         ("project_id", "yaml_text", "config_text", "expected"),
@@ -275,6 +293,33 @@ class TestProject:
         # directly, the TUI would get duplicate noise on top of its toast.
         captured = capsys.readouterr()
         assert captured.err.strip() == ""
+
+    def test_discover_surfaces_legacy_reserved_id_as_broken(self) -> None:
+        """A legacy on-disk project named ``default`` is broken, not silently dropped.
+
+        ``default`` was creatable before the reserved-name guard landed, so an
+        upgraded install can still have one on disk.  Discovery must not let the
+        reservation hide it — that would turn "project vanished" into a mystery
+        (#565).  It surfaces as a BrokenProject carrying the reserved-name hint.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            config_base = base / "config"
+            projects_root = config_base / "projects"
+            write_project(
+                projects_root,
+                "default",
+                "project:\n  id: default\ngit:\n  upstream_url: https://example.com/d.git\n",
+            )
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"TEROK_CONFIG_DIR": str(config_base), "XDG_CONFIG_HOME": str(base / "empty")},
+            ):
+                valid, broken = discover_projects()
+
+        assert [p.id for p in valid] == []
+        assert [bp.id for bp in broken] == ["default"]
+        assert "reserved" in broken[0].error
 
     def test_list_projects_skips_malformed_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as td:

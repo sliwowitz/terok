@@ -25,7 +25,6 @@ from terok.lib.integrations.executor import (
 from terok.lib.integrations.sandbox import Sharing, VolumeSpec
 
 from ...core import runtime as _rt
-from ...core.config import sandbox_live_mounts_dir
 from ...core.images import project_cli_image, require_agent_installed
 from ...core.projects import load_project
 from ...util.ansi import (
@@ -38,7 +37,7 @@ from ...util.host_cmd import WORKSPACE_DANGEROUS_DIRNAME
 from ...util.yaml import load as _yaml_load
 from ..agent_config import resolve_agent_config
 from ..container_exec import container_git_diff
-from ..environment import build_task_env_and_volumes, ensure_vault
+from ..environment import build_task_env_and_volumes, ensure_vault, project_mounts_dir
 from ..hooks import run_hook
 from ..tasks import (
     CONTAINER_TEROK_CONFIG,
@@ -245,7 +244,7 @@ def task_run_headless(request: HeadlessRunRequest) -> str:
             provider=resolved.name,
             instructions=instr_text,
             default_agent=project.default_agent,
-            mounts_base=sandbox_live_mounts_dir(),
+            mounts_base=project_mounts_dir(project),
         )
     )
 
