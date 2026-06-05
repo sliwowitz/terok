@@ -64,6 +64,7 @@ from terok.lib.orchestration.tasks import (  # noqa: F401 — re-exported public
     task_rename,
     task_status,
     task_stop,
+    tasks_meta_dir,
     validate_task_name,
     wait_for_container_exit,
 )
@@ -108,6 +109,7 @@ __all__ = [
     "task_run_toad",
     "task_status",
     "task_stop",
+    "tasks_meta_dir",
     "validate_task_name",
     "wait_for_container_exit",
 ]

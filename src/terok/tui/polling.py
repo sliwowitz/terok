@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from terok.lib.api.gate import GateStalenessInfo
 
     from ..lib.api import TaskMeta
+    from .task_watcher import TaskWatcher
 
     # At type-check time only, inherit from textual.App so all of its methods
     # (run_worker, set_interval, notify, …) resolve naturally on `self` with
@@ -26,6 +27,18 @@ if TYPE_CHECKING:
     _MixinBase = App
 else:
     _MixinBase = object
+
+# Container-state cadence.  With an inotify watch on the task-metadata directory
+# every membership / lifecycle change (create, delete, ``ready_at``,
+# ``exit_code``) reconciles the instant the kernel reports it, so the periodic
+# timer drops to a slow safety net that only catches what the watch can't see —
+# a container dying with no host-side write, or a missed inotify event.  Without
+# a watch (inotify unavailable) the timer is the only signal and stays hot.
+_HOT_POLL_INTERVAL_S = 2
+_BACKSTOP_POLL_INTERVAL_S = 15
+# Coalesce a burst of writes (a metadata file rewritten field-by-field) into one
+# reconcile rather than firing per event.
+_WATCH_DEBOUNCE_S = 0.2
 
 
 class PollingMixin(_MixinBase):
@@ -41,6 +54,8 @@ class PollingMixin(_MixinBase):
         _last_notified_stale: bool
         _auto_sync_cooldown: dict[str, float]
         _container_status_timer: "Timer | None"
+        _task_watcher: "TaskWatcher | None"
+        _watch_debounce: "Timer | None"
 
         # TerokTUI helpers (not on textual.App).
         current_project_id: str | None
@@ -96,24 +111,84 @@ class PollingMixin(_MixinBase):
         self._polling_project_id = None
 
     def _start_container_status_polling(self) -> None:
-        """Start background polling for container status every 2 seconds."""
+        """Track container status: an inotify watch plus a safety-net timer.
+
+        Seeds once, then arms an inotify watch on the project's task-metadata
+        directory so disk-backed changes reconcile immediately.  The recurring
+        timer drops to a slow backstop when the watch is live, and stays at the
+        hot cadence when inotify is unavailable.
+        """
         self._stop_container_status_polling()
         if not self.current_project_id:
             return
-        # Poll every 2 seconds - podman inspect is fast (~10-50ms)
-        interval_seconds = 2
-        # Initial poll
+        # Seed the initial state before the first event/tick.
         self._poll_container_status()
-        # Schedule recurring polls
+        watching = self._start_task_watcher(self.current_project_id)
+        interval_seconds = _BACKSTOP_POLL_INTERVAL_S if watching else _HOT_POLL_INTERVAL_S
         self._container_status_timer = self.set_interval(
             interval_seconds, self._poll_container_status, name="container_status_polling"
         )
 
     def _stop_container_status_polling(self) -> None:
-        """Stop the container status polling timer."""
+        """Stop the container status timer and tear down the inotify watch."""
         if self._container_status_timer is not None:
             self._container_status_timer.stop()
             self._container_status_timer = None
+        self._stop_task_watcher()
+
+    def _start_task_watcher(self, project_id: str) -> bool:
+        """Arm an inotify watch on *project_id*'s task-metadata directory.
+
+        Returns ``True`` once the watch fd is registered on the event loop and
+        a change there will drive a debounced reconcile; ``False`` (caller
+        keeps the hot poll) if inotify is unavailable, the directory can't be
+        watched yet, or there's no running loop to attach the fd to.
+        """
+        import asyncio
+
+        from ..lib.api import tasks_meta_dir
+        from .task_watcher import TaskWatcher
+
+        try:
+            watcher = TaskWatcher(tasks_meta_dir(project_id))
+        except Exception as e:  # noqa: BLE001 — watch is best-effort; fall back to polling
+            self._log_debug(f"task watcher init error: {e}")
+            return False
+        if not watcher.start():
+            return False
+        try:
+            asyncio.get_running_loop().add_reader(watcher.fileno, self._on_task_dir_changed)
+        except (RuntimeError, ValueError, OSError) as e:
+            self._log_debug(f"task watcher attach error: {e}")
+            watcher.stop()
+            return False
+        self._task_watcher = watcher
+        return True
+
+    def _stop_task_watcher(self) -> None:
+        """Detach and close the inotify watch and any pending debounce."""
+        if self._watch_debounce is not None:
+            self._watch_debounce.stop()
+            self._watch_debounce = None
+        if self._task_watcher is None:
+            return
+        import asyncio
+
+        try:
+            asyncio.get_running_loop().remove_reader(self._task_watcher.fileno)
+        except (RuntimeError, ValueError, OSError):
+            pass
+        self._task_watcher.stop()
+        self._task_watcher = None
+
+    def _on_task_dir_changed(self) -> None:
+        """React to inotify activity: drain events, then debounce a reconcile."""
+        if self._task_watcher is None or not self._task_watcher.drain():
+            return
+        # Restart the debounce window so a burst collapses into one reconcile.
+        if self._watch_debounce is not None:
+            self._watch_debounce.stop()
+        self._watch_debounce = self.set_timer(_WATCH_DEBOUNCE_S, self._poll_container_status)
 
     def _poll_container_status(self) -> None:
         """Check container status for all visible tasks via a single batch query."""

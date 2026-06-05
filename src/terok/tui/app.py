@@ -119,6 +119,7 @@ if _HAS_TEXTUAL:
     )
     from .setup_screen import SetupOutcome, SetupScreen
     from .task_actions import TaskActionsMixin
+    from .task_watcher import TaskWatcher
     from .widgets import (
         PanicButton,
         ProjectList,
@@ -304,8 +305,10 @@ if _HAS_TEXTUAL:
             self._polling_project_id: str | None = None  # Project ID the timer was started for
             self._last_notified_stale: bool = False  # Track if we already notified about staleness
             self._auto_sync_cooldown: dict[str, float] = {}  # Per-project cooldown timestamps
-            # Container status polling state
+            # Container status tracking: inotify watch + safety-net timer
             self._container_status_timer = None
+            self._task_watcher: TaskWatcher | None = None
+            self._watch_debounce = None
             self._last_shield_env: EnvironmentCheck | None = None
             self._last_vault_status: VaultStatusSnapshot | None = None
             # Cached state for detail screens
