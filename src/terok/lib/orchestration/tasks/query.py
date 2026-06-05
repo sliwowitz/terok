@@ -98,6 +98,25 @@ class TaskMeta(TaskState):
         """Compute effective status from live container state + metadata."""
         return effective_status(self)
 
+    def adopt_live_state(self, fresh: TaskMeta) -> None:
+        """Copy disk-derived live fields from a fresher snapshot, in place.
+
+        The TUI's container-state poll re-reads every task each tick but keeps
+        the displayed row objects.  Those rows carry more than a container
+        state: the ``ready_at`` init marker, work status and exit code all
+        drift while a row stays put — so a container that is already
+        ``running`` still needs its ``initialized`` flag synced to move from
+        ``init`` to ``running``.  This refreshes exactly those fields and
+        leaves identity and the TUI-local ``starting`` launch flag untouched.
+        """
+        self.container_state = fresh.container_state
+        self.exit_code = fresh.exit_code
+        self.deleting = fresh.deleting
+        self.initialized = fresh.initialized
+        self.work_status = fresh.work_status
+        self.work_message = fresh.work_message
+        self.web_port = fresh.web_port
+
     @classmethod
     def load(cls, project_id: str, task_id: str) -> TaskMeta:
         """Load a TaskMeta from disk, with live container state hydrated.
