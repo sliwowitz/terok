@@ -350,9 +350,9 @@ class TaskActionsMixin(_MixinBase):
         if agent == "bash":
             cmd = base_cmd
         else:
-            from terok.lib.api.agents import AGENT_PROVIDERS
+            from terok.lib.api.agents import AGENTS
 
-            provider = AGENT_PROVIDERS.get(agent)
+            provider = AGENTS.get(agent)
             if not provider:
                 self.notify(f"Unknown agent: {agent}")
                 return
@@ -505,9 +505,9 @@ class TaskActionsMixin(_MixinBase):
         agent_name, selected_subagents = result
 
         # Only pass sub-agents if the agent supports them
-        from terok.lib.api.agents import AGENT_PROVIDERS
+        from terok.lib.api.agents import AGENTS
 
-        provider = AGENT_PROVIDERS.get(agent_name)
+        provider = AGENTS.get(agent_name)
         agents = selected_subagents if provider and provider.supports_agents_json else None
 
         await self._launch_unattended(prompt, agents=agents, provider=agent_name)

@@ -17,7 +17,7 @@ import secrets
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from terok.lib.integrations.executor import resolve_provider_value
+from terok.lib.integrations.executor import resolve_agent_value
 from terok.lib.integrations.sandbox import Sharing, VolumeSpec
 
 from ...core import runtime as _rt
@@ -235,7 +235,7 @@ def task_run_toad(
             project_root=project.root,
             preset=preset,
         )
-        _cfg_val = resolve_provider_value(
+        _cfg_val = resolve_agent_value(
             "unrestricted", _effective, project.default_agent or "claude"
         )
         unrestricted = _cfg_val is None or _str_to_bool(_cfg_val)

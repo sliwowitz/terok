@@ -46,11 +46,11 @@ from terok_util import CommandDef, CommandTree  # noqa: F401 — re-exported pub
 
 # ── Sub-module re-exports (back-compat for `from terok.lib.api import X`) ───
 from terok.lib.api.agents import (  # noqa: F401 — re-exported public API
-    AGENT_PROVIDERS,
+    AGENT_NAMES,
+    AGENTS,
     AUTH_PROVIDERS,
     DEFAULT_BASE_IMAGE,
     EXECUTOR_COMMANDS,
-    PROVIDER_NAMES,
     ACPEndpointStatus,
     AgentRoster,
     AgentRunner,
@@ -69,7 +69,7 @@ from terok.lib.api.agents import (  # noqa: F401 — re-exported public API
     ensure_sandbox_ready,
     find_host_auth_image,
     generate_dockerfiles,
-    get_provider,
+    get_agent,
     installed_agents,
     installed_agents_for_project,
     parse_md_agent,
@@ -310,7 +310,7 @@ __all__ = [
     # ── Re-exports from sub-modules ────────────────────────────────
     # Agents
     "ACPEndpointStatus",
-    "AGENT_PROVIDERS",
+    "AGENTS",
     "AUTH_PROVIDERS",
     "AgentRunner",
     "BuildError",
@@ -322,7 +322,7 @@ __all__ = [
     "ExecutorConfigView",
     "ImageBuilder",
     "KrunHost",
-    "PROVIDER_NAMES",
+    "AGENT_NAMES",
     "SharedMountStorageInfo",
     "TaskStorageInfo",
     "acp_socket_is_live",
@@ -332,7 +332,7 @@ __all__ = [
     "ensure_sandbox_ready",
     "find_host_auth_image",
     "generate_dockerfiles",
-    "get_provider",
+    "get_agent",
     "installed_agents",
     "installed_agents_for_project",
     "parse_md_agent",

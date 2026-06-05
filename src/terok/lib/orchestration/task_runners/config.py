@@ -81,9 +81,9 @@ def _prepare_agent_config(
         preset=preset,
     )
     subagents = tuple(effective.get("subagents") or ())
-    from terok.lib.integrations.executor import get_provider as _get_provider
+    from terok.lib.integrations.executor import get_agent as _get_agent
 
-    resolved = _get_provider(provider_name, default_agent=project.default_agent)
+    resolved = _get_agent(provider_name, default_agent=project.default_agent)
     instr_text = resolve_instructions(effective, resolved.name, project_root=project.root)
     return prepare_agent_config_dir(
         AgentConfigSpec(
@@ -91,7 +91,7 @@ def _prepare_agent_config(
             task_id=task_id,
             subagents=subagents,
             selected_agents=tuple(agents) if agents is not None else None,
-            provider=resolved.name,
+            agent=resolved.name,
             instructions=instr_text,
             default_agent=project.default_agent,
             mounts_base=project_mounts_dir(project),

@@ -19,8 +19,8 @@ from pathlib import Path
 from terok.lib.integrations.executor import (
     AgentConfigSpec,
     prepare_agent_config_dir,
+    resolve_agent_value,
     resolve_instructions,
-    resolve_provider_value,
 )
 from terok.lib.integrations.sandbox import Sharing, VolumeSpec
 
@@ -180,11 +180,11 @@ def task_run_headless(request: HeadlessRunRequest) -> str:
     """
     from terok.lib.integrations.executor import (
         CLIOverrides,
-        get_provider,
+        get_agent,
     )
 
     project = load_project(request.project_id)
-    resolved = get_provider(request.provider, default_agent=project.default_agent)
+    resolved = get_agent(request.provider, default_agent=project.default_agent)
     require_agent_installed(project, resolved.name)
 
     # Resolve layered agent config (global → project → preset → CLI overrides)
@@ -241,7 +241,7 @@ def task_run_headless(request: HeadlessRunRequest) -> str:
             subagents=subagents,
             selected_agents=tuple(request.agents) if request.agents is not None else None,
             prompt=effective_prompt,
-            provider=resolved.name,
+            agent=resolved.name,
             instructions=instr_text,
             default_agent=project.default_agent,
             mounts_base=project_mounts_dir(project),
@@ -251,7 +251,7 @@ def task_run_headless(request: HeadlessRunRequest) -> str:
     # Resolve unrestricted mode: CLI flag → config → default (True)
     unrestricted = request.unrestricted
     if unrestricted is None:
-        cfg_val = resolve_provider_value("unrestricted", effective, resolved.name)
+        cfg_val = resolve_agent_value("unrestricted", effective, resolved.name)
         unrestricted = _str_to_bool(cfg_val) if cfg_val is not None else True
 
     # Build env and volumes
@@ -382,7 +382,7 @@ def task_followup_headless(
     original ``task_run_headless`` invocation since ``podman start``
     re-executes the same container command.
     """
-    from terok.lib.integrations.executor import AGENT_PROVIDERS
+    from terok.lib.integrations.executor import AGENTS
 
     project = load_project(project_id)
     meta, meta_path = load_task_meta(project.id, task_id)
@@ -408,7 +408,7 @@ def task_followup_headless(
 
     # Resolve provider from task metadata
     provider_name = meta.get("provider", "claude")
-    resolved = AGENT_PROVIDERS.get(provider_name)
+    resolved = AGENTS.get(provider_name)
     if resolved is None:
         import warnings
 

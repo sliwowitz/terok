@@ -10,7 +10,7 @@ import json
 import sys
 from typing import Any
 
-from terok.lib.api.agents import PROVIDER_NAMES as _PROVIDER_NAMES
+from terok.lib.api.agents import AGENT_NAMES as _PROVIDER_NAMES
 
 from ...lib.api import (
     HeadlessRunRequest,

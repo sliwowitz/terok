@@ -116,11 +116,11 @@ def _visible_providers(installed: frozenset[str] | None) -> list[str]:
     every known provider is shown.  Otherwise the registry is intersected
     with the install set, preserving registry order.
     """
-    from terok.lib.api.agents import AGENT_PROVIDERS
+    from terok.lib.api.agents import AGENTS
 
     if not installed:
-        return list(AGENT_PROVIDERS)
-    return [name for name in AGENT_PROVIDERS if name in installed]
+        return list(AGENTS)
+    return [name for name in AGENTS if name in installed]
 
 
 # ---------------------------------------------------------------------------
@@ -921,10 +921,10 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
         self._subagents = subagents or []
         self._installed = installed
 
-        from terok.lib.api.agents import AGENT_PROVIDERS
+        from terok.lib.api.agents import AGENTS
 
         visible = _visible_providers(installed)
-        if default_agent in AGENT_PROVIDERS and (not installed or default_agent in installed):
+        if default_agent in AGENTS and (not installed or default_agent in installed):
             self._default_agent: str | None = default_agent
         elif visible:
             self._default_agent = visible[0]
@@ -936,13 +936,13 @@ class AgentSelectionScreen(screen.ModalScreen[tuple[str, list[str] | None] | Non
 
     def compose(self) -> ComposeResult:
         """Build the agent list, optional sub-agent checkboxes, and buttons."""
-        from terok.lib.api.agents import AGENT_PROVIDERS
+        from terok.lib.api.agents import AGENTS
 
         with Vertical(id="agent-dialog") as dialog:
             options = []
             visible = _visible_providers(self._installed)
             for i, name in enumerate(visible, 1):
-                provider = AGENT_PROVIDERS[name]
+                provider = AGENTS[name]
                 marker = " *" if provider.name == self._default_agent else ""
                 options.append(Option(f"\\[{i}] {provider.label}{marker}", id=provider.name))
             yield OptionList(*options, id="agent-list")
@@ -1431,13 +1431,13 @@ class TaskLaunchScreen(screen.ModalScreen["tuple[str, str, str, str, str, str | 
         flight (``_installed is None``); once populated, prepends ``bash``
         to the visible providers.
         """
-        from terok.lib.api.agents import AGENT_PROVIDERS
+        from terok.lib.api.agents import AGENTS
 
         choices: list[tuple[str, str]] = [("bash", "bash")]
         if self._installed is None:
             return choices
         for name in _visible_providers(self._installed):
-            p = AGENT_PROVIDERS[name]
+            p = AGENTS[name]
             choices.append((p.label, p.name))
         return choices
 
