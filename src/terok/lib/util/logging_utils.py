@@ -3,27 +3,22 @@
 
 """Best-effort file logging + structured stderr warnings.
 
-Thin shim over
-[`terok_sandbox.BestEffortLogger`][terok_sandbox.BestEffortLogger] —
-the implementation lives once in terok-sandbox so terok and the
-sandbox share the same idiom.  Module-level functions preserve the
-legacy call shape so existing call sites stay untouched.
+Module-level helpers over
+[`terok_util.logging.BestEffortLogger`][terok_util.logging.BestEffortLogger]
+bound to terok's library log.
 
 [`warn_user`][terok.lib.util.logging_utils.warn_user] runs both the
 *component* tag and the *message* through
-[`sanitize_tty`][terok_util.security.sanitize_tty] before handing
-them off to the sandbox logger so a bad config file or remote-supplied
-string can't smuggle ANSI escape sequences into the operator's
-terminal (CWE-150).
+[`sanitize_tty`][terok_util.security.sanitize_tty] so a bad config file or
+remote-supplied string can't smuggle ANSI escape sequences into the
+operator's terminal (CWE-150).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from terok_util import sanitize_tty
-
-from terok.lib.integrations.sandbox import BestEffortLogger
+from terok_util import BestEffortLogger, sanitize_tty
 
 LOG_FILENAME = "terok.log"
 """Filename for the best-effort terok library log (written under ``core_state_dir()``)."""
