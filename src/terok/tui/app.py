@@ -1175,24 +1175,31 @@ if _HAS_TEXTUAL:
                 result = worker.result
                 if not result:
                     return
-                project_id, states = result
+                project_id, metas = result
                 if project_id != self.current_project_id:
                     return
                 task_list = self.query_one("#task-list", TaskList)
                 # The batch query re-reads the on-disk task set every tick, so
-                # its keys reveal tasks created or deleted outside the TUI.
+                # its task IDs reveal tasks created or deleted outside the TUI.
                 # Reconcile membership first: this level-triggered diff against
                 # the source of truth can't miss a change the way edge-polling
                 # could, and it converges in a single tick.
-                if set(states) != {tm.task_id for tm in task_list.tasks}:
+                fresh_by_id = {m.task_id: m for m in metas}
+                if set(fresh_by_id) != {tm.task_id for tm in task_list.tasks}:
                     await self.refresh_tasks()
                     return
-                # Update container_state on all TaskMeta instances
+                # Membership matches: refresh the live lifecycle fields on each
+                # displayed row in place.  The poll re-reads more than the
+                # container state — the ``ready_at`` init marker, work status
+                # and exit code drift while a row stays put — so a row whose
+                # container is already "running" still needs its ``initialized``
+                # flag synced to flip from "init" to "running".  Repaint only
+                # when a row's rendered status badge actually moves.
                 changed = False
                 for tm in task_list.tasks:
-                    new_state = states.get(tm.task_id)
-                    if tm.container_state != new_state:
-                        tm.container_state = new_state
+                    before = (tm.status, tm.work_status, tm.web_port)
+                    tm.adopt_live_state(fresh_by_id[tm.task_id])
+                    if (tm.status, tm.work_status, tm.web_port) != before:
                         changed = True
                 if changed:
                     # Regenerate labels on visible list items so status badges update

@@ -130,23 +130,31 @@ class PollingMixin(_MixinBase):
             exclusive=True,
         )
 
-    async def _load_container_state_worker(
-        self, project_id: str
-    ) -> tuple[str, dict[str, str | None]]:
-        """Background worker to batch-query all container states for a project."""
+    async def _load_container_state_worker(self, project_id: str) -> tuple[str, list["TaskMeta"]]:
+        """Batch-snapshot every task for a project with live container state.
+
+        Returns fresh ``TaskMeta`` instances — the task set on disk plus each
+        one's live container state — so the handler can both detect tasks
+        created or deleted outside the TUI *and* refresh the lifecycle fields
+        (init marker, work status, exit code) that drift on rows already shown.
+        """
         import asyncio
 
         from ..lib.api import get_all_task_states, get_tasks
 
+        def _snapshot() -> list["TaskMeta"]:
+            tasks = get_tasks(project_id)
+            states = get_all_task_states(project_id, tasks)
+            for task in tasks:
+                task.container_state = states.get(task.task_id)
+            return tasks
+
         try:
-            tasks = await asyncio.get_event_loop().run_in_executor(None, get_tasks, project_id)
-            states = await asyncio.get_event_loop().run_in_executor(
-                None, get_all_task_states, project_id, tasks
-            )
-            return (project_id, states)
+            tasks = await asyncio.get_event_loop().run_in_executor(None, _snapshot)
+            return (project_id, tasks)
         except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
             self._log_debug(f"container state batch check error: {e}")
-            return (project_id, {})
+            return (project_id, [])
 
     def _poll_upstream(self) -> None:
         """Check upstream for changes and update staleness info.
