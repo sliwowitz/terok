@@ -25,7 +25,7 @@ TOAD_PORT = 8080
 
 PROJECT_CONFIG = f"""
 project:
-  id: {PROJECT_NAME}
+  name: {PROJECT_NAME}
   security_class: online
 git:
   upstream_url: {EXAMPLE_UPSTREAM_URL}

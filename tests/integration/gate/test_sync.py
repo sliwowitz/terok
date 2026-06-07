@@ -22,7 +22,7 @@ pytestmark = pytest.mark.needs_host_features
 
 PROJECT_TEMPLATE = """
 project:
-  id: {project_name}
+  name: {project_name}
   security_class: gatekeeping
 git:
   upstream_url: {upstream_url}
