@@ -10,10 +10,16 @@ is covered against real inotify in ``test_task_watcher``.
 
 from __future__ import annotations
 
+import types
 from typing import Any
 from unittest import mock
 
 from tests.unit.tui.tui_test_helpers import import_app
+
+
+def types_ns(**kw: Any) -> types.SimpleNamespace:
+    """A lightweight stand-in for a TaskMeta row (carries ``task_id``)."""
+    return types.SimpleNamespace(**kw)
 
 
 def _instance(app_class: type, *, drains: bool) -> Any:
@@ -124,3 +130,89 @@ def test_stop_event_stream_closes_and_clears() -> None:
     instance._stop_container_event_stream()
     stream.close.assert_called_once()
     assert instance._container_event_stream is None
+
+
+class TestLifecycleWiring:
+    """Start/stop orchestration: sources armed, resync honoured, paths computed."""
+
+    def _app(self, app_class: type) -> Any:
+        instance = app_class()
+        instance.current_project_id = "p1"
+        instance._container_status_timer = None
+        instance._task_watcher = None
+        instance._container_event_stream = None
+        instance._watch_debounce = None
+        instance._stop_container_status_polling = mock.Mock()
+        instance._poll_container_status = mock.Mock()
+        instance._start_task_watcher = mock.Mock()
+        instance._start_container_event_worker = mock.Mock()
+        instance.set_interval = mock.Mock(return_value=mock.Mock())
+        return instance
+
+    def test_resync_enabled_schedules_the_timer(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = self._app(app_class)
+        with mock.patch("terok.lib.core.config.get_tui_container_resync_seconds", return_value=60):
+            instance._start_container_status_polling()
+        instance._poll_container_status.assert_called_once()  # seed
+        instance._start_task_watcher.assert_called_once_with("p1")
+        instance._start_container_event_worker.assert_called_once_with("p1")
+        instance.set_interval.assert_called_once()
+        assert instance.set_interval.call_args.args[0] == 60
+
+    def test_resync_zero_runs_purely_event_driven(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = self._app(app_class)
+        with mock.patch("terok.lib.core.config.get_tui_container_resync_seconds", return_value=0):
+            instance._start_container_status_polling()
+        instance.set_interval.assert_not_called()  # no timer at all
+
+    def test_event_worker_skipped_when_stream_unavailable(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        instance._container_event_stream = None
+        instance.run_worker = mock.Mock()
+        with mock.patch("terok.lib.api.container_event_stream", return_value=None):
+            instance._start_container_event_worker("p1")
+        instance.run_worker.assert_not_called()
+        assert instance._container_event_stream is None
+
+    def test_event_worker_starts_thread_when_stream_available(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        instance._container_event_stream = None
+        instance.run_worker = mock.Mock()
+        stream = mock.Mock()
+        with mock.patch("terok.lib.api.container_event_stream", return_value=stream):
+            instance._start_container_event_worker("p1")
+        instance.run_worker.assert_called_once()
+        assert instance.run_worker.call_args.kwargs.get("thread") is True
+        assert instance._container_event_stream is stream
+
+    def test_watch_paths_are_meta_dir_plus_each_agent_config(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        tasks = [types_ns(task_id="1"), types_ns(task_id="2")]
+        with (
+            mock.patch("terok.lib.api.tasks_meta_dir", return_value="/meta"),
+            mock.patch("terok.lib.api.get_tasks", return_value=tasks),
+            mock.patch("terok.lib.api.agent_config_dir", side_effect=lambda p, t: f"/cfg/{t}"),
+        ):
+            paths = instance._task_watch_paths("p1")
+        assert paths == ["/meta", "/cfg/1", "/cfg/2"]
+
+    def test_resync_task_watches_syncs_to_current_paths(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        instance.current_project_id = "p1"
+        instance._task_watcher = mock.Mock()
+        instance._task_watch_paths = mock.Mock(return_value=["/meta", "/cfg/1"])
+        instance._resync_task_watches()
+        instance._task_watcher.sync.assert_called_once_with(["/meta", "/cfg/1"])
+
+    def test_resync_task_watches_is_a_noop_without_a_watcher(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        instance.current_project_id = "p1"
+        instance._task_watcher = None
+        instance._resync_task_watches()  # must not raise

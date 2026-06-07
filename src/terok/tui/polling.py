@@ -196,7 +196,7 @@ class PollingMixin(_MixinBase):
         for task in tasks:
             try:
                 paths.append(agent_config_dir(project_id, task.task_id))
-            except Exception:  # noqa: BLE001 — skip tasks whose config dir won't resolve
+            except Exception:  # noqa: BLE001 # nosec B112 — skip tasks whose config dir won't resolve
                 continue
         return paths
 
@@ -278,7 +278,7 @@ class PollingMixin(_MixinBase):
             return
         try:
             self._container_event_stream.close()
-        except Exception:  # noqa: BLE001 — best-effort teardown
+        except Exception:  # noqa: BLE001 # nosec B110 — best-effort teardown
             pass
         self._container_event_stream = None
 
