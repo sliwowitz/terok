@@ -342,8 +342,8 @@ class ContainerEventStream(Protocol):
         ...
 
 
-def container_event_stream(project_id: str) -> ContainerEventStream | None:
-    """Subscribe to live podman container events for *project_id*, or ``None``.
+def container_event_stream(project_name: str) -> ContainerEventStream | None:
+    """Subscribe to live podman container events for *project_name*, or ``None``.
 
     The push-based companion to
     [`get_all_task_states`][terok.lib.orchestration.tasks.query.get_all_task_states]:
@@ -356,7 +356,8 @@ def container_event_stream(project_id: str) -> ContainerEventStream | None:
     from terok.lib.integrations.sandbox import PodmanRuntime
 
     try:
-        return PodmanRuntime().events(project_id)
+        events = getattr(PodmanRuntime(), "events", None)
+        return events(project_name) if callable(events) else None
     except Exception:  # noqa: BLE001 — podman absent / subscribe failed; resync covers it
         return None
 

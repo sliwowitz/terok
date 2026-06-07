@@ -75,7 +75,7 @@ def test_stop_cancels_pending_debounce() -> None:
 def _event_instance(app_class: type) -> Any:
     """App wired with debounce spies for the podman-event reaction."""
     instance = app_class()
-    instance.current_project_id = "p1"
+    instance.current_project_name = "p1"
     instance._watch_debounce = None
     instance._poll_container_status = mock.Mock()
     instance.set_timer = mock.Mock(return_value=mock.Mock())
@@ -137,7 +137,7 @@ class TestLifecycleWiring:
 
     def _app(self, app_class: type) -> Any:
         instance = app_class()
-        instance.current_project_id = "p1"
+        instance.current_project_name = "p1"
         instance._container_status_timer = None
         instance._task_watcher = None
         instance._container_event_stream = None
@@ -218,7 +218,7 @@ class TestLifecycleWiring:
     def test_resync_task_watches_syncs_to_current_paths(self) -> None:
         _app_mod, app_class = import_app()
         instance = app_class()
-        instance.current_project_id = "p1"
+        instance.current_project_name = "p1"
         instance._task_watcher = mock.Mock()
         instance._task_watch_paths = mock.Mock(return_value=["/meta", "/cfg/1"])
         instance._resync_task_watches()
@@ -227,7 +227,7 @@ class TestLifecycleWiring:
     def test_resync_task_watches_is_a_noop_without_a_watcher(self) -> None:
         _app_mod, app_class = import_app()
         instance = app_class()
-        instance.current_project_id = "p1"
+        instance.current_project_name = "p1"
         instance._task_watcher = None
         instance._resync_task_watches()  # must not raise
 

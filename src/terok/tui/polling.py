@@ -128,8 +128,8 @@ class PollingMixin(_MixinBase):
         self._stop_container_status_polling()
         if not self.current_project_name:
             return
-        self._start_task_watcher(self.current_project_id)
-        self._start_container_event_worker(self.current_project_id)
+        self._start_task_watcher(self.current_project_name)
+        self._start_container_event_worker(self.current_project_name)
         # Seed after both push sources are armed, so a change in the startup
         # window can't slip past unseen between snapshot and first event.
         self._poll_container_status()
@@ -149,8 +149,8 @@ class PollingMixin(_MixinBase):
 
     # ---------- inotify watch (host-side task files) ----------
 
-    def _start_task_watcher(self, project_id: str) -> bool:
-        """Arm an inotify watch on *project_id*'s task + agent-config dirs.
+    def _start_task_watcher(self, project_name: str) -> bool:
+        """Arm an inotify watch on *project_name*'s task + agent-config dirs.
 
         Returns ``True`` once the watch fd is registered on the event loop;
         ``False`` (the resync carries the project alone) if inotify is
@@ -165,7 +165,7 @@ class PollingMixin(_MixinBase):
         except Exception as e:  # noqa: BLE001 — watch is best-effort; resync covers it
             self._log_debug(f"task watcher init error: {e}")
             return False
-        if not watcher.start(self._task_watch_paths(project_id)):
+        if not watcher.start(self._task_watch_paths(project_name)):
             return False
         try:
             asyncio.get_running_loop().add_reader(watcher.fileno, self._on_task_dir_changed)
@@ -176,7 +176,7 @@ class PollingMixin(_MixinBase):
         self._task_watcher = watcher
         return True
 
-    def _task_watch_paths(self, project_id: str) -> list[Path]:
+    def _task_watch_paths(self, project_name: str) -> list[Path]:
         """The directories to watch: the metadata dir plus each task's config dir.
 
         The metadata dir reveals membership and lifecycle (``ready_at``,
@@ -189,23 +189,23 @@ class PollingMixin(_MixinBase):
 
         paths: list[Path] = []
         try:
-            paths.append(tasks_meta_dir(project_id))
-            tasks = get_tasks(project_id)
-        except Exception as e:  # noqa: BLE001 — a bad id just means no metadata watch
+            paths.append(tasks_meta_dir(project_name))
+            tasks = get_tasks(project_name)
+        except Exception as e:  # noqa: BLE001 — a bad project name just means no metadata watch
             self._log_debug(f"task watch path error: {e}")
             return paths
         for task in tasks:
             try:
-                paths.append(agent_config_dir(project_id, task.task_id))
+                paths.append(agent_config_dir(project_name, task.task_id))
             except Exception:  # noqa: BLE001 # nosec B112 — skip tasks whose config dir won't resolve
                 continue
         return paths
 
     def _resync_task_watches(self) -> None:
         """Re-point the inotify watch at the current task set (new/removed dirs)."""
-        if self._task_watcher is None or not self.current_project_id:
+        if self._task_watcher is None or not self.current_project_name:
             return
-        self._task_watcher.sync(self._task_watch_paths(self.current_project_id))
+        self._task_watcher.sync(self._task_watch_paths(self.current_project_name))
 
     def _stop_task_watcher(self) -> None:
         """Detach and close the inotify watch and any pending debounce."""
@@ -231,7 +231,7 @@ class PollingMixin(_MixinBase):
 
     # ---------- podman event stream (container up/down) ----------
 
-    def _start_container_event_worker(self, project_id: str) -> None:
+    def _start_container_event_worker(self, project_name: str) -> None:
         """Subscribe to podman container events and reconcile on each.
 
         Opens the stream on the UI thread (so the handle is held synchronously
@@ -243,19 +243,19 @@ class PollingMixin(_MixinBase):
 
         from ..lib.api import container_event_stream
 
-        stream = container_event_stream(project_id)
+        stream = container_event_stream(project_name)
         if stream is None:
             return
         self._container_event_stream = stream
         self.run_worker(
-            functools.partial(self._drain_container_events, stream, project_id),
-            name=f"container-events:{project_id}",
+            functools.partial(self._drain_container_events, stream, project_name),
+            name=f"container-events:{project_name}",
             group="container-events",
             thread=True,
             exclusive=True,
         )
 
-    def _drain_container_events(self, stream: "ContainerEventStream", project_id: str) -> None:
+    def _drain_container_events(self, stream: "ContainerEventStream", project_name: str) -> None:
         """Worker thread: reconcile on each container event until the stream closes.
 
         Teardown closes the stream, which unblocks the parked ``readline`` and
@@ -264,13 +264,13 @@ class PollingMixin(_MixinBase):
         """
         try:
             for _event in stream:
-                self.call_from_thread(self._on_container_event, project_id)
+                self.call_from_thread(self._on_container_event, project_name)
         except Exception as e:  # noqa: BLE001 — stream died; resync covers the gap
             self._log_debug(f"container event stream ended: {e}")
 
-    def _on_container_event(self, project_id: str) -> None:
+    def _on_container_event(self, project_name: str) -> None:
         """UI thread: debounce a reconcile for a container event (current project)."""
-        if project_id == self.current_project_id:
+        if project_name == self.current_project_name:
             self._schedule_reconcile()
 
     def _stop_container_event_stream(self) -> None:
