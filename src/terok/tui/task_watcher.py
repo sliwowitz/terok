@@ -91,6 +91,9 @@ class TaskWatcher:
         the container starts) are skipped and picked up by a later
         [`sync`][terok.tui.task_watcher.TaskWatcher.sync].
         """
+        if self._fd >= 0:  # already started — just reconcile, don't leak a second fd
+            self.sync(paths)
+            return True
         fd = self._libc.inotify_init1(_IN_NONBLOCK)
         if fd < 0:
             return False

@@ -131,8 +131,11 @@ def test_tui_external_editor(
         ("", 14400),
         ("tui:\n  container_resync_seconds: 2\n", 2),
         ("tui:\n  container_resync_seconds: 0\n", 0),
+        # Negative intervals are rejected at the schema (ge=0); config falls
+        # back to the default rather than scheduling an aggressive resync.
+        ("tui:\n  container_resync_seconds: -5\n", 14400),
     ],
-    ids=["default-4h", "monitor-2s", "disabled"],
+    ids=["default-4h", "monitor-2s", "disabled", "negative-rejected"],
 )
 def test_tui_container_resync_seconds(
     monkeypatch: pytest.MonkeyPatch,

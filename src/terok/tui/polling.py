@@ -128,10 +128,11 @@ class PollingMixin(_MixinBase):
         self._stop_container_status_polling()
         if not self.current_project_id:
             return
-        # Seed once before the first event arrives.
-        self._poll_container_status()
         self._start_task_watcher(self.current_project_id)
         self._start_container_event_worker(self.current_project_id)
+        # Seed after both push sources are armed, so a change in the startup
+        # window can't slip past unseen between snapshot and first event.
+        self._poll_container_status()
         resync_seconds = get_tui_container_resync_seconds()
         if resync_seconds > 0:
             self._container_status_timer = self.set_interval(
@@ -168,7 +169,7 @@ class PollingMixin(_MixinBase):
             return False
         try:
             asyncio.get_running_loop().add_reader(watcher.fileno, self._on_task_dir_changed)
-        except (RuntimeError, ValueError, OSError) as e:
+        except (RuntimeError, ValueError, OSError, NotImplementedError) as e:
             self._log_debug(f"task watcher attach error: {e}")
             watcher.stop()
             return False

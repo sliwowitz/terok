@@ -408,6 +408,7 @@ class RawTUISection(BaseModel):
     )
     container_resync_seconds: int = Field(
         default=14400,
+        ge=0,
         description=(
             "Full container-state resync interval, in seconds (default: "
             "14400 = 4 hours).  The task list is driven by events — inotify on "
