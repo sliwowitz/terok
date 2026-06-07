@@ -452,22 +452,16 @@ def _rewrite_project_identity(cfg: dict[str, Any], project_name: str) -> None:
     project_section = _project_section_for_write(cfg)
     legacy_slug = project_section.pop("id", None)
     previous_name = project_section.get("name")
-    if (
-        legacy_slug is not None
-        and previous_name is not None
-        and project_section.get("description") is None
-    ):
-        project_section["description"] = previous_name
-    elif (
-        legacy_slug is None
-        and isinstance(previous_name, str)
+    old_name_is_display_label = legacy_slug is not None or (
+        isinstance(previous_name, str)
         and previous_name != project_name
-        and project_section.get("description") is None
         and not is_valid_project_name(previous_name)
+    )
+    if (
+        previous_name is not None
+        and project_section.get("description") is None
+        and old_name_is_display_label
     ):
-        # Old configs could omit ``id`` and use ``name`` only as a display
-        # label while the directory provided the slug.  If that display
-        # string is not a valid slug, preserve it while normalising.
         project_section["description"] = previous_name
     project_section["name"] = project_name
 
