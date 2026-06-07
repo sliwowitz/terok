@@ -52,7 +52,7 @@ class PollingMixin(_MixinBase):
         current_task: "TaskMeta | None"
         _staleness_info: "GateStalenessInfo | None"
         _polling_timer: "Timer | None"
-        _polling_project_id: str | None
+        _polling_project_name: str | None
         _last_notified_stale: bool
         _auto_sync_cooldown: dict[str, float]
         _container_status_timer: "Timer | None"
@@ -61,7 +61,7 @@ class PollingMixin(_MixinBase):
         _watch_debounce: "Timer | None"
 
         # TerokTUI helpers (not on textual.App).
-        current_project_id: str | None
+        current_project_name: str | None
 
         def _log_debug(self, message: str) -> None: ...
         def _refresh_project_state(self) -> None: ...
@@ -79,11 +79,11 @@ class PollingMixin(_MixinBase):
         self._staleness_info = None
         self._last_notified_stale = False
 
-        if not self.current_project_id:
+        if not self.current_project_name:
             return
 
         try:
-            project = load_project(self.current_project_id)
+            project = load_project(self.current_project_name)
         except SystemExit:
             return
 
@@ -96,7 +96,7 @@ class PollingMixin(_MixinBase):
             return
 
         interval_seconds = project.upstream_polling_interval_minutes * 60
-        self._polling_project_id = self.current_project_id
+        self._polling_project_name = self.current_project_name
 
         # Perform initial poll immediately (in background worker)
         self._poll_upstream()
@@ -111,7 +111,7 @@ class PollingMixin(_MixinBase):
         if self._polling_timer is not None:
             self._polling_timer.stop()
             self._polling_timer = None
-        self._polling_project_id = None
+        self._polling_project_name = None
 
     def _start_container_status_polling(self) -> None:
         """Track container status from events, with a slow resync as insurance.
@@ -126,7 +126,7 @@ class PollingMixin(_MixinBase):
         from ..lib.core.config import get_tui_container_resync_seconds
 
         self._stop_container_status_polling()
-        if not self.current_project_id:
+        if not self.current_project_name:
             return
         self._start_task_watcher(self.current_project_id)
         self._start_container_event_worker(self.current_project_id)
@@ -291,20 +291,20 @@ class PollingMixin(_MixinBase):
 
     def _poll_container_status(self) -> None:
         """Check container status for all visible tasks via a single batch query."""
-        if not self.current_project_id:
+        if not self.current_project_name:
             return
-        self._queue_container_state_check(self.current_project_id)
+        self._queue_container_state_check(self.current_project_name)
 
-    def _queue_container_state_check(self, project_id: str) -> None:
+    def _queue_container_state_check(self, project_name: str) -> None:
         """Queue a background batch check for all task container states."""
         self.run_worker(
-            self._load_container_state_worker(project_id),
-            name=f"container-state:{project_id}",
+            self._load_container_state_worker(project_name),
+            name=f"container-state:{project_name}",
             group="container-state",
             exclusive=True,
         )
 
-    async def _load_container_state_worker(self, project_id: str) -> tuple[str, list["TaskMeta"]]:
+    async def _load_container_state_worker(self, project_name: str) -> tuple[str, list["TaskMeta"]]:
         """Batch-snapshot every task for a project with live container state.
 
         Returns fresh ``TaskMeta`` instances — the task set on disk plus each
@@ -317,38 +317,38 @@ class PollingMixin(_MixinBase):
         from ..lib.api import get_all_task_states, get_tasks
 
         def _snapshot() -> list["TaskMeta"]:
-            tasks = get_tasks(project_id)
-            states = get_all_task_states(project_id, tasks)
+            tasks = get_tasks(project_name)
+            states = get_all_task_states(project_name, tasks)
             for task in tasks:
                 task.container_state = states.get(task.task_id)
             return tasks
 
         try:
             tasks = await asyncio.get_event_loop().run_in_executor(None, _snapshot)
-            return (project_id, tasks)
+            return (project_name, tasks)
         except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
             self._log_debug(f"container state batch check error: {e}")
-            return (project_id, [])
+            return (project_name, [])
 
     def _poll_upstream(self) -> None:
         """Check upstream for changes and update staleness info.
 
         Runs the actual comparison in a background worker to avoid blocking the UI.
         """
-        project_id = self._polling_project_id
-        if not project_id or project_id != self.current_project_id:
+        project_name = self._polling_project_name
+        if not project_name or project_name != self.current_project_name:
             # Project changed since timer was started, skip this poll
             return
 
-        self._log_debug(f"polling upstream for {project_id}")
+        self._log_debug(f"polling upstream for {project_name}")
         # Run blocking git operation in background worker
         self.run_worker(
-            self._poll_upstream_worker(project_id),
+            self._poll_upstream_worker(project_name),
             name="poll_upstream",
             exclusive=True,  # Cancel any previous poll still running
         )
 
-    async def _poll_upstream_worker(self, project_id: str) -> None:
+    async def _poll_upstream_worker(self, project_name: str) -> None:
         """Background worker to check upstream (runs in thread pool)."""
         import asyncio
 
@@ -357,22 +357,22 @@ class PollingMixin(_MixinBase):
         try:
             # Run blocking call in thread pool
             staleness = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: make_git_gate(load_project(project_id)).compare_vs_upstream()
+                None, lambda: make_git_gate(load_project(project_name)).compare_vs_upstream()
             )
 
             # Validate project hasn't changed while we were polling
-            if project_id != self.current_project_id:
+            if project_name != self.current_project_name:
                 return
 
-            self._on_staleness_updated(project_id, staleness)
+            self._on_staleness_updated(project_name, staleness)
 
         except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
             self._log_debug(f"upstream poll error: {e}")
 
-    def _on_staleness_updated(self, project_id: str, staleness: "GateStalenessInfo") -> None:
+    def _on_staleness_updated(self, project_name: str, staleness: "GateStalenessInfo") -> None:
         """Handle updated staleness info."""
         # Double-check project hasn't changed
-        if project_id != self.current_project_id:
+        if project_name != self.current_project_name:
             return
 
         self._staleness_info = staleness
@@ -389,7 +389,7 @@ class PollingMixin(_MixinBase):
             self._last_notified_stale = True
 
             # Trigger auto-sync if enabled (with cooldown check)
-            self._maybe_auto_sync(project_id)
+            self._maybe_auto_sync(project_name)
         elif not staleness.is_stale:
             # Only reset when we have confirmed up-to-date status
             self._last_notified_stale = False
@@ -397,7 +397,7 @@ class PollingMixin(_MixinBase):
         # Refresh the project state display
         self._refresh_project_state()
 
-    def _maybe_auto_sync(self, project_id: str) -> None:
+    def _maybe_auto_sync(self, project_name: str) -> None:
         """Trigger auto-sync if enabled for this project.
 
         Runs sync in background worker to avoid blocking UI.
@@ -407,31 +407,31 @@ class PollingMixin(_MixinBase):
 
         from ..lib.api import load_project
 
-        if not project_id or project_id != self.current_project_id:
+        if not project_name or project_name != self.current_project_name:
             return
 
         # Check cooldown (5 minute minimum between auto-syncs per project)
         now = time.time()
-        cooldown_until = self._auto_sync_cooldown.get(project_id, 0)
+        cooldown_until = self._auto_sync_cooldown.get(project_name, 0)
         if now < cooldown_until:
             self._log_debug("auto-sync skipped: cooldown active")
             return
 
         try:
-            project = load_project(project_id)
+            project = load_project(project_name)
             if not project.auto_sync_enabled:
                 return
 
             # Set cooldown before starting sync (5 minutes)
-            self._auto_sync_cooldown[project_id] = now + 300
+            self._auto_sync_cooldown[project_name] = now + 300
 
-            self._log_debug(f"auto-syncing gate for {project_id}")
+            self._log_debug(f"auto-syncing gate for {project_name}")
             self.notify("Auto-syncing gate from upstream...")
 
             # Run sync in background worker
             branches = project.auto_sync_branches or None
             self.run_worker(
-                self._sync_worker(project_id, branches, is_auto=True),
+                self._sync_worker(project_name, branches, is_auto=True),
                 name="auto_sync",
                 exclusive=True,
             )
@@ -440,7 +440,7 @@ class PollingMixin(_MixinBase):
             self._log_debug(f"auto-sync error: {e}")
 
     async def _sync_worker(
-        self, project_id: str, branches: list[str] | None = None, is_auto: bool = False
+        self, project_name: str, branches: list[str] | None = None, is_auto: bool = False
     ) -> None:
         """Background worker to sync gate from upstream."""
         import asyncio
@@ -450,11 +450,11 @@ class PollingMixin(_MixinBase):
         try:
             # Run blocking sync in thread pool
             result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: make_git_gate(load_project(project_id)).sync_branches(branches)
+                None, lambda: make_git_gate(load_project(project_name)).sync_branches(branches)
             )
 
             # Validate project hasn't changed
-            if project_id != self.current_project_id:
+            if project_name != self.current_project_name:
                 return
 
             if result["success"]:
@@ -463,10 +463,10 @@ class PollingMixin(_MixinBase):
 
                 # Re-check staleness after sync
                 staleness = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: make_git_gate(load_project(project_id)).compare_vs_upstream()
+                    None, lambda: make_git_gate(load_project(project_name)).compare_vs_upstream()
                 )
 
-                if project_id == self.current_project_id:
+                if project_name == self.current_project_name:
                     self._staleness_info = staleness
                     # Only reset notification flag if we're actually up-to-date now
                     if not staleness.is_stale and not staleness.error:

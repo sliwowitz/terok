@@ -254,7 +254,7 @@ class TestExperimentalAck:
 class TestCmdConnectResolvesTaskIdPrefix:
     """Regression for #761 — ``acp connect`` must resolve task-ID prefixes.
 
-    Every other CLI verb that takes ``<project_id> <task_id>``
+    Every other CLI verb that takes ``<project_name> <task_id>``
     (``task …``, ``shield …``, ``sickbay``) goes through
     [`resolve_task_id`][terok.lib.orchestration.tasks.identity.resolve_task_id]
     so users can type the shortest unambiguous prefix.  ``acp connect``
@@ -274,15 +274,15 @@ class TestCmdConnectResolvesTaskIdPrefix:
 
         monkeypatch.setattr(acp_mod, "_check_experimental_ack", lambda: calls.append(("ack", None)))
 
-        def _stub_resolve(project_id: str, prefix: str) -> str:
-            calls.append(("resolve", (project_id, prefix)))
+        def _stub_resolve(project_name: str, prefix: str) -> str:
+            calls.append(("resolve", (project_name, prefix)))
             return "42d1ca5e"
 
-        def _stub_socket_path(project_id: str, task_id: str) -> str:
-            calls.append(("socket_path", (project_id, task_id)))
+        def _stub_socket_path(project_name: str, task_id: str) -> str:
+            calls.append(("socket_path", (project_name, task_id)))
             return str(MOCK_BASE / "terok-testing" / "fake.sock")
 
-        def _stub_log_path(project_id: str, task_id: str) -> str:
+        def _stub_log_path(project_name: str, task_id: str) -> str:
             return str(MOCK_BASE / "terok-testing" / "fake.log")
 
         def _stub_socket_live(_path: str) -> bool:

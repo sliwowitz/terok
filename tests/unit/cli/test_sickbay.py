@@ -46,7 +46,7 @@ class TestCheckSshSigner:
     @staticmethod
     def _mock_project(pid: str) -> unittest.mock.MagicMock:
         p = unittest.mock.MagicMock()
-        p.id = pid
+        p.name = pid
         return p
 
     def _patch_vault(self, assigned_scopes: list[str]):
@@ -567,7 +567,7 @@ class TestCheckShieldAnnotations:
         from terok.cli.commands.sickbay import _check_shield_annotations
 
         project = unittest.mock.MagicMock()
-        project.id = "p"
+        project.name = "p"
         with (
             unittest.mock.patch("terok.cli.commands.sickbay.load_project", return_value=project),
             unittest.mock.patch(
@@ -585,7 +585,7 @@ class TestCheckShieldAnnotations:
         meta_dir.mkdir()
         _write_meta(meta_dir, "g1abc", {"mode": "cli"})
         project = unittest.mock.MagicMock()
-        project.id = "proj"
+        project.name = "proj"
         with (
             unittest.mock.patch("terok.cli.commands.sickbay.list_projects", return_value=[project]),
             unittest.mock.patch("terok.cli.commands.sickbay.tasks_meta_dir", return_value=meta_dir),
@@ -607,7 +607,7 @@ class TestCheckShieldAnnotations:
         _write_meta(meta_dir, "g1abc", {"mode": "cli"})
         _write_meta(meta_dir, "g2xyz", {"mode": "cli"})
         project = unittest.mock.MagicMock()
-        project.id = "p"
+        project.name = "p"
         with (
             unittest.mock.patch("terok.cli.commands.sickbay.load_project", return_value=project),
             unittest.mock.patch("terok.cli.commands.sickbay.tasks_meta_dir", return_value=meta_dir),

@@ -47,7 +47,7 @@ def _make_overview(**kwargs) -> StorageOverview:
 def _make_detail(**kwargs) -> ProjectDetail:
     """Build a minimal ProjectDetail for testing."""
     defaults = {
-        "project_id": "myproject",
+        "project_name": "myproject",
         "images": [ImageInfo("myproject", "l2-cli", "id2", "3GB", "1d ago")],
         "tasks": [],
         "overlays": {},
@@ -195,6 +195,6 @@ class TestDetailOutput:
 
         cmd_detail("myproject", json_output=True)
         data = json.loads(capsys.readouterr().out)
-        assert data["project_id"] == "myproject"
+        assert data["project_name"] == "myproject"
         assert "images" in data
         assert "tasks" in data

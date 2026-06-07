@@ -58,7 +58,7 @@ class RawProjectYamlTests(unittest.TestCase):
             "agent": {"model": "opus"},
         }
         raw = RawProjectYaml.model_validate(data)
-        self.assertEqual(raw.project.id, "myproj")
+        self.assertEqual(raw.project.name, "myproj")
         self.assertEqual(raw.project.security_class, "gatekeeping")
         self.assertEqual(raw.git.upstream_url, "https://example.com/repo.git")
         self.assertTrue(raw.ssh.use_personal)
@@ -158,17 +158,17 @@ class IsolationValidationTests(unittest.TestCase):
 
 
 class ProjectIdValidationTests(unittest.TestCase):
-    """Tests for the project.id field validator."""
+    """Tests for the project.name field validator."""
 
     def test_valid_id(self) -> None:
-        """Valid lowercase ID is accepted."""
+        """Valid lowercase name is accepted (legacy ``id`` key still read)."""
         s = RawProjectSection.model_validate({"id": "my-project_1"})
-        self.assertEqual(s.id, "my-project_1")
+        self.assertEqual(s.name, "my-project_1")
 
     def test_none_id(self) -> None:
-        """None ID is accepted (defaults to directory name)."""
+        """None name is accepted (defaults to directory name)."""
         s = RawProjectSection.model_validate({"id": None})
-        self.assertIsNone(s.id)
+        self.assertIsNone(s.name)
 
     def test_uppercase_rejected(self) -> None:
         """Uppercase IDs are rejected."""

@@ -39,8 +39,8 @@ from .config import (
 from .project_model import (  # noqa: F401 — re-exported public API
     PresetInfo,
     ProjectConfig,
-    is_valid_project_id,
-    validate_project_id,
+    is_valid_project_name,
+    validate_project_name,
 )
 from .yaml_schema import RawGlobalGitSection, RawProjectYaml
 
@@ -181,11 +181,11 @@ def _build_project_config(
     raw: RawProjectYaml,
     identity: dict[str, str | None],
     root: Path,
-    project_id: str,
+    project_name: str,
 ) -> ProjectConfig:
     """Transform a validated raw YAML model + resolved identity into a flat ProjectConfig."""
-    pid = raw.project.id or project_id
-    validate_project_id(pid)
+    pid = raw.project.name or project_name
+    validate_project_name(pid)
     sec = raw.project.security_class
     tasks_root = Path(raw.tasks.root or (sandbox_live_dir() / "tasks" / pid)).resolve()
     gate_path = Path(raw.gate.path or (gate_repos_dir() / f"{pid}.git")).resolve()
@@ -223,7 +223,8 @@ def _build_project_config(
     hook_pre, hook_post, hook_ready, hook_stop = _resolve_hooks(raw)
 
     return ProjectConfig(
-        id=pid,
+        name=pid,
+        description=raw.project.description,
         security_class=sec,
         isolation=raw.project.isolation,
         # Normalise "" → None so downstream ``is None`` checks and truthy
@@ -303,13 +304,13 @@ def find_preset_path(project: ProjectConfig, preset_name: str) -> Path | None:
     return None
 
 
-def list_presets(project_id: str) -> list[PresetInfo]:
+def list_presets(project_name: str) -> list[PresetInfo]:
     """Return sorted preset info for a project.
 
     Search tiers (higher priority overwrites lower):
     bundled (shipped with terok) → global (user-wide) → project.
     """
-    project = load_project(project_id)
+    project = load_project(project_name)
 
     seen: dict[str, PresetInfo] = {}
     # Higher-priority tiers overwrite lower ones
@@ -325,16 +326,16 @@ def list_presets(project_id: str) -> list[PresetInfo]:
     return sorted(seen.values(), key=lambda info: info.name)
 
 
-def load_preset(project_id: str, preset_name: str) -> tuple[dict[str, Any], Path]:
+def load_preset(project_name: str, preset_name: str) -> tuple[dict[str, Any], Path]:
     """Load a preset file and return ``(data, path)``.
 
     Search order: project → global → bundled.
     Raises SystemExit if the preset is not found.
     """
-    project = load_project(project_id)
+    project = load_project(project_name)
     path = find_preset_path(project, preset_name)
     if path is None:
-        available = list_presets(project_id)
+        available = list_presets(project_name)
         names = ", ".join(info.name for info in available)
         hint = f"  Available: {names}" if available else "  No presets found."
         raise SystemExit(f"Preset '{preset_name}' not found.\n{hint}")
@@ -349,7 +350,7 @@ def derive_project(source_id: str, new_id: str) -> Path:
     """Create a new project config that *shares infrastructure* with an existing one.
 
     The derived project points at the same git-gate mirror and the same SSH
-    keypair as the source — only ``project.id`` and the ``agent:`` section
+    keypair as the source — only ``project.name`` and the ``agent:`` section
     differ.  This is the "sibling project" use case: rerun the same repo
     through a different image or agent without re-provisioning keys or
     re-cloning the mirror.  The source's ``instructions.md``, if present, is
@@ -360,21 +361,25 @@ def derive_project(source_id: str, new_id: str) -> Path:
 
     Raises SystemExit if the source project is not found or the target already exists.
     """
-    validate_project_id(new_id)
+    validate_project_name(new_id)
     source = load_project(source_id)
     projects_root = user_projects_dir().resolve()
     target_root = (projects_root / new_id).resolve()
 
     # Guard against directory traversal (belt-and-suspenders with the regex above)
     if not target_root.is_relative_to(projects_root):
-        raise SystemExit(f"Invalid project ID '{new_id}': path escapes projects directory")
+        raise SystemExit(f"Invalid project name '{new_id}': path escapes projects directory")
 
     if target_root.exists():
         raise SystemExit(f"Project '{new_id}' already exists at {target_root}")
 
     source_cfg = _yaml_load((source.root / _PROJECT_YML).read_text(encoding="utf-8")) or {}
 
-    source_cfg.setdefault("project", {})["id"] = new_id
+    project_section = source_cfg.setdefault("project", {})
+    project_section["name"] = new_id
+    project_section.pop(
+        "id", None
+    )  # drop any legacy slug key so it can't shadow ``name`` on reload
     source_cfg.pop("agent", None)
     _pin_shared_infra(source_cfg, source)
 
@@ -401,19 +406,19 @@ def _pin_shared_infra(cfg: dict, source: ProjectConfig) -> None:
     cfg.setdefault("gate", {})["path"] = str(source.gate_path)
 
 
-def _find_project_root(project_id: str) -> Path:
-    """Return the root directory for *project_id*, preferring user over system."""
-    user_root = user_projects_dir() / project_id
-    sys_root = projects_dir() / project_id
+def _find_project_root(project_name: str) -> Path:
+    """Return the root directory for *project_name*, preferring user over system."""
+    user_root = user_projects_dir() / project_name
+    sys_root = projects_dir() / project_name
     if (user_root / _PROJECT_YML).is_file():
         return user_root
     if (sys_root / _PROJECT_YML).is_file():
         return sys_root
-    raise SystemExit(f"Project '{project_id}' not found in {user_root} or {sys_root}")
+    raise SystemExit(f"Project '{project_name}' not found in {user_root} or {sys_root}")
 
 
-def require_project_exists(project_id: str) -> None:
-    """Raise [`SystemExit`][SystemExit] unless *project_id* names a known project.
+def require_project_exists(project_name: str) -> None:
+    """Raise [`SystemExit`][SystemExit] unless *project_name* names a known project.
 
     Cheap stat-based check — no YAML parse, no pydantic validation.  Use
     this in CLI entry points that want to fail before any user-visible
@@ -421,7 +426,7 @@ def require_project_exists(project_id: str) -> None:
     The downstream [`load_project`][terok.lib.core.projects.load_project]
     call still catches malformed YAML.
     """
-    _find_project_root(project_id)
+    _find_project_root(project_name)
 
 
 # ---------- Project listing ----------
@@ -436,7 +441,7 @@ class BrokenProject:
     re-run the failing ``load_project`` to rediscover the message.
     """
 
-    id: str
+    name: str
     config_path: Path
     error: str
 
@@ -458,7 +463,7 @@ def discover_projects() -> tuple[list[ProjectConfig], list[BrokenProject]]:
             valid.append(load_project(pid))
         except SystemExit as exc:
             msg = _sanitize_for_tty(str(exc))
-            broken.append(BrokenProject(id=pid, config_path=paths_by_id[pid], error=msg))
+            broken.append(BrokenProject(name=pid, config_path=paths_by_id[pid], error=msg))
     return valid, broken
 
 
@@ -477,13 +482,13 @@ def list_projects() -> list[ProjectConfig]:
         # embedded newlines would split across records and could be read
         # as injected log lines.  stderr print keeps newlines so pydantic's
         # multi-line validation output is readable on the console.
-        logger.warning("Skipping broken project '%s': %s", bp.id, bp.error.replace("\n", "\\n"))
-        print(f"warning: skipping broken project '{bp.id}': {bp.error}", file=sys.stderr)
+        logger.warning("Skipping broken project '%s': %s", bp.name, bp.error.replace("\n", "\\n"))
+        print(f"warning: skipping broken project '{bp.name}': {bp.error}", file=sys.stderr)
     return valid
 
 
 def _discover_project_paths() -> dict[str, Path]:
-    """Map each on-disk project ID to its ``project.yml`` path.
+    """Map each on-disk project name to its ``project.yml`` path.
 
     User scope wins over system scope for collisions — matches how
     [`load_project`][terok.lib.core.projects.load_project] resolves the effective config.  Returning the
@@ -498,7 +503,7 @@ def _discover_project_paths() -> dict[str, Path]:
             if not d.is_dir() or d.name in paths:
                 continue
             yml = d / _PROJECT_YML
-            if yml.is_file() and is_valid_project_id(d.name):
+            if yml.is_file() and is_valid_project_name(d.name):
                 paths[d.name] = yml
     return paths
 
@@ -535,9 +540,9 @@ def _validated_global_git_section() -> dict[str, Any]:
         return {}
 
 
-def load_project(project_id: str) -> ProjectConfig:
-    """Load and return a fully resolved [`ProjectConfig`][terok.cli.commands.sickbay.ProjectConfig] from *project_id*."""
-    root = _find_project_root(project_id)
+def load_project(project_name: str) -> ProjectConfig:
+    """Load and return a fully resolved [`ProjectConfig`][terok.cli.commands.sickbay.ProjectConfig] from *project_name*."""
+    root = _find_project_root(project_name)
     cfg_path = root / _PROJECT_YML
     if not cfg_path.is_file():
         raise SystemExit(f"Missing {_PROJECT_YML} in {root}")
@@ -553,7 +558,7 @@ def load_project(project_id: str) -> ProjectConfig:
     identity = identity_stack.resolve()
 
     try:
-        return _build_project_config(raw, identity, root, project_id)
+        return _build_project_config(raw, identity, root, project_name)
     except ValidationError as exc:
         # Identity values come from merged sources (git config, global config,
         # project.yml).  Include provenance in the error so the user knows
@@ -564,7 +569,7 @@ def load_project(project_id: str) -> ProjectConfig:
         )
 
 
-def set_project_image_agents(project_id: str, selection: str) -> Path:
+def set_project_image_agents(project_name: str, selection: str) -> Path:
     """Write *selection* into the project's ``project.yml`` under ``image.agents``.
 
     Caller validates *selection* up-front; on success returns the
@@ -572,6 +577,6 @@ def set_project_image_agents(project_id: str, selection: str) -> Path:
     """
     from terok.lib.integrations.sandbox import yaml_update_section
 
-    cfg_path = _find_project_root(project_id) / _PROJECT_YML
+    cfg_path = _find_project_root(project_name) / _PROJECT_YML
     yaml_update_section(cfg_path, "image", {"agents": selection})
     return cfg_path

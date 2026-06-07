@@ -47,21 +47,21 @@ from terok.cli.commands.project import (
         ),
         pytest.param(
             "delete",
-            {"project_id": "p1", "force": False},
+            {"project_name": "p1", "force": False},
             "terok.cli.commands.project._cmd_project_delete",
             {"positional": ("p1",), "kwargs": {"force": False}},
             id="delete",
         ),
         pytest.param(
             "init",
-            {"project_id": "p1"},
+            {"project_name": "p1"},
             "terok.cli.commands.project.cmd_project_init",
             {"positional": ("p1",)},
             id="init",
         ),
         pytest.param(
             "generate",
-            {"project_id": "p1"},
+            {"project_name": "p1"},
             "terok.cli.commands.project.generate_dockerfiles",
             {"positional": ("p1",)},
             id="generate",
@@ -69,7 +69,7 @@ from terok.cli.commands.project import (
         pytest.param(
             "build",
             {
-                "project_id": "p1",
+                "project_name": "p1",
                 "dev": True,
                 "refresh_agents": False,
                 "full_rebuild": False,
@@ -89,35 +89,35 @@ from terok.cli.commands.project import (
         ),
         pytest.param(
             "ssh-init",
-            {"project_id": "p1"},
+            {"project_name": "p1"},
             "terok.cli.commands.project._cmd_ssh_init",
             {"positional_is_args": True},
             id="ssh-init",
         ),
         pytest.param(
             "gate-path",
-            {"project_id": "p1"},
+            {"project_name": "p1"},
             "terok.cli.commands.project._cmd_gate_path",
             {"positional": ("p1",)},
             id="gate-path",
         ),
         pytest.param(
             "gate-sync",
-            {"project_id": "p1"},
+            {"project_name": "p1"},
             "terok.cli.commands.project._cmd_gate_sync",
             {"positional_is_args": True},
             id="gate-sync",
         ),
         pytest.param(
             "presets",
-            {"presets_cmd": "list", "project_id": "p1"},
+            {"presets_cmd": "list", "project_name": "p1"},
             "terok.cli.commands.project._cmd_presets",
             {"positional": ("p1",)},
             id="presets-list",
         ),
         pytest.param(
             "agents",
-            {"agents_cmd": "set", "project_id": "p1", "selection": "claude,vibe"},
+            {"agents_cmd": "set", "project_name": "p1", "selection": "claude,vibe"},
             "terok.cli.commands.project._cmd_agents_set",
             {"positional": ("p1", "claude,vibe")},
             id="agents-set",
@@ -169,7 +169,8 @@ def test_list_empty_prints_placeholder(capsys: pytest.CaptureFixture[str]) -> No
 def test_list_prints_each_project(capsys: pytest.CaptureFixture[str]) -> None:
     """Each project renders with id, security_class, upstream, config_root."""
     proj = SimpleNamespace(
-        id="myproj",
+        name="myproj",
+        description=None,
         security_class="online",
         upstream_url="git@github.com:org/repo.git",
         shared_dir=None,
@@ -188,7 +189,12 @@ def test_list_prints_each_project(capsys: pytest.CaptureFixture[str]) -> None:
 def test_list_formats_shared_dir_hint(capsys: pytest.CaptureFixture[str]) -> None:
     """Projects with a shared_dir show the ``shared=`` segment."""
     proj = SimpleNamespace(
-        id="p", security_class="online", upstream_url=None, shared_dir="/shared/x", root="/r"
+        name="p",
+        description=None,
+        security_class="online",
+        upstream_url=None,
+        shared_dir="/shared/x",
+        root="/r",
     )
     with patch("terok.cli.commands.project.list_projects", return_value=[proj]):
         _cmd_project_list()
@@ -227,7 +233,7 @@ def test_derive_calls_downstream_and_offers_edit(capsys: pytest.CaptureFixture[s
 def fake_project_for_delete() -> SimpleNamespace:
     """Minimal project namespace to exercise the delete flow."""
     return SimpleNamespace(
-        id="doomed",
+        name="doomed",
         root="/root",
         security_class="online",
         upstream_url=None,
@@ -261,7 +267,7 @@ def test_delete_force_skips_prompt(
 
 
 def test_delete_confirm_matches_proceeds(fake_project_for_delete: SimpleNamespace) -> None:
-    """Typing the project id at the prompt proceeds with deletion."""
+    """Typing the project name at the prompt proceeds with deletion."""
     patches = _patch_delete_flow(fake_project_for_delete)
     with patches[0], patches[1], patches[2], patches[3] as mock_delete:
         with patch("builtins.input", return_value="doomed"):
@@ -300,7 +306,7 @@ def test_delete_prints_upstream_when_set(
 ) -> None:
     """Projects with an upstream_url surface it in the deletion header."""
     proj = SimpleNamespace(
-        id="doomed",
+        name="doomed",
         root="/root",
         security_class="online",
         upstream_url="git@github.com:org/repo.git",
@@ -387,7 +393,7 @@ def test_gate_sync_success_prints_summary(capsys: pytest.CaptureFixture[str]) ->
         "created": False,
         "cache_refreshed": True,
     }
-    args = argparse.Namespace(project_id="p1", force_reinit=False)
+    args = argparse.Namespace(project_name="p1", force_reinit=False)
     with (
         patch(
             "terok.cli.commands.project.load_project",
@@ -412,7 +418,7 @@ def test_gate_sync_renders_remoteless_upstream_label(capsys: pytest.CaptureFixtu
         "created": True,
         "cache_refreshed": False,
     }
-    args = argparse.Namespace(project_id="scratch", force_reinit=False)
+    args = argparse.Namespace(project_name="scratch", force_reinit=False)
     with (
         patch(
             "terok.cli.commands.project.load_project",
@@ -429,7 +435,7 @@ def test_gate_sync_failure_raises(capsys: pytest.CaptureFixture[str]) -> None:
     """A failure verdict turns into a SystemExit carrying the error detail."""
     fake_gate = MagicMock()
     fake_gate.sync.return_value = {"success": False, "errors": ["clone timed out"]}
-    args = argparse.Namespace(project_id="broken", force_reinit=False)
+    args = argparse.Namespace(project_name="broken", force_reinit=False)
     with (
         patch(
             "terok.cli.commands.project.load_project",
@@ -443,11 +449,13 @@ def test_gate_sync_failure_raises(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_gate_sync_refuses_when_gate_disabled() -> None:
     """``gate.enabled: false`` rejects at the CLI rather than touching sandbox."""
-    args = argparse.Namespace(project_id="noproj", force_reinit=False)
+    args = argparse.Namespace(project_name="noproj", force_reinit=False)
+    no_gate = MagicMock(gate_enabled=False)
+    no_gate.name = "noproj"
     with (
         patch(
             "terok.cli.commands.project.load_project",
-            return_value=MagicMock(id="noproj", gate_enabled=False),
+            return_value=no_gate,
         ),
         patch("terok.cli.commands.project.make_git_gate") as mock_make,
         pytest.raises(SystemExit, match="gate.enabled: false"),
