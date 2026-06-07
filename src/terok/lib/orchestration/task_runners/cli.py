@@ -40,7 +40,6 @@ from .shield import _apply_shield_policy
 def task_run_cli(
     project_id: str,
     task_id: str,
-    agents: list[str] | None = None,
     preset: str | None = None,
     unrestricted: bool | None = None,
 ) -> None:
@@ -89,7 +88,7 @@ def task_run_cli(
     env, volumes = build_task_env_and_volumes(project, task_id)
 
     # Resolve layered agent config (global → project → preset → CLI overrides)
-    agent_config_dir = _prepare_agent_config(project, project_id, task_id, agents, preset)
+    agent_config_dir = _prepare_agent_config(project, project_id, task_id, preset)
     volumes.append(VolumeSpec(agent_config_dir, CONTAINER_TEROK_CONFIG, sharing=Sharing.PRIVATE))
 
     # Resolve unrestricted mode: CLI flag → config → default (True)

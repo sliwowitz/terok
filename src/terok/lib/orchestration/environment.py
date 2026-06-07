@@ -492,6 +492,12 @@ class TaskEnvironment:
     task_id: str
     """Identifier of the task whose container is being assembled."""
 
+    provider_override: str | None = None
+    """Per-run LLM endpoint provider override (headless ``--provider``).
+
+    Falls back to [`ProjectConfig.default_provider`][terok.lib.core.project_model.ProjectConfig]
+    (already global-resolved) when ``None``."""
+
     def materialize(self) -> tuple[dict, list[VolumeSpec]]:
         """Compose env + volumes for the task container.
 
@@ -560,6 +566,7 @@ class TaskEnvironment:
             ContainerEnvSpec(
                 task_id=task_id,
                 agent_name=project.default_agent or "claude",
+                provider=self.provider_override or project.default_provider,
                 workspace_host_path=repo_dir,
                 code_repo=sec_env.get("CODE_REPO"),
                 clone_from=sec_env.get("CLONE_FROM"),
@@ -613,7 +620,7 @@ class TaskEnvironment:
 
 
 def build_task_env_and_volumes(
-    project: ProjectConfig, task_id: str
+    project: ProjectConfig, task_id: str, *, provider: str | None = None
 ) -> tuple[dict, list[VolumeSpec]]:
     """Shim around [`TaskEnvironment.materialize`][terok.lib.orchestration.environment.TaskEnvironment.materialize]."""
-    return TaskEnvironment(project, task_id).materialize()
+    return TaskEnvironment(project, task_id, provider_override=provider).materialize()

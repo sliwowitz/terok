@@ -22,8 +22,10 @@ from terok.lib.core.images import (  # noqa: F401 — re-exported public API
     installed_agents_for_project,
 )
 from terok.lib.domain.auth import (  # noqa: F401 — re-exported public API
+    auth_provider_aliases,
     authenticate,
     find_host_auth_image,
+    resolve_auth_provider,
     resolve_credential_routing,
 )
 from terok.lib.integrations.executor import (  # noqa: F401 — re-exported public API
@@ -47,7 +49,6 @@ from terok.lib.integrations.executor import (  # noqa: F401 — re-exported publ
     bundled_default_instructions,
     ensure_sandbox_ready,
     get_agent,
-    parse_md_agent,
     prepare_oauth_session,
     resolve_instructions,
     store_api_key,
@@ -78,6 +79,7 @@ __all__ = [
     "SharedMountStorageInfo",
     "TaskStorageInfo",
     "acp_socket_is_live",
+    "auth_provider_aliases",
     "authenticate",
     "build_images",
     "bundled_default_instructions",
@@ -87,9 +89,9 @@ __all__ = [
     "get_agent",
     "installed_agents",
     "installed_agents_for_project",
-    "parse_md_agent",
     "prepare_oauth_session",
     "resolve_agent_config",
+    "resolve_auth_provider",
     "resolve_credential_routing",
     "resolve_instructions",
     "store_api_key",

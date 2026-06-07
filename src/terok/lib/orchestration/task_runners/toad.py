@@ -180,7 +180,6 @@ def _resume_toad_container(
 def task_run_toad(
     project_id: str,
     task_id: str,
-    agents: list[str] | None = None,
     preset: str | None = None,
     unrestricted: bool | None = None,
 ) -> None:
@@ -218,7 +217,7 @@ def task_run_toad(
 
     env, volumes = build_task_env_and_volumes(project, task_id)
 
-    agent_config_dir = _prepare_agent_config(project, project_id, task_id, agents, preset)
+    agent_config_dir = _prepare_agent_config(project, project_id, task_id, preset)
     volumes.append(VolumeSpec(agent_config_dir, CONTAINER_TEROK_CONFIG, sharing=Sharing.PRIVATE))
 
     token = _ensure_toad_token(agent_config_dir)
