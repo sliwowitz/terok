@@ -168,6 +168,24 @@ class TestRenderHelpers:
         assert isinstance(result, Text)
         assert "No project" in str(result)
 
+    def test_render_project_details_shows_description(self) -> None:
+        widgets = import_widgets()
+        project = make_project(description="A friendly summary")
+        state = {"ssh": True, "dockerfiles": True, "images": True, "gate": True}
+
+        result = widgets.render_project_details(project, state, task_count=5)
+
+        assert "A friendly summary" in str(result)
+
+    def test_render_project_details_omits_description_when_none(self) -> None:
+        widgets = import_widgets()
+        project = make_project(description=None)
+        state = {"ssh": True, "dockerfiles": True, "images": True, "gate": True}
+
+        result = widgets.render_project_details(project, state, task_count=5)
+
+        assert "Desc:" not in str(result)
+
     def test_render_task_details_returns_text(self) -> None:
         widgets = import_widgets()
 
@@ -204,6 +222,22 @@ class TestRenderHelpers:
 
         assert isinstance(result, Text)
         assert "No project" in str(result)
+
+    def test_render_project_loading_shows_description(self) -> None:
+        widgets = import_widgets()
+        project = make_project(description="Loading-time summary")
+
+        result = widgets.render_project_loading(project, task_count=1)
+
+        assert "Loading-time summary" in str(result)
+
+    def test_render_project_loading_omits_description_when_none(self) -> None:
+        widgets = import_widgets()
+        project = make_project(description=None)
+
+        result = widgets.render_project_loading(project, task_count=1)
+
+        assert "Desc:" not in str(result)
 
     def test_render_task_details_unattended_mode(self) -> None:
         widgets = import_widgets()

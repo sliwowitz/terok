@@ -15,12 +15,14 @@ import pytest
 from terok.lib.core.config import build_dir, make_sandbox_config, sandbox_live_dir
 from terok.lib.core.projects import (
     BrokenProject,
+    derive_project,
     discover_projects,
     list_projects,
     load_project,
     set_project_image_agents,
 )
 from terok.lib.domain.project_state import get_project_state
+from terok.lib.util.yaml import load as yaml_load
 from tests.test_utils import project_env, write_project
 
 
@@ -637,3 +639,50 @@ class TestSetProjectImageAgents:
         """An unknown project name raises ``SystemExit`` with a not-found message."""
         with pytest.raises(SystemExit, match="not found"):
             set_project_image_agents("nonexistent-project", "all")
+
+
+class TestDeriveProject:
+    """``derive_project`` clones a project's config onto a fresh slug."""
+
+    def test_renames_slug_drops_legacy_id_and_clears_agent(self) -> None:
+        """Derive writes ``name``, drops a legacy ``id`` key, and clears ``agent``."""
+        source = (
+            "project:\n"
+            "  id: src\n"  # legacy slug key — must be read, then dropped on write
+            "  description: My source project\n"
+            "  security_class: online\n"
+            "git:\n  upstream_url: https://example.com/repo.git\n"
+            "agent:\n  provider: codex\n"
+        )
+        with project_env(source, project_name="src"):
+            target = derive_project("src", "derived")
+            out = yaml_load((target / "project.yml").read_text(encoding="utf-8"))
+            assert out["project"]["name"] == "derived"
+            assert "id" not in out["project"]  # stale slug can't shadow name on reload
+            assert out["project"]["description"] == "My source project"
+            assert "agent" not in out  # agent section cleared
+            assert out["gate"]["path"]  # gate pinned to the shared source mirror
+            # The derived project re-loads cleanly under its new name.
+            assert load_project("derived").name == "derived"
+
+    def test_copies_instructions_md_when_present(self) -> None:
+        """A source ``instructions.md`` is carried into the derived project."""
+        source = (
+            "project:\n  name: src\n  security_class: online\n"
+            "git:\n  upstream_url: https://example.com/repo.git\n"
+        )
+        with project_env(source, project_name="src") as env:
+            (env.config_root / "src" / "instructions.md").write_text("house rules\n")
+            target = derive_project("src", "derived")
+            assert (target / "instructions.md").read_text() == "house rules\n"
+
+    def test_rejects_existing_target(self) -> None:
+        """Deriving onto an existing project name aborts rather than overwriting."""
+        source = (
+            "project:\n  name: src\n  security_class: online\n"
+            "git:\n  upstream_url: https://example.com/repo.git\n"
+        )
+        with project_env(source, project_name="src"):
+            derive_project("src", "derived")
+            with pytest.raises(SystemExit, match="already exists"):
+                derive_project("src", "derived")
