@@ -344,3 +344,90 @@ class TestFail:
         captured = capsys.readouterr()
         assert captured.out == ""
         assert "daemon won't start" in captured.err
+
+
+class TestProjectsToShow:
+    """``_projects_to_show`` resolves the filter to concrete Project objects."""
+
+    def test_explicit_filter_resolves_single_project(self) -> None:
+        from unittest import mock
+
+        with mock.patch("terok.lib.api.get_project", return_value="P") as gp:
+            assert acp_mod._projects_to_show("alpha") == ["P"]
+        gp.assert_called_once_with("alpha")
+
+    def test_no_filter_walks_every_known_project_by_name(self) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+
+        infos = [SimpleNamespace(name="alpha"), SimpleNamespace(name="beta")]
+        with (
+            mock.patch.object(acp_mod, "list_projects", return_value=infos),
+            mock.patch("terok.lib.api.get_project", side_effect=lambda n: f"proj:{n}") as gp,
+        ):
+            assert acp_mod._projects_to_show(None) == ["proj:alpha", "proj:beta"]
+        assert [c.args[0] for c in gp.call_args_list] == ["alpha", "beta"]
+
+
+class TestCmdList:
+    """``_cmd_list`` renders one row per running ACP endpoint."""
+
+    @staticmethod
+    def _endpoint(pid: str, tid: str):
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            project_name=pid,
+            task_id=tid,
+            status=SimpleNamespace(value="running"),
+            bound_agent="claude",
+            socket_path=Path("/run/acp.sock"),
+        )
+
+    def test_prints_placeholder_when_no_endpoints(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+
+        empty_proj = SimpleNamespace(acp_endpoints=lambda: [])
+        with mock.patch.object(acp_mod, "_projects_to_show", return_value=[empty_proj]):
+            acp_mod._cmd_list(None)
+        assert "No ACP endpoints found" in capsys.readouterr().out
+
+    def test_renders_header_and_endpoint_rows(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+
+        proj = SimpleNamespace(acp_endpoints=lambda: [self._endpoint("alpha", "t1")])
+        with mock.patch.object(acp_mod, "_projects_to_show", return_value=[proj]):
+            acp_mod._cmd_list(None)
+        out = capsys.readouterr().out
+        assert "PROJECT" in out and "STATUS" in out
+        assert "alpha" in out and "t1" in out and "running" in out and "claude" in out
+
+
+class TestDispatch:
+    """``dispatch`` routes acp subcommands and ignores foreign ones."""
+
+    def test_ignores_non_acp_command(self) -> None:
+        import argparse
+
+        assert acp_mod.dispatch(argparse.Namespace(cmd="task")) is False
+
+    def test_routes_list(self) -> None:
+        import argparse
+        from unittest import mock
+
+        args = argparse.Namespace(cmd="acp", acp_cmd="list", project_name="alpha")
+        with mock.patch.object(acp_mod, "_cmd_list") as m:
+            assert acp_mod.dispatch(args) is True
+        m.assert_called_once_with("alpha")
+
+    def test_routes_connect(self) -> None:
+        import argparse
+        from unittest import mock
+
+        args = argparse.Namespace(cmd="acp", acp_cmd="connect", project_name="alpha", task_id="t1")
+        with mock.patch.object(acp_mod, "_cmd_connect") as m:
+            assert acp_mod.dispatch(args) is True
+        m.assert_called_once_with("alpha", "t1")

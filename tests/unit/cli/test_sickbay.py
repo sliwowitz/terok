@@ -729,3 +729,89 @@ class TestCheckRecoveryAcknowledged:
             sev, label, detail = _check_recovery_acknowledged()
         assert sev == "warn"
         assert "boom" in detail
+
+
+class TestSickbayDispatch:
+    """``dispatch`` routes the sickbay command and resolves the task id."""
+
+    def test_ignores_foreign_command(self) -> None:
+        import argparse
+
+        from terok.cli.commands import sickbay as sb
+
+        assert sb.dispatch(argparse.Namespace(cmd="task")) is False
+
+    def test_resolves_task_and_invokes_check(self) -> None:
+        import argparse
+
+        from terok.cli.commands import sickbay as sb
+
+        args = argparse.Namespace(cmd="sickbay", project_name="alpha", task_id="1", fix=True)
+        with (
+            unittest.mock.patch.object(sb, "resolve_task_id", return_value="full-id") as resolve,
+            unittest.mock.patch.object(sb, "_cmd_sickbay") as run,
+        ):
+            assert sb.dispatch(args) is True
+        resolve.assert_called_once_with("alpha", "1")
+        run.assert_called_once_with(project_name="alpha", task_id="full-id", fix=True)
+
+
+class TestCheckUnfiredHooks:
+    """``_check_unfired_hooks`` walks projects and flags pending post_stop hooks."""
+
+    def test_skips_projects_without_post_stop_hook(self) -> None:
+        from types import SimpleNamespace
+
+        from terok.cli.commands import sickbay as sb
+
+        proj = SimpleNamespace(name="alpha", hook_post_stop=None)
+        with unittest.mock.patch.object(sb, "list_projects", return_value=[proj]):
+            assert sb._check_unfired_hooks(None, None, fix=False) == []
+
+    def test_collects_results_for_each_task(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from terok.cli.commands import sickbay as sb
+
+        proj = SimpleNamespace(name="alpha", hook_post_stop="echo done")
+        meta_dir = tmp_path / "alpha"
+        meta_dir.mkdir()
+        with (
+            unittest.mock.patch.object(sb, "list_projects", return_value=[proj]),
+            unittest.mock.patch.object(sb, "tasks_meta_dir", return_value=meta_dir),
+            unittest.mock.patch.object(sb, "iter_task_ids", return_value=["t1"]),
+            unittest.mock.patch.object(sb, "_check_task_hook", return_value="RESULT") as check,
+        ):
+            results = sb._check_unfired_hooks(None, None, fix=True)
+        assert results == ["RESULT"]
+        check.assert_called_once_with("alpha", "t1", proj, fix=True)
+
+
+class TestStreamContainers:
+    """``_stream_containers`` runs the container doctor per task."""
+
+    def test_single_task_runs_doctor_once(self) -> None:
+        from terok.cli.commands import sickbay as sb
+
+        reporter = object()
+        with unittest.mock.patch.object(sb, "ContainerDoctor") as Doctor:
+            sb._stream_containers("alpha", "t1", fix=False, reporter=reporter)
+        Doctor.assert_called_once_with("alpha", "t1")
+        Doctor.return_value.run.assert_called_once()
+
+    def test_global_scope_iterates_all_tasks(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from terok.cli.commands import sickbay as sb
+
+        proj = SimpleNamespace(name="alpha")
+        meta_dir = tmp_path / "alpha"
+        meta_dir.mkdir()
+        with (
+            unittest.mock.patch.object(sb, "list_projects", return_value=[proj]),
+            unittest.mock.patch.object(sb, "tasks_meta_dir", return_value=meta_dir),
+            unittest.mock.patch.object(sb, "iter_task_ids", return_value=["t1", "t2"]),
+            unittest.mock.patch.object(sb, "ContainerDoctor") as Doctor,
+        ):
+            sb._stream_containers(None, None, fix=False, reporter=object())
+        assert [c.args for c in Doctor.call_args_list] == [("alpha", "t1"), ("alpha", "t2")]
