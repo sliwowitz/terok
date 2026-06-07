@@ -150,6 +150,17 @@ class TestOverviewOutput:
         assert "projects" in data
         assert "grand_total_bytes" in data
 
+    def test_json_projects_use_project_name_key(self, capsys):
+        """Overview JSON uses the renamed project_name field consistently."""
+        with patch(
+            "terok.lib.domain.storage.get_storage_overview",
+            return_value=_make_overview(),
+        ):
+            cmd_overview(json_output=True)
+        data = json.loads(capsys.readouterr().out)
+        assert data["projects"][0]["project_name"] == "proj1"
+        assert "id" not in data["projects"][0]
+
 
 # ---------------------------------------------------------------------------
 # Detail output (render layer)

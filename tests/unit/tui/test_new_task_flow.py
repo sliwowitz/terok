@@ -1332,7 +1332,7 @@ class TestFillInstalledAgents:
         instance._log_debug = mock.Mock()
 
         fake_project = mock.Mock()
-        fake_project.id = "proj1"
+        fake_project.name = "proj1"
         launch_screen = mock.Mock()
 
         with mock.patch(

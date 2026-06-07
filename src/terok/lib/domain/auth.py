@@ -103,7 +103,7 @@ def authenticate(provider: str, project_name: str | None = None) -> None:
     Credential routing follows the named project's
     [`credentials_scope`][terok.lib.core.project_model.ProjectConfig.credentials_scope]:
     ``"shared"`` (default) writes to the host-wide bucket every project
-    sees, ``"project"`` carves out a private set under the project's id
+    sees, ``"project"`` carves out a private set under the project's name
     and stores the agent-config files under the project's own mount
     tree.  When *project_name* is ``None``, both default to the host-wide
     bucket — no project context exists to override them.
@@ -233,7 +233,7 @@ def _resolve_host_auth_image(provider: str) -> str:
     hint = (
         "No agent image present.  Build one with: terok image build "
         "(or terok project build <project>), "
-        "or pass --project <id> to reuse an existing project's image."
+        "or pass --project <name> to reuse an existing project's image."
     )
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise SystemExit(hint)

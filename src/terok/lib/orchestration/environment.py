@@ -75,7 +75,7 @@ def _check_project_credentials_present(project: ProjectConfig) -> None:
     a project that opted into ``credentials_scope: project`` has just
     explicitly *isolated* its bucket: silent fallback would defeat the
     isolation, and an empty bucket is almost always a user oversight
-    (they edited project.yml but forgot ``terok auth --project <id>``).
+    (they edited project.yml but forgot ``terok auth --project <name>``).
     Surface it before the container starts so the error message names
     the recovery command instead of bubbling up from inside the agent.
     """

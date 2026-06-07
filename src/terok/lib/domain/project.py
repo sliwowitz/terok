@@ -233,7 +233,7 @@ def make_ssh_manager(config: ProjectConfig) -> SSHManager:
 
 
 def get_project(project_name: str) -> Project:
-    """Load a project by ID and return a rich [`Project`][terok.lib.domain.project.Project] aggregate."""
+    """Load a project by name and return a rich [`Project`][terok.lib.domain.project.Project] aggregate."""
     return Project(load_project(project_name))
 
 
@@ -285,7 +285,7 @@ class ACPEndpoint:
     """
 
     project_name: str
-    """The owning project's id."""
+    """The owning project's name."""
 
     task_id: str
     """The task this endpoint serves."""
@@ -619,7 +619,7 @@ class Project:
         project.gate.sync()
 
     **Identity** is based on ``project.name`` — two ``Project`` instances with
-    the same ID compare equal and hash identically, so they work correctly
+    the same name compare equal and hash identically, so they work correctly
     in sets and dicts.
 
     **Subsystem access** (``gate``, ``ssh``, ``agents``) uses lazy

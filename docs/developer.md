@@ -228,7 +228,7 @@ sockets appear when supervisors come up and disappear when they exit.
 
 Third-party host tools (IDEs, scripts) that need the gate's repository
 do **not** go through the supervisor at all: they read the mirror
-clone directly over `file://` (`terok project gate-path <id>` prints
+clone directly over `file://` (`terok project gate-path <name>` prints
 the path).  The in-supervisor HTTP gate exists only to serve confined
 containers, whose egress shield otherwise blocks.
 

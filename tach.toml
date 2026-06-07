@@ -675,6 +675,7 @@ expose = [
     "load_project",
     "load_preset",
     "list_presets",
+    "normalize_project_name",
     "derive_project",
     "require_project_exists",
     "set_project_image_agents",

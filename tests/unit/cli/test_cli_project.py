@@ -18,6 +18,7 @@ from terok.cli.commands.project import (
     _cmd_project_delete,
     _cmd_project_derive,
     _cmd_project_list,
+    _cmd_project_normalize_name,
     cmd_project_init,
     dispatch,
 )
@@ -44,6 +45,13 @@ from terok.cli.commands.project import (
             "terok.cli.commands.project._cmd_project_derive",
             {"positional": ("src", "dst")},
             id="derive",
+        ),
+        pytest.param(
+            "normalize-name",
+            {"project_name": "p1"},
+            "terok.cli.commands.project._cmd_project_normalize_name",
+            {"positional": ("p1",)},
+            id="normalize-name",
         ),
         pytest.param(
             "delete",
@@ -237,6 +245,20 @@ def test_derive_calls_downstream_and_offers_edit(capsys: pytest.CaptureFixture[s
     mock_derive.assert_called_once_with("alpha", "beta")
     mock_offer.assert_called_once()
     assert "beta" in capsys.readouterr().out
+
+
+def test_normalize_name_prints_updated_path(capsys: pytest.CaptureFixture[str]) -> None:
+    """The quick-fix command reports the rewritten config file."""
+    from pathlib import Path
+
+    target = Path("/tmp/terok-testing/projects/p1/project.yml")
+    with patch("terok.cli.commands.project.normalize_project_name", return_value=target) as mock:
+        _cmd_project_normalize_name("p1")
+
+    mock.assert_called_once_with("p1")
+    out = capsys.readouterr().out
+    assert str(target) in out
+    assert "project.name = 'p1'" in out
 
 
 # ---------------------------------------------------------------------------

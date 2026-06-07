@@ -239,7 +239,7 @@ def _json_overview(overview: StorageOverview) -> None:
         },
         "projects": [
             {
-                "id": p.project_name,
+                "project_name": p.project_name,
                 "image_bytes": p.image_bytes,
                 "workspace_bytes": p.workspace_bytes,
                 "task_count": p.task_count,

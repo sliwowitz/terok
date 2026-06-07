@@ -119,20 +119,6 @@ class RawProjectSection(BaseModel):
             data["name"] = legacy_slug
         return data
 
-    @field_validator("name")
-    @classmethod
-    def _validate_name(cls, v: str | None) -> str | None:
-        """Validate project name / slug format when explicitly set."""
-        if v is None:
-            return None
-        import re
-
-        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", v):
-            raise ValueError(
-                f"must match [a-z0-9][a-z0-9_-]* (lowercase, no path separators), got {v!r}"
-            )
-        return v
-
     @field_validator("security_class")
     @classmethod
     def _validate_security_class(cls, v: str) -> str:

@@ -326,7 +326,7 @@ QUESTIONS: tuple[Question, ...] = (
             "creates an isolated set: agent logins, OAuth tokens, and shared "
             "config files live under this project's own state directory and "
             "have to be authenticated from scratch via "
-            "``terok auth --project <id>``."
+            "``terok auth --project <name>``."
         ),
         choices=(
             Choice("shared", "Use shared host-wide credentials (recommended)"),

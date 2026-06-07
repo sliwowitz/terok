@@ -157,8 +157,8 @@ class IsolationValidationTests(unittest.TestCase):
         self.assertEqual(s.isolation, "shared")
 
 
-class ProjectIdValidationTests(unittest.TestCase):
-    """Tests for the project.name field validator."""
+class ProjectNameLegacyMappingTests(unittest.TestCase):
+    """Tests for raw project identity key mapping."""
 
     def test_valid_id(self) -> None:
         """Valid lowercase name is accepted (legacy ``id`` key still read)."""
@@ -182,20 +182,20 @@ class ProjectIdValidationTests(unittest.TestCase):
         self.assertEqual(s.name, "proj")
         self.assertEqual(s.description, "Pretty Proj")
 
-    def test_uppercase_rejected(self) -> None:
-        """Uppercase IDs are rejected."""
-        with self.assertRaises(ValidationError):
-            RawProjectSection.model_validate({"id": "MyProject"})
+    def test_new_display_name_without_id_is_kept_for_loader(self) -> None:
+        """No-``id`` old display names are left intact for loader mismatch handling."""
+        s = RawProjectSection.model_validate({"name": "Pretty Project"})
+        self.assertEqual(s.name, "Pretty Project")
 
-    def test_path_separator_rejected(self) -> None:
-        """Path separators in IDs are rejected."""
-        with self.assertRaises(ValidationError):
-            RawProjectSection.model_validate({"id": "../escape"})
+    def test_uppercase_id_is_left_for_resolved_loader_validation(self) -> None:
+        """Raw schema maps legacy IDs; resolved project loading owns slug validation."""
+        s = RawProjectSection.model_validate({"id": "MyProject"})
+        self.assertEqual(s.name, "MyProject")
 
-    def test_absolute_path_rejected(self) -> None:
-        """Absolute paths as IDs are rejected."""
-        with self.assertRaises(ValidationError):
-            RawProjectSection.model_validate({"id": "/etc/passwd"})
+    def test_path_separator_id_is_left_for_resolved_loader_validation(self) -> None:
+        """Raw schema keeps path-looking legacy IDs so project loading can explain them."""
+        s = RawProjectSection.model_validate({"id": "../escape"})
+        self.assertEqual(s.name, "../escape")
 
 
 class NameCategoriesTests(unittest.TestCase):

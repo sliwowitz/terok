@@ -18,7 +18,7 @@ from ...lib.api import (
     set_project_image_agents,
     summarize_ssh_init,
 )
-from ...lib.core.projects import list_presets, list_projects, load_project
+from ...lib.core.projects import list_presets, list_projects, load_project, normalize_project_name
 from ...lib.domain.project import make_git_gate
 from ...lib.domain.wizards.new_project import offer_edit_then_init, run_wizard
 from ._completers import complete_project_names as _complete_project_names, set_completer
@@ -54,6 +54,19 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         _complete_project_names,
     )
     p_derive.add_argument("new_id", help="New project name")
+
+    # normalize-name
+    p_normalize = sub.add_parser(
+        "normalize-name",
+        help="Repair project.yml so project.name matches the project directory name",
+    )
+    _add_project_arg(
+        p_normalize,
+        help=(
+            "Project directory name to write into project.yml "
+            "(works even when that project is currently broken)"
+        ),
+    )
 
     # delete
     p_delete = sub.add_parser(
@@ -210,6 +223,8 @@ def dispatch(args: argparse.Namespace) -> bool:
             run_wizard(init_fn=cmd_project_init)
         case "derive":
             _cmd_project_derive(args.source_id, args.new_id)
+        case "normalize-name":
+            _cmd_project_normalize_name(args.project_name)
         case "delete":
             _cmd_project_delete(args.project_name, force=args.force)
         case "init":
@@ -269,6 +284,12 @@ def _cmd_project_derive(source_id: str, new_id: str) -> None:
         f"Config: {config_path}"
     )
     offer_edit_then_init(config_path, new_id, init_fn=cmd_project_init)
+
+
+def _cmd_project_normalize_name(project_name: str) -> None:
+    """Rewrite project.yml so ``project.name`` matches *project_name*."""
+    path = normalize_project_name(project_name)
+    print(f"Updated {path}: project.name = {project_name!r}")
 
 
 def _cmd_project_delete(project_name: str, *, force: bool = False) -> None:

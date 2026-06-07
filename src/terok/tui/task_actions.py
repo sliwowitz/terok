@@ -277,7 +277,7 @@ class TaskActionsMixin(_MixinBase):
         except (SystemExit, Exception) as exc:
             self._log_debug(
                 f"_fill_installed_agents: agents lookup failed for project "
-                f"{getattr(project, 'id', '?')!r}; dropdown will show all. {exc}"
+                f"{getattr(project, 'name', '?')!r}; dropdown will show all. {exc}"
             )
             installed = frozenset()
         launch_screen.set_installed(installed)

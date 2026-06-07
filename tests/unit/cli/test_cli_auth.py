@@ -7,7 +7,7 @@ Three invocation shapes to verify:
 
 - ``terok auth``                           → interactive menu (no provider).
 - ``terok auth <p>``                       → host-wide auth.
-- ``terok auth <p> --project <id>``        → project-scoped auth.
+- ``terok auth <p> --project <name>``      → project-scoped auth.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def test_dispatch_host_wide_skips_project_loading() -> None:
 
 
 def test_dispatch_project_flag_runs_install_check() -> None:
-    """``auth <p> --project <id>`` loads the project and verifies the agent."""
+    """``auth <p> --project <name>`` loads the project and verifies the agent."""
     fake_project = SimpleNamespace(name="p1")
     args = argparse.Namespace(cmd="auth", provider="claude", project_flag="p1")
     with (

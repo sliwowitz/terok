@@ -60,7 +60,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
             "Without arguments, opens an interactive menu to authenticate one "
             "or more providers in sequence.  ``terok auth <provider>`` "
             "authenticates host-wide — credentials are shared across every "
-            "project that uses the same agent.  Pass ``--project <id>`` to "
+            "project that uses the same agent.  Pass ``--project <name>`` to "
             "scope the auth to a specific project: the project's image is "
             "reused, and if the project opted into per-project credentials "
             "(``credentials.scope: project`` in project.yml) the captured "

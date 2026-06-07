@@ -184,6 +184,7 @@ def _build_project_config(
     project_name: str,
 ) -> ProjectConfig:
     """Transform a validated raw YAML model + resolved identity into a flat ProjectConfig."""
+    _validate_project_name_matches_directory(raw.project.name, project_name, root / _PROJECT_YML)
     pid = raw.project.name or project_name
     validate_project_name(pid)
     sec = raw.project.security_class
@@ -375,11 +376,7 @@ def derive_project(source_id: str, new_id: str) -> Path:
 
     source_cfg = _yaml_load((source.root / _PROJECT_YML).read_text(encoding="utf-8")) or {}
 
-    project_section = source_cfg.setdefault("project", {})
-    project_section["name"] = new_id
-    project_section.pop(
-        "id", None
-    )  # drop any legacy slug key so it can't shadow ``name`` on reload
+    _rewrite_project_identity(source_cfg, new_id)
     source_cfg.pop("agent", None)
     _pin_shared_infra(source_cfg, source)
 
@@ -415,6 +412,87 @@ def _find_project_root(project_name: str) -> Path:
     if (sys_root / _PROJECT_YML).is_file():
         return sys_root
     raise SystemExit(f"Project '{project_name}' not found in {user_root} or {sys_root}")
+
+
+def _validate_project_name_matches_directory(
+    declared_name: str | None, directory_name: str, cfg_path: Path
+) -> None:
+    """Reject a ``project.yml`` name/id that disagrees with its directory name."""
+    if declared_name is None or declared_name == directory_name:
+        return
+    raise SystemExit(
+        "Project name mismatch:\n"
+        f"  directory name: {directory_name!r}\n"
+        f"  project.yml name: {declared_name!r}\n"
+        f"  config file: {cfg_path}\n\n"
+        "Terok treats the directory name as the local project identity and "
+        "requires project.name (or legacy project.id) to match it.\n"
+        "Fix the file by hand, or run:\n\n"
+        f"  terok project normalize-name {directory_name}\n"
+    )
+
+
+def _project_section_for_write(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Return a mutable ``project`` section, replacing invalid section shapes."""
+    section = cfg.setdefault("project", {})
+    if not isinstance(section, dict):
+        section = {}
+        cfg["project"] = section
+    return section
+
+
+def _rewrite_project_identity(cfg: dict[str, Any], project_name: str) -> None:
+    """Rewrite ``cfg`` so its ``project`` section declares *project_name*.
+
+    Handles both the new shape (``project.name`` is the slug) and the
+    legacy shape (``project.id`` was the slug, ``project.name`` was a
+    display label).  Legacy display labels are preserved as
+    ``project.description`` when possible.
+    """
+    project_section = _project_section_for_write(cfg)
+    legacy_slug = project_section.pop("id", None)
+    previous_name = project_section.get("name")
+    if (
+        legacy_slug is not None
+        and previous_name is not None
+        and project_section.get("description") is None
+    ):
+        project_section["description"] = previous_name
+    elif (
+        legacy_slug is None
+        and isinstance(previous_name, str)
+        and previous_name != project_name
+        and project_section.get("description") is None
+        and not is_valid_project_name(previous_name)
+    ):
+        # Old configs could omit ``id`` and use ``name`` only as a display
+        # label while the directory provided the slug.  If that display
+        # string is not a valid slug, preserve it while normalising.
+        project_section["description"] = previous_name
+    project_section["name"] = project_name
+
+
+def normalize_project_name(project_name: str) -> Path:
+    """Rewrite ``project.yml`` so ``project.name`` matches its directory.
+
+    This is the explicit quick fix for
+    [`_validate_project_name_matches_directory`][terok.lib.core.projects._validate_project_name_matches_directory]:
+    directory names are the local project identity, and the config file is
+    normalised to declare the same name.  Legacy ``project.id`` is removed
+    and any old display-only ``project.name`` is preserved as
+    ``project.description`` when safe.
+    """
+    validate_project_name(project_name)
+    cfg_path = _find_project_root(project_name) / _PROJECT_YML
+    try:
+        cfg = _yaml_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, YAMLError) as exc:
+        raise SystemExit(f"Failed to read {cfg_path}: {exc}") from exc
+    if not isinstance(cfg, dict):
+        raise SystemExit(f"Invalid {_PROJECT_YML} ({cfg_path}): expected a mapping")
+    _rewrite_project_identity(cfg, project_name)
+    cfg_path.write_text(_yaml_dump(cfg), encoding="utf-8")
+    return cfg_path
 
 
 def require_project_exists(project_name: str) -> None:

@@ -19,6 +19,7 @@ from terok.lib.core.projects import (
     discover_projects,
     list_projects,
     load_project,
+    normalize_project_name,
     set_project_image_agents,
 )
 from terok.lib.domain.project_state import get_project_state
@@ -262,6 +263,110 @@ class TestProject:
             project = load_project("hostless")
         assert project.gate_enabled is False
         assert project.upstream_url == "git@github.com:user/repo.git"
+
+    def test_load_project_rejects_new_name_mismatching_directory(self) -> None:
+        """``project.name`` and the project directory must be the same identity."""
+        yaml = "project:\n  name: other\n"
+        with project_env(yaml, project_name="actual"):
+            with pytest.raises(SystemExit) as exc_info:
+                load_project("actual")
+        message = str(exc_info.value)
+        assert "Project name mismatch" in message
+        assert "directory name: 'actual'" in message
+        assert "project.yml name: 'other'" in message
+        assert "terok project normalize-name actual" in message
+
+    def test_load_project_rejects_legacy_id_mismatching_directory(self) -> None:
+        """Legacy ``project.id`` is normalised first, then compared to the directory."""
+        yaml = "project:\n  id: old-slug\n  name: Pretty Project\n"
+        with project_env(yaml, project_name="actual"):
+            with pytest.raises(SystemExit) as exc_info:
+                load_project("actual")
+        message = str(exc_info.value)
+        assert "Project name mismatch" in message
+        assert "project.yml name: 'old-slug'" in message
+
+    def test_discover_projects_surfaces_name_mismatch_as_broken(self) -> None:
+        """Mismatch errors flow through discovery so the TUI can render the broken row."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            config_base = base / "config"
+            projects_root = config_base / "projects"
+            write_project(projects_root, "actual", "project:\n  name: other\n")
+            with unittest.mock.patch.dict(
+                os.environ,
+                {"TEROK_CONFIG_DIR": str(config_base), "XDG_CONFIG_HOME": str(base / "empty")},
+            ):
+                valid, broken = discover_projects()
+
+        assert valid == []
+        assert [bp.name for bp in broken] == ["actual"]
+        assert "normalize-name actual" in broken[0].error
+
+    def test_normalize_project_name_rewrites_mismatching_new_name(self) -> None:
+        """Quick fix makes the config identity match the directory name."""
+        yaml = "project:\n  name: other\n  description: Kept\n"
+        with project_env(yaml, project_name="actual") as ctx:
+            path = normalize_project_name("actual")
+            assert path == ctx.config_root / "actual" / "project.yml"
+            project = load_project("actual")
+            content = path.read_text(encoding="utf-8")
+
+        assert project.name == "actual"
+        assert project.description == "Kept"
+        assert "name: actual" in content
+        assert "description: Kept" in content
+        assert "id:" not in content
+
+    def test_normalize_project_name_preserves_legacy_display_name(self) -> None:
+        """Legacy ``id`` + display ``name`` becomes new ``name`` + ``description``."""
+        yaml = "project:\n  id: old-slug\n  name: Pretty Project\n"
+        with project_env(yaml, project_name="actual") as ctx:
+            path = normalize_project_name("actual")
+            project = load_project("actual")
+            content = path.read_text(encoding="utf-8")
+
+        assert path == ctx.config_root / "actual" / "project.yml"
+        assert project.name == "actual"
+        assert project.description == "Pretty Project"
+        assert "name: actual" in content
+        assert "description: Pretty Project" in content
+        assert "id:" not in content
+
+    def test_normalize_project_name_preserves_no_id_display_name(self) -> None:
+        """Old display-only ``name`` without ``id`` is retained as description."""
+        yaml = "project:\n  name: Pretty Project\n"
+        with project_env(yaml, project_name="actual"):
+            path = normalize_project_name("actual")
+            project = load_project("actual")
+            content = path.read_text(encoding="utf-8")
+
+        assert project.name == "actual"
+        assert project.description == "Pretty Project"
+        assert "name: actual" in content
+        assert "description: Pretty Project" in content
+
+    def test_derive_project_preserves_legacy_display_name_as_description(self) -> None:
+        """Deriving a legacy config does not discard the old display label."""
+        source = (
+            "project:\n"
+            "  id: source\n"
+            "  name: Pretty Source\n"
+            "git:\n"
+            "  upstream_url: https://example.com/repo.git\n"
+        )
+        with project_env(source, project_name="source") as ctx:
+            derived_root = derive_project("source", "derived")
+            content = (derived_root / "project.yml").read_text(encoding="utf-8")
+            derived = load_project("derived")
+
+        assert derived_root.name == "derived"
+        assert derived_root != ctx.config_root / "derived"  # derive writes to the user project root
+        assert derived.name == "derived"
+        assert derived.description == "Pretty Source"
+        assert "name: derived" in content
+        assert "description: Pretty Source" in content
+        assert "id:" not in content
 
     def test_discover_projects_splits_valid_and_broken(
         self, capsys: pytest.CaptureFixture[str]
