@@ -44,9 +44,11 @@ from terok.lib.orchestration.task_runners import (  # noqa: F401 — re-exported
     task_run_toad,
 )
 from terok.lib.orchestration.tasks import (  # noqa: F401 — re-exported public API
+    ContainerEventStream,
     TaskDeleteResult,
     TaskMeta,
     agent_config_dir,
+    container_event_stream,
     generate_task_name,
     get_all_task_states,
     get_login_command,
@@ -64,6 +66,7 @@ from terok.lib.orchestration.tasks import (  # noqa: F401 — re-exported public
     task_rename,
     task_status,
     task_stop,
+    tasks_meta_dir,
     validate_task_name,
     wait_for_container_exit,
 )
@@ -76,11 +79,13 @@ __all__ = [
     "ModeInfo",
     "SECURITY_CLASS_DISPLAY",
     "STATUS_DISPLAY",
+    "ContainerEventStream",
     "StatusInfo",
     "Task",
     "TaskDeleteResult",
     "TaskMeta",
     "agent_config_dir",
+    "container_event_stream",
     "container_name",
     "effective_status",
     "generate_task_name",
@@ -108,6 +113,7 @@ __all__ = [
     "task_run_toad",
     "task_status",
     "task_stop",
+    "tasks_meta_dir",
     "validate_task_name",
     "wait_for_container_exit",
 ]

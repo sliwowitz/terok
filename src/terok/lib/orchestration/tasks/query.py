@@ -7,7 +7,9 @@ functions that hydrate it from disk and live container state.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 from ...core.project_model import is_valid_project_id
 from ...core.projects import load_project
@@ -322,6 +324,43 @@ def get_all_task_states(
     return result
 
 
+class ContainerEventStream(Protocol):
+    """Structural type for a podman container-event subscription.
+
+    Matches ``terok_sandbox``'s ``PodmanEventStream``: a closable iterator of
+    container lifecycle events.  Declared here so consumers (the TUI poller)
+    needn't import the backend type, and so the contract is the minimum a
+    consumer relies on — iterate, then ``close()`` to terminate the child.
+    """
+
+    def __iter__(self) -> Iterator[Any]:
+        """Yield lifecycle events as they arrive (blocks between events)."""
+        ...
+
+    def close(self) -> None:
+        """Terminate the subscription and unblock a parked consumer."""
+        ...
+
+
+def container_event_stream(project_id: str) -> ContainerEventStream | None:
+    """Subscribe to live podman container events for *project_id*, or ``None``.
+
+    The push-based companion to
+    [`get_all_task_states`][terok.lib.orchestration.tasks.query.get_all_task_states]:
+    a closable iterator of lifecycle events for the project's containers, so a
+    watcher reacts to a container starting / dying instead of polling
+    ``podman ps``.  Returns ``None`` when the subscription can't be opened (no
+    ``podman`` on PATH, or a non-podman runtime); the caller then leans on the
+    periodic resync.
+    """
+    from terok.lib.integrations.sandbox import PodmanRuntime
+
+    try:
+        return PodmanRuntime().events(project_id)
+    except Exception:  # noqa: BLE001 — podman absent / subscribe failed; resync covers it
+        return None
+
+
 def task_list(
     project_id: str,
     *,
@@ -372,7 +411,9 @@ def task_list(
 
 
 __all__ = [
+    "ContainerEventStream",
     "TaskMeta",
+    "container_event_stream",
     "get_all_task_states",
     "get_task_container_state",
     "get_task_meta",

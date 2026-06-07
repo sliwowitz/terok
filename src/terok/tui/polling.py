@@ -9,6 +9,7 @@ Extracts upstream polling, container status polling, and auto-sync logic
 from the main app module into a reusable mixin class.
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,7 +18,8 @@ if TYPE_CHECKING:
 
     from terok.lib.api.gate import GateStalenessInfo
 
-    from ..lib.api import TaskMeta
+    from ..lib.api import ContainerEventStream, TaskMeta
+    from .task_watcher import TaskWatcher
 
     # At type-check time only, inherit from textual.App so all of its methods
     # (run_worker, set_interval, notify, …) resolve naturally on `self` with
@@ -26,6 +28,19 @@ if TYPE_CHECKING:
     _MixinBase = App
 else:
     _MixinBase = object
+
+# Container-state tracking is event-driven.  Two push sources cover what used to
+# be a 2-second poll: an inotify watch on the task-metadata and agent-config
+# directories (every host-side change — create, delete, ``ready_at``,
+# ``exit_code``, ``work-status.yml``) and a ``podman events`` stream (container
+# up/down with no host write).  The periodic resync is then only insurance
+# against a missed event — slow by default (configurable; see
+# ``tui.container_resync_seconds``), in the spirit of a Kubernetes informer
+# resync.  A monitor that can't trust inotify dials it back down to seconds.
+#
+# Coalesce a burst of events (a metadata file rewritten field-by-field, or a
+# start+health pair) into one reconcile rather than firing per event.
+_WATCH_DEBOUNCE_S = 0.2
 
 
 class PollingMixin(_MixinBase):
@@ -41,6 +56,9 @@ class PollingMixin(_MixinBase):
         _last_notified_stale: bool
         _auto_sync_cooldown: dict[str, float]
         _container_status_timer: "Timer | None"
+        _task_watcher: "TaskWatcher | None"
+        _container_event_stream: "ContainerEventStream | None"
+        _watch_debounce: "Timer | None"
 
         # TerokTUI helpers (not on textual.App).
         current_project_id: str | None
@@ -96,24 +114,180 @@ class PollingMixin(_MixinBase):
         self._polling_project_id = None
 
     def _start_container_status_polling(self) -> None:
-        """Start background polling for container status every 2 seconds."""
+        """Track container status from events, with a slow resync as insurance.
+
+        Seeds the initial state once, then wires two push sources for the
+        current project — an inotify watch on its task-metadata and agent-config
+        directories, and a ``podman events`` stream — so changes reconcile the
+        instant they happen.  A periodic full resync runs only as insurance
+        against a missed event, at the configured (slow by default) interval;
+        ``0`` disables it for a purely event-driven session.
+        """
+        from ..lib.core.config import get_tui_container_resync_seconds
+
         self._stop_container_status_polling()
         if not self.current_project_id:
             return
-        # Poll every 2 seconds - podman inspect is fast (~10-50ms)
-        interval_seconds = 2
-        # Initial poll
+        self._start_task_watcher(self.current_project_id)
+        self._start_container_event_worker(self.current_project_id)
+        # Seed after both push sources are armed, so a change in the startup
+        # window can't slip past unseen between snapshot and first event.
         self._poll_container_status()
-        # Schedule recurring polls
-        self._container_status_timer = self.set_interval(
-            interval_seconds, self._poll_container_status, name="container_status_polling"
-        )
+        resync_seconds = get_tui_container_resync_seconds()
+        if resync_seconds > 0:
+            self._container_status_timer = self.set_interval(
+                resync_seconds, self._poll_container_status, name="container_status_resync"
+            )
 
     def _stop_container_status_polling(self) -> None:
-        """Stop the container status polling timer."""
+        """Stop the resync timer and tear down both push sources."""
         if self._container_status_timer is not None:
             self._container_status_timer.stop()
             self._container_status_timer = None
+        self._stop_task_watcher()
+        self._stop_container_event_stream()
+
+    # ---------- inotify watch (host-side task files) ----------
+
+    def _start_task_watcher(self, project_id: str) -> bool:
+        """Arm an inotify watch on *project_id*'s task + agent-config dirs.
+
+        Returns ``True`` once the watch fd is registered on the event loop;
+        ``False`` (the resync carries the project alone) if inotify is
+        unavailable or there's no running loop to attach the fd to.
+        """
+        import asyncio
+
+        from .task_watcher import TaskWatcher
+
+        try:
+            watcher = TaskWatcher()
+        except Exception as e:  # noqa: BLE001 — watch is best-effort; resync covers it
+            self._log_debug(f"task watcher init error: {e}")
+            return False
+        if not watcher.start(self._task_watch_paths(project_id)):
+            return False
+        try:
+            asyncio.get_running_loop().add_reader(watcher.fileno, self._on_task_dir_changed)
+        except (RuntimeError, ValueError, OSError, NotImplementedError) as e:
+            self._log_debug(f"task watcher attach error: {e}")
+            watcher.stop()
+            return False
+        self._task_watcher = watcher
+        return True
+
+    def _task_watch_paths(self, project_id: str) -> list[Path]:
+        """The directories to watch: the metadata dir plus each task's config dir.
+
+        The metadata dir reveals membership and lifecycle (``ready_at``,
+        ``exit_code``); each task's ``agent-config`` dir reveals its
+        ``work-status.yml`` updates.  Reads the task set from disk, so it's
+        called only on start and on a membership change — never on the event
+        hot path.  Best-effort: a path that doesn't resolve is omitted.
+        """
+        from ..lib.api import agent_config_dir, get_tasks, tasks_meta_dir
+
+        paths: list[Path] = []
+        try:
+            paths.append(tasks_meta_dir(project_id))
+            tasks = get_tasks(project_id)
+        except Exception as e:  # noqa: BLE001 — a bad id just means no metadata watch
+            self._log_debug(f"task watch path error: {e}")
+            return paths
+        for task in tasks:
+            try:
+                paths.append(agent_config_dir(project_id, task.task_id))
+            except Exception:  # noqa: BLE001 # nosec B112 — skip tasks whose config dir won't resolve
+                continue
+        return paths
+
+    def _resync_task_watches(self) -> None:
+        """Re-point the inotify watch at the current task set (new/removed dirs)."""
+        if self._task_watcher is None or not self.current_project_id:
+            return
+        self._task_watcher.sync(self._task_watch_paths(self.current_project_id))
+
+    def _stop_task_watcher(self) -> None:
+        """Detach and close the inotify watch and any pending debounce."""
+        if self._watch_debounce is not None:
+            self._watch_debounce.stop()
+            self._watch_debounce = None
+        if self._task_watcher is None:
+            return
+        import asyncio
+
+        try:
+            asyncio.get_running_loop().remove_reader(self._task_watcher.fileno)
+        except (RuntimeError, ValueError, OSError):
+            pass
+        self._task_watcher.stop()
+        self._task_watcher = None
+
+    def _on_task_dir_changed(self) -> None:
+        """React to inotify activity: drain events, then debounce a reconcile."""
+        if self._task_watcher is None or not self._task_watcher.drain():
+            return
+        self._schedule_reconcile()
+
+    # ---------- podman event stream (container up/down) ----------
+
+    def _start_container_event_worker(self, project_id: str) -> None:
+        """Subscribe to podman container events and reconcile on each.
+
+        Opens the stream on the UI thread (so the handle is held synchronously
+        for teardown) and iterates it on a worker thread, since reading blocks
+        between events.  No-op when the runtime can't stream events — the
+        inotify watch and resync still cover the project.
+        """
+        import functools
+
+        from ..lib.api import container_event_stream
+
+        stream = container_event_stream(project_id)
+        if stream is None:
+            return
+        self._container_event_stream = stream
+        self.run_worker(
+            functools.partial(self._drain_container_events, stream, project_id),
+            name=f"container-events:{project_id}",
+            group="container-events",
+            thread=True,
+            exclusive=True,
+        )
+
+    def _drain_container_events(self, stream: "ContainerEventStream", project_id: str) -> None:
+        """Worker thread: reconcile on each container event until the stream closes.
+
+        Teardown closes the stream, which unblocks the parked ``readline`` and
+        ends the iteration; any error (podman gone) likewise ends it, leaving
+        the resync in charge.
+        """
+        try:
+            for _event in stream:
+                self.call_from_thread(self._on_container_event, project_id)
+        except Exception as e:  # noqa: BLE001 — stream died; resync covers the gap
+            self._log_debug(f"container event stream ended: {e}")
+
+    def _on_container_event(self, project_id: str) -> None:
+        """UI thread: debounce a reconcile for a container event (current project)."""
+        if project_id == self.current_project_id:
+            self._schedule_reconcile()
+
+    def _stop_container_event_stream(self) -> None:
+        """Close the podman event subscription, unblocking its worker thread."""
+        if self._container_event_stream is None:
+            return
+        try:
+            self._container_event_stream.close()
+        except Exception:  # noqa: BLE001 # nosec B110 — best-effort teardown
+            pass
+        self._container_event_stream = None
+
+    def _schedule_reconcile(self) -> None:
+        """Debounce a reconcile so a burst of events collapses into one."""
+        if self._watch_debounce is not None:
+            self._watch_debounce.stop()
+        self._watch_debounce = self.set_timer(_WATCH_DEBOUNCE_S, self._poll_container_status)
 
     def _poll_container_status(self) -> None:
         """Check container status for all visible tasks via a single batch query."""
