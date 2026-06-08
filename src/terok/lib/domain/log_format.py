@@ -328,7 +328,7 @@ def auto_detect_formatter(
         color: Force color on/off. ``None`` auto-detects from terminal.
         agent: Headless agent name.  When mode is ``"run"`` and
             agent is ``"claude"`` (or ``None``), returns the Claude
-            stream-json formatter.  Other providers get plain text.
+            stream-json formatter.  Other agents get plain text.
     """
     if mode == "run":
         effective_agent = agent or "claude"
