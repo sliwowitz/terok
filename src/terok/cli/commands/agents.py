@@ -13,7 +13,7 @@ Three leaf verbs:
   ``terok image build --agents`` and the new-project wizard accept.
 - ``terok agents dir [AGENT]`` — print the shared agent-config mounts
   directory (or one agent's subdirectory), surfacing the otherwise-hidden
-  ``~/.local/share/terok/…/mounts/`` where skills and subagent definitions live.
+  ``~/.local/share/terok/…/mounts/`` where skills and per-agent settings live.
 """
 
 from __future__ import annotations
@@ -162,7 +162,7 @@ def _print_mounts_dir(*, agent: str | None) -> None:
 
     The mounts directory holds the per-agent config trees (``_claude-config/``,
     ``_codex-config/``, …) terok bind-mounts into task containers — the place to
-    drop skills, subagent definitions, or other per-agent settings.  It is
+    drop skills or other per-agent settings.  It is
     otherwise undiscoverable; this verb surfaces it.
 
     With *agent*, the agent's config subdirectory is resolved from the roster;
