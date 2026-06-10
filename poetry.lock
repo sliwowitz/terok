@@ -3594,13 +3594,15 @@ terok-util = ">=0.2.0,<0.3.0"
 
 [[package]]
 name = "terok-executor"
-version = "0.2.0"
+version = "0.2.1"
 description = "Single-agent task runner for hardened Podman containers"
 optional = false
-python-versions = ">=3.12,<3.15"
+python-versions = "<3.15,>=3.12"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_executor-0.2.1-py3-none-any.whl", hash = "sha256:166fc941803e86a52ae48bec71af752236a0bd0334f82861522898554e5880a5"},
+    {file = "terok_executor-0.2.1.tar.gz", hash = "sha256:b2d4c84e2df8fbdacc96f2cf5793ac687fc15174fd2b34243353e443acc2f251"},
+]
 
 [package.dependencies]
 agent-client-protocol = ">=0.10.1"
@@ -3612,12 +3614,6 @@ rich = ">=13.0"
 terok-sandbox = ">=0.3.0,<0.4.0"
 terok-util = ">=0.2.0,<0.3.0"
 tomli-w = ">=1.0"
-
-[package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-executor.git"
-reference = "feat/shared-sidecar-writer"
-resolved_reference = "a54bebcee88d8d14d0dfbb4d42c0dfc88790ad59"
 
 [[package]]
 name = "terok-sandbox"
@@ -4533,4 +4529,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "cef36d3fa4ef2fd6369ef99f3094e420f3c2ca41cd841489250700b8dd03c12b"
+content-hash = "25e48f7ffc9610b2afcd018431a7ec689622c0f686e7f075cb074024d8ce8484"
