@@ -1658,6 +1658,81 @@ class TestTaskArchive:
                 assert result is None
 
 
+class TestTaskDeleteSidecarSweep:
+    """``_task_delete`` sweeps per-container sidecar state at real teardown.
+
+    The supervisor sidecar deliberately survives container stops (a
+    stopped container must come back supervised on ``podman start``),
+    so task delete is where it actually goes — but only once the
+    containers are confirmed gone, because a still-live container needs
+    its sidecar for the next restart.
+    """
+
+    def _delete_with_sweep_mock(
+        self,
+        mock_runtime,
+        project_name: str,
+        *,
+        container_results: list | None = None,
+        sweep_side_effect: BaseException | None = None,
+    ) -> tuple[TaskDeleteResult, unittest.mock.MagicMock, str]:
+        """Create + delete a task with ``remove_container_state`` mocked out."""
+        from types import SimpleNamespace
+
+        mock_runtime.force_remove.return_value = [
+            SimpleNamespace(**r) for r in (container_results or [])
+        ]
+        with project_env(
+            f"project:\n  id: {project_name}\n",
+            project_name=project_name,
+        ):
+            with mock_git_config():
+                task_id = task_new(project_name)
+                with (
+                    unittest.mock.patch(
+                        "terok_executor.AgentRunner.capture_logs",
+                        return_value=True,
+                    ),
+                    unittest.mock.patch(
+                        "terok.lib.orchestration.tasks.lifecycle.remove_container_state",
+                        side_effect=sweep_side_effect,
+                    ) as sweep,
+                ):
+                    result = task_delete(project_name, task_id)
+        return result, sweep, task_id
+
+    def test_clean_delete_sweeps_every_mode_container(self, mock_runtime) -> None:
+        """After successful removal, every mode's name-keyed state is swept."""
+        from terok.lib.core.task_state import CONTAINER_MODES, container_name
+
+        result, sweep, task_id = self._delete_with_sweep_mock(mock_runtime, "proj_sweep1")
+        assert result.warnings == []
+        swept = {call.args[0] for call in sweep.call_args_list}
+        assert swept == {
+            container_name("proj_sweep1", mode, str(task_id)) for mode in CONTAINER_MODES
+        }
+
+    def test_failed_removal_keeps_sidecars(self, mock_runtime) -> None:
+        """A live container still needs its sidecar — no sweep on failed removal."""
+        result, sweep, _ = self._delete_with_sweep_mock(
+            mock_runtime,
+            "proj_sweep2",
+            container_results=[{"name": "c1", "removed": False, "error": "locked"}],
+        )
+        sweep.assert_not_called()
+        assert any("supervisor may still be live" in w for w in result.warnings)
+
+    def test_sweep_failure_collects_warning(self, mock_runtime) -> None:
+        """A failing sweep is a warning like every other delete step, not a crash."""
+        result, sweep, _ = self._delete_with_sweep_mock(
+            mock_runtime,
+            "proj_sweep3",
+            sweep_side_effect=OSError("read-only fs"),
+        )
+        assert sweep.called
+        assert any("Container state sweep failed" in w for w in result.warnings)
+
+
 class TestTaskDeleteWarnings:
     """Verify that _task_delete collects per-step warnings."""
 

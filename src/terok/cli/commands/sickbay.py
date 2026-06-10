@@ -571,6 +571,29 @@ def _check_recovery_acknowledged() -> _CheckResult:
     )
 
 
+def _check_stray_sidecars() -> _CheckResult:
+    """Sweep supervisor sidecars stranded by out-of-band container removal.
+
+    Sandbox-side, host-level check
+    ([`make_stray_sidecar_check`][terok_sandbox.launch.make_stray_sidecar_check]):
+    sidecars deliberately survive container stops so restarts come back
+    supervised, and ``task delete`` sweeps them — a container removed
+    behind terok's back (bare ``podman rm``) strands its file until
+    this reconcile removes it.  The check acts on what it finds and
+    reports what it swept.
+    """
+    label = "Stray sidecars"
+    try:
+        from terok.lib.integrations.sandbox import make_stray_sidecar_check
+
+        from ...lib.core.config import make_sandbox_config
+
+        verdict = make_stray_sidecar_check(make_sandbox_config()).evaluate(0, "", "")
+    except Exception as exc:  # noqa: BLE001 — probe is best-effort; never crash sickbay
+        return ("warn", label, f"check failed — {exc}")
+    return (verdict.severity, label, verdict.detail)
+
+
 def _check_default_agents() -> _CheckResult:
     """Warn when no global ``image.agents`` default is configured.
 
@@ -602,6 +625,7 @@ _GLOBAL_CHECKS = [
     ("Recovery key acknowledged", _check_recovery_acknowledged),
     ("SSH signer", _check_ssh_signer),
     ("SELinux policy", _check_selinux_policy),
+    ("Stray sidecars", _check_stray_sidecars),
     ("Default agents", _check_default_agents),
 ]
 """Global checks paired with the label shown while they run.
