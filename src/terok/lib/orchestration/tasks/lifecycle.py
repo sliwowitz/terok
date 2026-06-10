@@ -17,8 +17,10 @@ from pathlib import Path
 from terok_util import ensure_dir
 
 from terok.lib.integrations.executor import AgentRunner
+from terok.lib.integrations.sandbox import remove_container_state
 
 from ...core import runtime as _rt
+from ...core.config import make_sandbox_config
 from ...core.projects import ProjectConfig, load_project
 from ...core.task_display import STATUS_DISPLAY, mode_info
 from ...core.task_state import CONTAINER_MODES, container_name, effective_status
@@ -326,6 +328,26 @@ def _remove_meta_files(paths: tuple[Path, ...], warnings: list[str]) -> None:
         _log_debug("task_delete: metadata files removed")
 
 
+def _sweep_container_state(project_name: str, task_id: str, warnings: list[str]) -> None:
+    """Remove each mode-container's sidecar + per-container runtime dir.
+
+    The supervisor sidecar deliberately survives container stops — a
+    stopped container must come back supervised on ``podman start`` —
+    so task delete is the real teardown point where it goes, via
+    [`remove_container_state`][terok_sandbox.launch.remove_container_state].
+    Best-effort like every other delete step; only called once the
+    containers are gone (a live container still needs its sidecar).
+    """
+    cfg = make_sandbox_config()
+    for mode in CONTAINER_MODES:
+        cname = container_name(project_name, mode, str(task_id))
+        try:
+            remove_container_state(cname, cfg=cfg)
+        except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+            _log_debug(f"task_delete: container state sweep failed for {cname}: {exc}")
+            warnings.append(f"Container state sweep failed for {cname}: {exc}")
+
+
 def _release_task_web_port(
     project_name: str, task_id: str, containers_removed: bool, warnings: list[str]
 ) -> None:
@@ -371,12 +393,16 @@ def _task_delete(project: ProjectConfig, task_id: str) -> TaskDeleteResult:
         _log_debug("task_delete: archiving task")
         _archive_task(project, task_id, meta)
 
-    # The gate token lives only in the per-container supervisor's sidecar
-    # and dies with the supervisor when the container is removed.
-    # *Successful* removal below is therefore what invalidates the token.
+    # The gate token is a stateless pair-match between the container's
+    # env and the supervisor sidecar.  *Successful* removal below kills
+    # both live ends (env + supervisor); the sidecar's on-disk copy is
+    # swept right after — it must outlive mere stops so restarts come
+    # back supervised, so delete is where it actually goes.
     _log_debug("task_delete: removing task containers")
     containers_removed = _remove_task_containers(project.name, task_id, warnings)
-    if not containers_removed:
+    if containers_removed:
+        _sweep_container_state(project.name, task_id, warnings)
+    else:
         # Removal failed, so the supervisor — and the in-memory gate token it
         # holds — may still be live even as the rest of the delete proceeds.
         # There is no host-side store to revoke from, so surface it loudly:

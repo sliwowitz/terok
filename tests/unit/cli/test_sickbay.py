@@ -16,6 +16,7 @@ from terok.cli.commands.sickbay import (
     _check_recovery_acknowledged,
     _check_selinux_policy,
     _check_ssh_signer,
+    _check_stray_sidecars,
     _check_task_hook,
     _check_vault,
     _reconcile_post_stop,
@@ -729,6 +730,97 @@ class TestCheckRecoveryAcknowledged:
             sev, label, detail = _check_recovery_acknowledged()
         assert sev == "warn"
         assert "boom" in detail
+
+
+class TestCheckStraySidecars:
+    """``_check_stray_sidecars`` produces the host-level reconcile row.
+
+    The row delegates to sandbox's ``make_stray_sidecar_check`` against
+    the config ``make_sandbox_config()`` resolves — these tests run the
+    *real* sandbox check against the isolated tmp HOME (the autouse
+    path-isolation fixture routes ``state_dir`` there), patching only
+    the podman lookup, so wiring drift between terok and the pinned
+    sandbox surfaces here.
+    """
+
+    @staticmethod
+    def _drop_stray_sidecar(name: str, age_s: float = 7200.0) -> Path:
+        """Write a sidecar aged *age_s* seconds into the isolated state dir."""
+        import os
+        import time
+
+        from terok.lib.core.config import make_sandbox_config
+
+        target = make_sandbox_config().state_dir / "sidecar" / f"{name}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("{}")
+        stamp = time.time() - age_s
+        os.utime(target, (stamp, stamp))
+        return target
+
+    def test_ok_when_nothing_on_disk(self) -> None:
+        """No sidecars at all → quiet ``ok`` row."""
+        sev, label, detail = _check_stray_sidecars()
+        assert sev == "ok"
+        assert label == "Stray sidecars"
+        assert "no sidecars" in detail
+
+    def test_sweeps_stray_and_reports_it(self) -> None:
+        """A container-less sidecar past the grace window is swept and named."""
+        stray = self._drop_stray_sidecar("gone-task")
+        # The sandbox check asks podman for the live container set; pin
+        # it so the test needs no podman and "gone-task" counts as stray.
+        with unittest.mock.patch(
+            "terok_sandbox.launch._podman_container_names",
+            return_value=frozenset({"live-task"}),
+        ):
+            sev, label, detail = _check_stray_sidecars()
+        assert sev == "ok"
+        assert label == "Stray sidecars"
+        assert "gone-task" in detail
+        assert not stray.exists()
+
+    def test_live_sidecar_kept(self) -> None:
+        """A sidecar whose container podman still knows is never touched."""
+        kept = self._drop_stray_sidecar("live-task")
+        with unittest.mock.patch(
+            "terok_sandbox.launch._podman_container_names",
+            return_value=frozenset({"live-task"}),
+        ):
+            sev, _, detail = _check_stray_sidecars()
+        assert sev == "ok"
+        assert "no strays" in detail
+        assert kept.exists()
+
+    def test_podman_unreachable_warns_and_keeps_files(self) -> None:
+        """Without podman, live vs stray is unknowable — warn, sweep nothing."""
+        kept = self._drop_stray_sidecar("unknown-task")
+        with unittest.mock.patch(
+            "terok_sandbox.launch._podman_container_names",
+            return_value=None,
+        ):
+            sev, label, detail = _check_stray_sidecars()
+        assert sev == "warn"
+        assert label == "Stray sidecars"
+        assert "podman unreachable" in detail
+        assert kept.exists()
+
+    def test_warn_when_probe_raises(self) -> None:
+        """A failing probe degrades to a warn — never crashes sickbay."""
+        with unittest.mock.patch(
+            "terok.lib.integrations.sandbox.make_stray_sidecar_check",
+            side_effect=RuntimeError("boom"),
+        ):
+            sev, label, detail = _check_stray_sidecars()
+        assert sev == "warn"
+        assert label == "Stray sidecars"
+        assert "boom" in detail
+
+    def test_registered_as_global_check(self) -> None:
+        """The row is wired into the host-wide block (and thus ``--system``)."""
+        from terok.cli.commands.sickbay import _GLOBAL_CHECKS
+
+        assert ("Stray sidecars", _check_stray_sidecars) in _GLOBAL_CHECKS
 
 
 class TestSickbayDispatch:
