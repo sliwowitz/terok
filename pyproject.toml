@@ -27,11 +27,12 @@ dependencies = [
     "unique-namer>=1.3",
     "textual-serve>=1.1.0",
     "jinja2>=3.1",
-    # PR-chain pins: need terok-sandbox's write_sidecar/remove_container_state
-    # (terok-ai/terok-sandbox#390) via terok-executor (terok-ai/terok-executor#406).
-    # Re-pin both to release ranges once the chain merges bottom-up.
+    # PR-chain pin: executor's shared-sidecar-writer switch
+    # (terok-ai/terok-executor#406) is unreleased — re-pin to its release
+    # range once it ships.  Sandbox is released: remove_container_state /
+    # make_stray_sidecar_check entered the public API in 0.3.0.
     "terok-executor @ git+https://github.com/sliwowitz/terok-executor.git@feat/shared-sidecar-writer",
-    "terok-sandbox @ git+https://github.com/sliwowitz/terok-sandbox.git@fix/supervisor-restart-sidecar",
+    "terok-sandbox>=0.3.0,<0.4.0",
     "terok-shield>=0.7.1,<0.8.0",
     "terok-clearance>=0.7.1,<0.8.0",
     "terok-util>=0.2.0,<0.3.0",

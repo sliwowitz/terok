@@ -3609,7 +3609,7 @@ prompt-toolkit = ">=3.0"
 pydantic = ">=2.9"
 rich = ">=13.0"
 "ruamel.yaml" = ">=0.18"
-terok-sandbox = {git = "https://github.com/sliwowitz/terok-sandbox.git", rev = "fix/supervisor-restart-sidecar"}
+terok-sandbox = ">=0.3.0,<0.4.0"
 terok-util = ">=0.2.0,<0.3.0"
 tomli-w = ">=1.0"
 
@@ -3617,17 +3617,19 @@ tomli-w = ">=1.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-executor.git"
 reference = "feat/shared-sidecar-writer"
-resolved_reference = "dce460e40b458adbe28cab486d1482335ed42ef2"
+resolved_reference = "a54bebcee88d8d14d0dfbb4d42c0dfc88790ad59"
 
 [[package]]
 name = "terok-sandbox"
-version = "0.2.0"
+version = "0.3.0"
 description = "Hardened Podman container runner with gate server and shield integration"
 optional = false
-python-versions = ">=3.12,<4.0"
+python-versions = "<4.0,>=3.12"
 groups = ["main"]
-files = []
-develop = false
+files = [
+    {file = "terok_sandbox-0.3.0-py3-none-any.whl", hash = "sha256:54739389a0c13be67b5a86ad79d1e9cba852d33ba685b75f2f4f2604e36e4f14"},
+    {file = "terok_sandbox-0.3.0.tar.gz", hash = "sha256:9c3ebace7016586a671fbf741d960c7e0dec19bfc031933ed6a6eb6424b8de2b"},
+]
 
 [package.dependencies]
 aiohttp = ">=3.14.1"
@@ -3643,12 +3645,6 @@ sqlcipher3 = ">=0.6.2"
 terok-clearance = ">=0.7.1,<0.8.0"
 terok-shield = ">=0.7.1,<0.8.0"
 terok-util = ">=0.2.0,<0.3.0"
-
-[package.source]
-type = "git"
-url = "https://github.com/sliwowitz/terok-sandbox.git"
-reference = "fix/supervisor-restart-sidecar"
-resolved_reference = "36f9d4427ca7cf9ceb03dac0a9c36b576c2de2b3"
 
 [[package]]
 name = "terok-shield"
@@ -4537,4 +4533,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "d3ce766eaef7583972167d866d8649587e8a092a22034d3bbddc7dba53de327c"
+content-hash = "cef36d3fa4ef2fd6369ef99f3094e420f3c2ca41cd841489250700b8dd03c12b"
