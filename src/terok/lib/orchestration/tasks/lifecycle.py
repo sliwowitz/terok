@@ -17,7 +17,7 @@ from pathlib import Path
 from terok_util import ensure_dir
 
 from terok.lib.integrations.executor import AgentRunner
-from terok.lib.integrations.sandbox import remove_container_state
+from terok.lib.integrations.sandbox import container_diagnostics, remove_container_state
 
 from ...core import runtime as _rt
 from ...core.config import make_sandbox_config
@@ -581,8 +581,14 @@ def task_stop(project_name: str, task_id: str, *, timeout: int | None = None) ->
     _task_stop(load_project(project_name), task_id, timeout=timeout)
 
 
-def task_status(project_name: str, task_id: str) -> None:
-    """Show live task status with container state diagnostics."""
+def task_status(project_name: str, task_id: str, *, verbose: bool = False) -> None:
+    """Show live task status with container state diagnostics.
+
+    With *verbose*, append the on-host debug locations — container ID,
+    bind mounts, and the supervisor log / wrapper / PID / sidecar paths
+    — so an operator can point a human at the right file to send back
+    instead of hand-rolling a ``podman inspect`` incantation.
+    """
     project = load_project(project_name)
     meta_dir = tasks_meta_dir(project.name)
     meta = read_task_meta(meta_dir, task_id)
@@ -597,10 +603,12 @@ def task_status(project_name: str, task_id: str) -> None:
 
     # Query live container state
     cname = None
+    container = None
     cs = None
     if mode:
         cname = container_name(project.name, mode, task_id)
-        cs = _rt.resolve_runtime(project).container(cname).state
+        container = _rt.resolve_runtime(project).container(cname)
+        cs = container.state
 
     # Build TaskMeta for effective_status / mode_emoji computation
     task = TaskMeta(
@@ -652,6 +660,63 @@ def task_status(project_name: str, task_id: str) -> None:
         print(f"  Work status:     {ws.status}")
         if ws.message:
             print(f"  Work message:    {ws.message}")
+
+    if verbose:
+        cid = container.id if container is not None else None
+        mounts = container.mounts if container is not None else []
+        _print_status_diagnostics(project_name, task_id, cname, cid, mounts)
+
+
+def _print_status_diagnostics(
+    project_name: str,
+    task_id: str,
+    cname: str | None,
+    cid: str | None,
+    mounts: list[tuple[str, str]],
+) -> None:
+    """Append the on-host debug locations for ``task status --verbose``.
+
+    Resolves the supervisor/sidecar artifact paths through sandbox's
+    [`container_diagnostics`][terok_sandbox.diagnostics.container_diagnostics]
+    so the layout stays sandbox-owned.  The log and PID file key on the
+    podman container *ID* (read live); the sidecar keys on the container
+    *name*, so it — and the install-global wrapper — resolve even when
+    the container has been removed and no ID is available.
+    """
+
+    def row(label: str, value: str) -> None:
+        """Print one ``label: value`` line, 17-wide to match the main status body."""
+        print(f"  {label + ':':<17}{value}")
+
+    print()
+    print("  ── Debug locations ──")
+    if cname is None:
+        print("  (no container — task has no run mode recorded)")
+        return
+
+    # ``Container`` itself is already printed in the main body above; start
+    # the debug block with what's new (the full ID).
+    row("Container ID", cid or "(not found — container removed)")
+    if mounts:
+        print("  Mounts:")
+        for src, dest in mounts:
+            print(f"    {src} → {dest}")
+
+    diag = container_diagnostics(cid or "", cname)
+    row("Sidecar", _path_with_presence(diag.sidecar))
+    row("Wrapper", str(diag.wrapper))
+    if cid:
+        row("Supervisor log", _path_with_presence(diag.log))
+        row("Supervisor PID", _path_with_presence(diag.pid))
+    else:
+        row("Supervisor log", "(needs a live or exited container to resolve the ID)")
+
+    row("Live logs", f"terok task logs {project_name} {task_id}")
+
+
+def _path_with_presence(path: Path) -> str:
+    """Render *path*, flagging when the file isn't on disk yet."""
+    return str(path) if path.exists() else f"{path}  (not present)"
 
 
 def wait_for_container_exit(

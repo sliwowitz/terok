@@ -26,6 +26,7 @@ from terok_sandbox import (  # noqa: F401 — re-exported public API
     DEFAULT_SSH_HOST,
     SERVICES_TCP_OPTOUT_YAML,
     CheckVerdict,
+    ContainerDiagnostics,
     ContainerRuntime,
     CredentialDB,
     DoctorCheck,
@@ -65,6 +66,7 @@ from terok_sandbox import (  # noqa: F401 — re-exported public API
     check_selinux_status,
     claim_port,
     clear_redundant_session_file,
+    container_diagnostics,
     ensure_infra_keypair,
     gate_use_personal_ssh_default,
     handle_vault_seal,
@@ -103,6 +105,7 @@ from terok_sandbox.supervisor.install import (  # noqa: F401 — re-exported
 
 __all__ = [
     "CheckVerdict",
+    "ContainerDiagnostics",
     "ContainerRuntime",
     "CredentialDB",
     "DEFAULT_GUEST_SSHD_PORT",
@@ -142,6 +145,7 @@ __all__ = [
     "check_gpu_available",
     "check_selinux_status",
     "claim_port",
+    "container_diagnostics",
     "ensure_infra_keypair",
     "gate_use_personal_ssh_default",
     "handle_vault_seal",
