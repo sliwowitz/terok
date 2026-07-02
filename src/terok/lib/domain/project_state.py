@@ -198,9 +198,9 @@ _STALE_AUTH_IMAGE_HINT = (
 def auth_image_is_stale(project_name: str | None) -> bool | None:
     """Best-effort: would an auth container for *project_name* run a stale image?
 
-    Reuses the per-layer staleness check
-    ([`_detect_stale_layers`][terok.lib.domain.project_state._detect_stale_layers]):
-    a project-scoped auth reuses the project's L2 CLI image, so *any* stale
+    Reuses the per-layer staleness check (the module-private
+    ``_detect_stale_layers``): a project-scoped auth reuses the project's L2
+    CLI image, so *any* stale
     layer means the login scripts baked into it (e.g. ``setup-codex-auth.sh``)
     may lag the current source.  Returns:
 

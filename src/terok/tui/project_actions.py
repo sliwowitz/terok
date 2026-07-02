@@ -318,6 +318,7 @@ class ProjectActionsMixin(_MixinBase):
             )
             return
 
+        mode: str | None
         if len(modes) == 1:
             mode = modes[0]
         else:
