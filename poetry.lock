@@ -3620,7 +3620,7 @@ tomli-w = ">=1.0"
 type = "git"
 url = "https://github.com/sliwowitz/terok-executor.git"
 reference = "feat/codex-device-auth-flag"
-resolved_reference = "5a283097ea631451215ca2e05c97465fce8b7d2a"
+resolved_reference = "36773850ae740b1b5c262e2e25174006b5dd4c45"
 
 [[package]]
 name = "terok-sandbox"
