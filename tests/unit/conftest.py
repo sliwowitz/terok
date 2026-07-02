@@ -79,6 +79,24 @@ def _isolate_user_paths(
 
 
 @pytest.fixture(autouse=True)
+def _isolate_cwd(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every unit test from a throwaway working directory.
+
+    A test that hands a bare ``Mock()`` where production code expects a
+    ``SandboxConfig`` can have ``str(mock.some_path)`` used as a *relative*
+    filename, so the resulting write lands in the process CWD.  When that
+    CWD is the repo checkout, a file named like ``<Mock name='...' id=…>``
+    is created at the repo root, swept into ``git add -A``, and — as
+    happened once — committed and merged.  Anchoring every test's CWD in a
+    fresh temp dir sends any such stray *relative* write to disposable
+    scratch space instead of the working tree; the dir is reclaimed with
+    the rest of ``tmp_path_factory``'s tree.  Absolute paths are already
+    covered by the ``HOME`` / ``XDG_*`` isolation above.
+    """
+    monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
+
+
+@pytest.fixture(autouse=True)
 def _reset_config_caches() -> Iterator[None]:
     """Clear config caches between tests to prevent cross-test pollution."""
     from terok_util import paths as _util_paths
