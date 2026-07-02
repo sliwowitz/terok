@@ -4,10 +4,10 @@
 """Toad web-TUI task runner.
 
 ``task_run_toad`` launches the Toad multi-agent TUI behind Caddy for
-token-gated browser access; ``_resume_toad_container`` is the fast path
-for a toad task whose container already exists.  The token/URL helpers
-(``_ensure_toad_token``, ``_toad_browser_url``, ``_rehydrate_toad_token``)
-are also consumed by the restart runner.
+token-gated browser access.  It only ever creates — an existing toad
+container comes back through ``task restart``'s ladder, which consumes
+the token/URL helpers here (``_ensure_toad_token``, ``_toad_browser_url``,
+``_rehydrate_toad_token``).
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from ...util.net import url_host
 from ..agent_config import resolve_agent_config
 from ..environment import build_task_env_and_volumes
 from ..hooks import run_hook
-from ..ports import assign_web_port, release_web_port
+from ..ports import assign_web_port
 from ..tasks import (
     CONTAINER_TEROK_CONFIG,
     container_name,
@@ -44,7 +44,7 @@ from ..tasks import (
     write_task_meta,
 )
 from .config import _apply_unrestricted_env, _prepare_agent_config, _str_to_bool
-from .container import _assert_running, _podman_start, _run_container
+from .container import _refuse_existing_container, _run_container
 from .shield import _apply_shield_policy
 
 if TYPE_CHECKING:
@@ -127,56 +127,6 @@ def _rehydrate_toad_token(project: ProjectConfig, task_id: str, meta: dict, cnam
     return saved_token
 
 
-def _resume_toad_container(
-    *,
-    project: ProjectConfig,
-    task_id: str,
-    cname: str,
-    container_state: str,
-    meta: dict,
-    meta_path: Path,
-    pub_host: str,
-) -> None:
-    """Fast-path for a toad task whose container already exists: rehydrate the token, start it if stopped, print the URL."""
-    saved_port = meta.get("web_port")
-    if not isinstance(saved_port, int):
-        raise SystemExit(f"Existing toad container {cname} has no saved web_port in metadata.")
-    actual = assign_web_port(project.name, task_id, preferred=saved_port)
-    if actual != saved_port:
-        # The registry handed us a fallback port — release it so the task
-        # doesn't leak a claim we'll never publish.
-        release_web_port(project.name, task_id)
-        raise SystemExit(
-            f"Port {saved_port} for {project.name}/{task_id} is no longer available "
-            f"(got {actual}).  Re-create the task to use the new port."
-        )
-    saved_token = _rehydrate_toad_token(project, task_id, meta, cname)
-    color_enabled = _supports_color()
-    url = _toad_browser_url(pub_host, saved_port, saved_token)
-    if container_state == "running":
-        print(f"Container {_green(cname, color_enabled)} is already running.")
-        print(f"Toad: {_hyperlink(_blue(url, color_enabled), url, enabled=color_enabled)}")
-        return
-    print(f"Starting existing container {_green(cname, color_enabled)}...")
-    task_dir = project.tasks_root / str(task_id)
-    _podman_start(project, cname)
-    _assert_running(project, cname)
-    run_hook(
-        "post_start",
-        project.hook_post_start,
-        project_name=project.name,
-        task_id=task_id,
-        mode="toad",
-        cname=cname,
-        web_port=saved_port,
-        task_dir=task_dir,
-        meta_path=meta_path,
-    )
-    _apply_shield_policy(project, cname, task_dir, is_restart=True)
-    print("Container started.")
-    print(f"Toad: {_hyperlink(_blue(url, color_enabled), url, enabled=color_enabled)}")
-
-
 def task_run_toad(
     project_name: str,
     task_id: str,
@@ -194,21 +144,9 @@ def task_run_toad(
     meta, meta_path = load_task_meta(project.name, task_id, "toad")
 
     cname = container_name(project.name, "toad", task_id)
-    container_state = _rt.resolve_runtime(project).container(cname).state
+    _refuse_existing_container(project, cname, task_id)
 
     pub_host = get_public_host()
-
-    if container_state is not None:
-        _resume_toad_container(
-            project=project,
-            task_id=task_id,
-            cname=cname,
-            container_state=container_state,
-            meta=meta,
-            meta_path=meta_path,
-            pub_host=pub_host,
-        )
-        return
 
     # New container — allocate a fresh port.
     port = assign_web_port(project.name, task_id)

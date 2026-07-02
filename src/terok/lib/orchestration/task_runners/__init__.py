@@ -33,7 +33,10 @@ from .headless import (  # noqa: F401 — re-exported public API
     task_followup_headless,
     task_run_headless,
 )
-from .restart import task_restart  # noqa: F401 — re-exported public API
+from .restart import (  # noqa: F401 — re-exported public API
+    ensure_task_running,
+    task_restart,
+)
 from .shield import resolve_container_uuid  # noqa: F401 — re-exported public API
 from .toad import task_run_toad  # noqa: F401 — re-exported public API
 
@@ -42,6 +45,7 @@ __all__ = [
     "HeadlessRunRequest",
     "resolve_container_uuid",
     "task_followup_headless",
+    "ensure_task_running",
     "task_restart",
     "task_run_cli",
     "task_run_headless",

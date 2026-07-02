@@ -16,6 +16,7 @@ from ...lib.api import (
     HeadlessRunRequest,
     LogViewOptions,
     build_images,
+    ensure_task_running,
     project_image_exists,
     require_project_exists,
     task_archive_list,
@@ -720,11 +721,11 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
             mode=getattr(args, "filter_mode", None),
         )
     elif args.task_cmd == "attach":
-        # terokctl-only: run an existing task in the chosen interactive mode.
-        runner = task_run_toad if getattr(args, "mode", "cli") == "toad" else task_run_cli
-        runner(
+        # terokctl-only: bring an existing task up in the chosen interactive mode.
+        ensure_task_running(
             pid,
             tid,
+            mode=getattr(args, "mode", "cli"),
             unrestricted=_resolve_unrestricted(args),
         )
     elif args.task_cmd == "delete":

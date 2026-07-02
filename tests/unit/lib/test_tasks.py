@@ -17,7 +17,11 @@ import pytest
 from terok.lib.core.projects import load_project
 from terok.lib.domain.task_logs import LogViewOptions, task_logs
 from terok.lib.orchestration.environment import build_task_env_and_volumes
-from terok.lib.orchestration.task_runners import task_run_cli, task_run_toad
+from terok.lib.orchestration.task_runners import (
+    ensure_task_running,
+    task_run_cli,
+    task_run_toad,
+)
 from terok.lib.orchestration.task_runners.toad import (
     _ensure_toad_token,
     _rehydrate_toad_token,
@@ -565,8 +569,8 @@ class TestTask:
             port_idx = extra.index("-p")
             assert extra[port_idx + 1] == "0.0.0.0:7862:8080"
 
-    def test_task_run_cli_already_running(self, mock_runtime) -> None:
-        """task_run_cli prints message and exits when container is already running."""
+    def test_task_run_cli_refuses_existing_container(self, mock_runtime) -> None:
+        """task_run_cli only creates — an existing container points at ``task restart``."""
         project_name = "proj_cli_running"
         with project_env(
             f"project:\n  id: {project_name}\n",
@@ -574,17 +578,11 @@ class TestTask:
         ):
             tid = task_new(project_name)
             mock_runtime.container.return_value.state = "running"
-            with mock_git_config():
-                buffer = StringIO()
-                with redirect_stdout(buffer):
-                    task_run_cli(project_name, tid)
+            with mock_git_config(), pytest.raises(SystemExit, match="task restart"):
+                task_run_cli(project_name, tid)
 
-                # Verify message indicates already running
-                output = buffer.getvalue()
-                assert "already running" in output
-
-    def test_task_run_cli_starts_stopped_container(self, mock_runtime) -> None:
-        """task_run_cli uses 'podman start' for stopped container."""
+    def test_ensure_task_running_starts_stopped_container(self, mock_runtime) -> None:
+        """The ensure ladder resumes a stopped cli container via ``Container.start``."""
         project_name = "proj_cli_stopped"
         with project_env(
             f"project:\n  id: {project_name}\n",
@@ -599,13 +597,16 @@ class TestTask:
             write_task_meta(dossier_path(meta_dir, tid), meta)
 
             cname = f"{project_name}-cli-{tid}"
+            # The drift probe compares container vs project image IDs;
+            # share the handle so the resume rung stays open.
+            mock_runtime.image.return_value = mock_runtime.container.return_value.image
             with (
                 _set_state_sequence(mock_runtime, ["exited", "running"]),
                 mock_git_config(),
             ):
                 buffer = StringIO()
                 with redirect_stdout(buffer):
-                    task_run_cli(project_name, tid)
+                    ensure_task_running(project_name, tid)
 
                 # Verify container(cname).start() was called
                 mock_runtime.container.assert_any_call(cname)
@@ -1060,8 +1061,8 @@ class TestToadHelpers:
                 _rehydrate_toad_token(project, task_id, {}, cname="c1")
 
 
-class TestResumeToadContainer:
-    """End-to-end tests for the existing-container resume branch of ``task_run_toad``."""
+class TestEnsureToadRunning:
+    """End-to-end tests for the ensure ladder on existing toad containers."""
 
     @staticmethod
     def _seed_toad_meta(project_name: str, task_id: str, *, port: int, token: str) -> None:
@@ -1072,7 +1073,7 @@ class TestResumeToadContainer:
         write_task_meta(dossier_handle, meta)
         (project.tasks_root / str(task_id) / "agent-config").mkdir(parents=True, exist_ok=True)
 
-    def test_resume_running_container_prints_tokenized_url(self, mock_runtime) -> None:
+    def test_running_container_prints_tokenized_url(self, mock_runtime) -> None:
         """A running container short-circuits with the printed ``?token=…`` URL."""
         project_name = "proj_resume_running"
         with project_env(
@@ -1088,12 +1089,12 @@ class TestResumeToadContainer:
             with (
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
+                    "terok.lib.orchestration.task_runners.restart.assign_web_port",
                     return_value=7862,
                 ),
                 redirect_stdout(buf),
             ):
-                task_run_toad(project_name, tid)
+                ensure_task_running(project_name, tid)
             out = buf.getvalue()
             assert "is already running" in out
             assert "?token=tok-running" in out
@@ -1103,7 +1104,7 @@ class TestResumeToadContainer:
                 project.tasks_root / str(tid) / "agent-config" / "toad.token"
             ).read_text() == "tok-running"
 
-    def test_resume_stopped_container_restarts_and_prints_url(self, mock_runtime) -> None:
+    def test_stopped_container_restarts_and_prints_url(self, mock_runtime) -> None:
         """An existing-but-stopped container is started again with the same token."""
         project_name = "proj_resume_stopped"
         with project_env(
@@ -1115,31 +1116,31 @@ class TestResumeToadContainer:
             tid = task_new(project_name)
             self._seed_toad_meta(project_name, tid, port=7863, token="tok-stopped")
             mock_runtime.container.return_value.state = "exited"
+            mock_runtime.image.return_value = mock_runtime.container.return_value.image
             buf = StringIO()
             with (
                 mock_git_config(),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
+                    "terok.lib.orchestration.task_runners.restart.assign_web_port",
                     return_value=7863,
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.toad._podman_start",
+                    "terok.lib.orchestration.task_runners.restart._podman_start",
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.toad._assert_running",
+                    "terok.lib.orchestration.task_runners.restart._assert_running",
                 ),
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.toad._apply_shield_policy",
+                    "terok.lib.orchestration.task_runners.restart._apply_shield_policy",
                 ),
                 redirect_stdout(buf),
             ):
-                task_run_toad(project_name, tid)
+                ensure_task_running(project_name, tid)
             out = buf.getvalue()
-            assert "Starting existing container" in out
-            assert "Container started" in out
+            assert "Restarted task" in out
             assert "?token=tok-stopped" in out
 
-    def test_resume_rejects_changed_port(self, mock_runtime) -> None:
+    def test_rejects_changed_port(self, mock_runtime) -> None:
         """If the saved port is taken by another user, fail fast."""
         project_name = "proj_resume_taken"
         with project_env(
@@ -1153,12 +1154,12 @@ class TestResumeToadContainer:
             mock_runtime.container.return_value.state = "running"
             with (
                 unittest.mock.patch(
-                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
+                    "terok.lib.orchestration.task_runners.restart.assign_web_port",
                     return_value=9999,  # allocator returned a different port
                 ),
                 pytest.raises(SystemExit, match="no longer available"),
             ):
-                task_run_toad(project_name, tid)
+                ensure_task_running(project_name, tid)
 
 
 class TestTaskLogs:

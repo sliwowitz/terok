@@ -348,6 +348,25 @@ def test_task_restart_missing_container_recreates_in_place() -> None:
         run_cli.assert_called_once_with(project_name, task_id, unrestricted=False)
 
 
+def test_ensure_task_running_launches_missing_container() -> None:
+    """The ensure ladder (attach) launches a task whose container is gone."""
+    from terok.lib.orchestration.task_runners import ensure_task_running
+
+    project_name = "proj_ensure_launch"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name)
+
+        runtime_mock = _mock_runtime(_mock_container(state=None))
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+            patch("terok.lib.orchestration.task_runners.restart.task_run_cli") as run_cli,
+        ):
+            capture_stdout(ensure_task_running, project_name, task_id, unrestricted=True)
+
+        run_cli.assert_called_once_with(project_name, task_id, unrestricted=True)
+
+
 def test_task_restart_fresh_skips_resume_and_recreates() -> None:
     """``--fresh`` tears a healthy running container down and relaunches it."""
     project_name = "proj_restart_fresh"

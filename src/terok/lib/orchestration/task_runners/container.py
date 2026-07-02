@@ -60,6 +60,21 @@ def _podman_start(project: ProjectConfig, cname: str) -> None:
         raise SystemExit(f"Failed to start container:\n{exc}")
 
 
+def _refuse_existing_container(project: ProjectConfig, cname: str, task_id: str) -> None:
+    """Guard a launch-only runner against a name that is already taken.
+
+    The run/launch verbs only ever create; bringing an existing
+    container back — running, stopped, or stale — is ``task restart``'s
+    ladder.  Failing loudly here keeps the two verbs from silently
+    overlapping.
+    """
+    if _rt.resolve_runtime(project).container(cname).state is not None:
+        raise SystemExit(
+            f"Container {cname} already exists.  Bring it back with:\n"
+            f"  terok task restart {project.name} {task_id}"
+        )
+
+
 def _assert_running(project: ProjectConfig, cname: str) -> None:
     """Verify a container is running after start, or raise SystemExit."""
     post_state = _rt.resolve_runtime(project).container(cname).state

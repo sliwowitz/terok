@@ -795,7 +795,7 @@ expose = ["run_hook", "HOOK_NAMES"]
 from = ["terok.lib.orchestration.hooks"]
 
 [[interfaces]]
-expose = ["task_run_cli", "task_run_toad", "task_run_headless", "task_restart", "task_followup_headless", "HeadlessRunRequest", "DetachedSummary", "resolve_container_uuid"]
+expose = ["task_run_cli", "task_run_toad", "task_run_headless", "task_restart", "ensure_task_running", "task_followup_headless", "HeadlessRunRequest", "DetachedSummary", "resolve_container_uuid"]
 from = ["terok.lib.orchestration.task_runners"]
 
 [[interfaces]]

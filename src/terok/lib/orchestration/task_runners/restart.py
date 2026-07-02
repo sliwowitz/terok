@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Task restart runner.
+"""The make-it-running ladder for task containers.
 
-``task_restart`` is the one verb that brings a task's container back to
-running: stop it if running, then start it — resuming the existing
-container when possible, recreating it in place when not.
+Two entry points share one ladder: ``task_restart`` (stop if running,
+then start) and ``ensure_task_running`` (report if running, otherwise
+start).  The start itself resumes the existing container when possible
+and recreates it in place through the launch-only mode runners when
+not.
 """
 
 from __future__ import annotations
@@ -54,17 +56,69 @@ def task_restart(project_name: str, task_id: str, *, fresh: bool = False) -> Non
     recreating one would replay its original prompt against the
     workspace.
     """
+    _make_running(project_name, task_id, bounce=True, fresh=fresh)
+
+
+def ensure_task_running(
+    project_name: str,
+    task_id: str,
+    *,
+    mode: str | None = None,
+    unrestricted: bool | None = None,
+) -> None:
+    """Bring a task to running without bouncing it.
+
+    The attach flavor of the restart ladder: already running → report
+    how to reach it; stopped → resume; container gone → launch through
+    the mode runner.  *mode* overrides the task's recorded mode — an
+    attach picks the interface, and a first attach on a fresh task
+    records it.  *unrestricted* seeds a launch; a resume keeps the
+    existing container as-is.
+    """
+    _make_running(
+        project_name,
+        task_id,
+        bounce=False,
+        fresh=False,
+        mode_override=mode,
+        unrestricted=unrestricted,
+    )
+
+
+def _make_running(
+    project_name: str,
+    task_id: str,
+    *,
+    bounce: bool,
+    fresh: bool,
+    mode_override: str | None = None,
+    unrestricted: bool | None = None,
+) -> None:
+    """The shared ladder behind both entry points.
+
+    *bounce* is the only fork: a restart stops a running container first,
+    an ensure reports it and returns.  Everything below — resume, the
+    recreate fallbacks, the headless refusal — is identical.
+    """
     project = load_project(project_name)
     meta, meta_path = load_task_meta(project.name, task_id)
 
-    mode = meta.get("mode")
+    mode = mode_override or meta.get("mode")
     if not mode:
         raise SystemExit(f"Task {task_id} has never been run (no mode set)")
 
     cname = container_name(project.name, mode, task_id)
     container_state = _rt.resolve_runtime(project).container(cname).state
 
-    print(f"Restarting task {project_name}/{task_id} ({mode})...")
+    if not bounce and container_state == "running":
+        # Ensure never disturbs a live container — stale image or not.
+        _validate_restart_preconditions(project, task_id, mode, meta, cname)
+        print(f"Task {task_id} is already running: {_green(cname, _supports_color())}")
+        _print_reach_footer(project, task_id, mode, cname, meta)
+        return
+
+    if bounce:
+        print(f"Restarting task {project_name}/{task_id} ({mode})...")
 
     reason = _recreate_reason(project, mode, cname, container_state, fresh=fresh)
     if reason is not None and mode == "run":
@@ -75,7 +129,13 @@ def task_restart(project_name: str, task_id: str, *, fresh: bool = False) -> Non
             f'  terok task run {project_name} "<prompt>" --mode headless'
         )
 
-    _validate_restart_preconditions(project, task_id, mode, meta, cname)
+    if container_state is not None:
+        _validate_restart_preconditions(project, task_id, mode, meta, cname)
+    elif isinstance(meta.get("web_port"), int):
+        # Best-effort pin: keep the task's port stable across a recreate
+        # when it is still free; the launch path reuses the claim.  A
+        # lost port is no reason to refuse — the relaunch just moves.
+        assign_web_port(project.name, task_id, preferred=meta["web_port"])
 
     if reason is None:
         if container_state == "running":
@@ -86,7 +146,9 @@ def task_restart(project_name: str, task_id: str, *, fresh: bool = False) -> Non
         except SystemExit as exc:
             reason = str(exc) or "podman start failed"
 
-    _recreate_in_place(project, task_id, mode, cname, meta, meta_path, reason)
+    _recreate_in_place(
+        project, task_id, mode, cname, meta, meta_path, reason, unrestricted=unrestricted
+    )
 
 
 def _recreate_reason(
@@ -192,8 +254,15 @@ def _start_and_report_restart(
     )
     _apply_shield_policy(project, cname, task_dir, is_restart=True)
 
+    print(f"Restarted task {task_id}: {_green(cname, _supports_color())}")
+    _print_reach_footer(project, task_id, mode, cname, meta)
+
+
+def _print_reach_footer(
+    project: ProjectConfig, task_id: str, mode: str, cname: str, meta: dict
+) -> None:
+    """Print how to reach a running container: login command or toad URL."""
     color_enabled = _supports_color()
-    print(f"Restarted task {task_id}: {_green(cname, color_enabled)}")
     if mode == "cli":
         _print_login_instructions(project.name, task_id, cname, color_enabled)
     elif mode == "toad":
@@ -212,14 +281,16 @@ def _recreate_in_place(
     meta: dict,
     meta_path: Path,
     reason: str,
+    *,
+    unrestricted: bool | None = None,
 ) -> None:
     """Tear the old container down and relaunch the task into the same name.
 
     The mode runner's launch path re-reads project config and mints
     fresh tokens; the workspace is reused as-is — with no new-task
-    marker the init script fetches without resetting — and the saved
-    per-task ``unrestricted`` choice overrides the runner's config
-    resolution.
+    marker the init script fetches without resetting — and the task's
+    ``unrestricted`` choice (caller override, else saved metadata)
+    overrides the runner's config resolution.
     """
     print(_yellow(f"Recreating container {cname}: {reason}", _supports_color()))
     runtime = _rt.resolve_runtime(project)
@@ -227,7 +298,8 @@ def _recreate_in_place(
         _stop_running_container(project, task_id, mode, cname, meta_path)
     if runtime.container(cname).state is not None:
         _sandbox(project).rm([cname])
-    unrestricted = meta.get("unrestricted")
+    if unrestricted is None:
+        unrestricted = meta.get("unrestricted")
     if mode == "cli":
         task_run_cli(project.name, task_id, unrestricted=unrestricted)
     else:  # toad — headless never reaches the recreate rung
@@ -235,5 +307,6 @@ def _recreate_in_place(
 
 
 __all__ = [
+    "ensure_task_running",
     "task_restart",
 ]
