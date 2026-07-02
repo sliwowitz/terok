@@ -235,6 +235,52 @@ def test_task_status_reports_live_container_state() -> None:
     assert "stopped" in output
 
 
+def test_task_status_verbose_shows_debug_locations() -> None:
+    """``status --verbose`` appends container ID, mounts, and supervisor paths."""
+    project_name = "proj_status_v"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name)
+
+        container = _mock_container(state="exited")
+        container.id = "abc123def456"
+        container.mounts = [("/host/work", "/workspace")]
+        runtime_mock = Mock(spec=PodmanRuntime)
+        runtime_mock.container.return_value = container
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+        ):
+            output = capture_stdout(task_status, project_name, task_id, verbose=True)
+
+    assert "Debug locations" in output
+    assert "abc123def456" in output  # full container ID
+    assert "/host/work → /workspace" in output  # mount projection
+    assert f"supervisor-{'abc123def456'}.pid" in output  # PID file keyed on ID
+    assert f"terok task logs {project_name} {task_id}" in output  # the logs hint
+
+
+def test_task_status_verbose_handles_removed_container() -> None:
+    """With no live container ID, ID-keyed paths degrade but name-keyed ones resolve."""
+    project_name = "proj_status_gone"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name)
+
+        container = _mock_container(state=None)
+        container.id = None  # container removed — no ID to inspect
+        container.mounts = []
+        runtime_mock = Mock(spec=PodmanRuntime)
+        runtime_mock.container.return_value = container
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+        ):
+            output = capture_stdout(task_status, project_name, task_id, verbose=True)
+
+    assert "container removed" in output
+    assert "Sidecar:" in output  # name-keyed → still resolvable
+    assert "needs a live or exited container" in output  # ID-keyed log unavailable
+
+
 def test_get_task_container_state_returns_none_without_mode() -> None:
     """Task container lookup is skipped when no mode is configured."""
     assert get_task_container_state("proj", "1", None) is None

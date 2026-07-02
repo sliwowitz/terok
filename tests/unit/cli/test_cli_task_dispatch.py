@@ -36,7 +36,7 @@ _ROUTES = [
     ("delete", {}, "task_delete", mock.call(_PROJ, _TID)),
     ("stop", {"timeout": 9}, "task_stop", mock.call(_PROJ, _TID, timeout=9)),
     ("rename", {"name": "renamed"}, "task_rename", mock.call(_PROJ, _TID, "renamed")),
-    ("status", {}, "task_status", mock.call(_PROJ, _TID)),
+    ("status", {"verbose": False}, "task_status", mock.call(_PROJ, _TID, verbose=False)),
 ]
 
 
@@ -65,6 +65,27 @@ def test_new_skips_task_id_resolution() -> None:
         assert task_mod._dispatch_task_sub(args) is True
     new.assert_called_once_with(_PROJ, name=None)
     resolve.assert_not_called()
+
+
+@pytest.mark.parametrize("cmd", ["status", "stop", "rename", "delete", "logs"])
+def test_missing_task_id_exits_gracefully(cmd: str) -> None:
+    """A task-id-requiring verb with no task id exits with an actionable message.
+
+    Regression: ``task_id`` is ``nargs="?"`` (for the ``proj/task`` slash
+    form), so omitting it leaves ``task_id=None`` — which used to crash in
+    ``resolve_task_id(None)`` instead of telling the user what to do.
+    """
+    args = _ns(task_cmd=cmd, project_name=_PROJ, task_id=None)
+    with (
+        mock.patch.object(task_mod, "require_project_exists"),
+        mock.patch.object(task_mod, "resolve_task_id") as resolve,
+        pytest.raises(SystemExit) as exc,
+    ):
+        task_mod._dispatch_task_sub(args)
+    resolve.assert_not_called()
+    msg = str(exc.value)
+    assert "Missing task ID" in msg
+    assert f"terok task list {_PROJ}" in msg
 
 
 def test_archive_routes_to_archive_dispatch() -> None:

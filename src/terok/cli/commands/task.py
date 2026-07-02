@@ -281,6 +281,15 @@ def register(
 
     t_status = tsub.add_parser("status", help="Show actual container state vs metadata")
     _add_project_task_args(t_status)
+    t_status.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help=(
+            "Also show on-host debug locations: container ID, mounts, and the "
+            "supervisor log / wrapper / PID / sidecar paths (for sending logs to support)"
+        ),
+    )
 
     t_revoke = tsub.add_parser(
         "revoke-credentials",
@@ -660,6 +669,26 @@ def _cmd_task_audit_credentials(project_name: str, task_id: str, args: argparse.
         print(f"{ts}  {provider:10s} {method:6s} {status} {outcome:25s} {duration}ms  {path}")
 
 
+def _resolve_required_task_id(args: argparse.Namespace) -> str:
+    """Resolve the ``task_id`` positional, or exit with a usage error.
+
+    The positional is ``nargs="?"`` so the ``proj/task`` slash form
+    parses as a single argument — which means a verb that *requires* a
+    task ID can still reach dispatch with ``task_id is None`` (the user
+    gave only the project). Surface that as an actionable usage error
+    rather than crashing in prefix resolution on a ``None`` input.
+    """
+    pid = args.project_name
+    if getattr(args, "task_id", None) is None:
+        cmd = args.task_cmd
+        raise SystemExit(
+            f"Missing task ID — `terok task {cmd}` needs one.\n"
+            f"  Usage: terok task {cmd} <project> <task_id>  (or <project>/<task_id>)\n"
+            f"  List tasks: terok task list {pid}"
+        )
+    return resolve_task_id(pid, args.task_id)
+
+
 def _dispatch_task_sub(args: argparse.Namespace) -> bool:
     """Dispatch ``task <subcommand>`` to the right handler."""
     # ``task run`` creates a new task (no task_id to resolve yet).
@@ -674,7 +703,9 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
 
     pid = args.project_name
     require_project_exists(pid)
-    tid = resolve_task_id(pid, args.task_id) if hasattr(args, "task_id") else ""
+    # ``list`` carries no ``task_id`` positional (project-only); every other
+    # verb here requires one and gets a clean error when it's missing.
+    tid = _resolve_required_task_id(args) if hasattr(args, "task_id") else ""
     if args.task_cmd == "list":
         task_list(
             pid,
@@ -713,7 +744,7 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
     elif args.task_cmd == "rename":
         task_rename(pid, tid, args.name)
     elif args.task_cmd == "status":
-        task_status(pid, tid)
+        task_status(pid, tid, verbose=getattr(args, "verbose", False))
     elif args.task_cmd == "revoke-credentials":
         _cmd_task_revoke_credentials(pid, tid)
     elif args.task_cmd == "audit-credentials":
