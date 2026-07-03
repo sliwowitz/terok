@@ -143,6 +143,40 @@ cache-busting flags.
 
 ---
 
+## Container Lifecycle
+
+Containers follow podman's own lifecycle, split across the three layers:
+
+- **terok-sandbox** exposes podman's verbs on the `Sandbox` facade —
+  `run`/`create`, `start` (rebuilds the reboot-wiped `/run/terok` mount
+  source first), `stop` (halts and retains), `rm` (force-removes;
+  host-side state is the wiring layer's pairing via
+  `remove_container_state`).  `RunSpec.ephemeral` maps to `--rm`.
+- **terok-executor** is `podman run` for one agent: containers are
+  retained after exit, the workspace lives in the container's writable
+  layer (repo cloned in through the gate) unless `--workspace` mounts a
+  host directory, and podman itself is the only container registry —
+  per-container host state sits at `state_root()/run/<name>`, derived
+  from the name.
+- **terok** owns tasks (container + workspace + metadata).  The mode
+  runners (`task_runners/cli.py`, `toad.py`) only ever *create*;
+  everything that brings a container back goes through one ladder in
+  `task_runners/restart.py`: resume the existing container, else warn
+  and recreate it in place through the normal launch path (same names,
+  fresh tokens, config re-read, per-task settings from metadata).
+  `task_restart` is the ladder's bounce flavor (stop-if-running first,
+  `--fresh` forces recreate, an image-ID drift probe triggers it
+  automatically); `ensure_task_running` is the attach flavor (a running
+  container is reported, never disturbed).  Headless tasks never take
+  the recreate rung — that would replay their original prompt.
+
+Invariants: the task workspace is never re-seeded on relaunch (the
+new-task-marker protocol decides), podman is the source of truth for
+container state (no lifecycle field in task metadata), and `task
+delete` is the only teardown of task state.
+
+---
+
 ## Volume Mounts and Environment Variables
 
 Mount and env assembly is shared with headless/standalone launches:

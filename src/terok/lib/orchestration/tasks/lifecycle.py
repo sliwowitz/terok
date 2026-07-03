@@ -17,7 +17,7 @@ from pathlib import Path
 from terok_util import ensure_dir
 
 from terok.lib.integrations.executor import AgentRunner
-from terok.lib.integrations.sandbox import container_diagnostics, remove_container_state
+from terok.lib.integrations.sandbox import Sandbox, container_diagnostics, remove_container_state
 
 from ...core import runtime as _rt
 from ...core.config import make_sandbox_config
@@ -270,7 +270,7 @@ class TaskDeleteResult:
 
 
 def _remove_task_containers(project_name: str, task_id: str, warnings: list[str]) -> bool:
-    """Force-remove every mode's container for the task.
+    """Remove every mode's container for the task via [`Sandbox.rm`][terok_sandbox.Sandbox.rm].
 
     Returns ``True`` only when every container was removed cleanly;
     a raised error or per-container failure is collected into *warnings*
@@ -280,7 +280,7 @@ def _remove_task_containers(project_name: str, task_id: str, warnings: list[str]
     project = load_project(project_name)
     runtime = _rt.resolve_runtime(project)
     try:
-        rm_results = runtime.force_remove([runtime.container(n) for n in names])
+        rm_results = Sandbox(make_sandbox_config(), runtime=runtime).rm(names)
     except Exception as exc:
         _log_debug(f"task_delete: stop_task_containers raised: {exc}")
         warnings.append(f"Container removal failed: {exc}")
