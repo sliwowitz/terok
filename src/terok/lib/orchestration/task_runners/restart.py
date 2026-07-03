@@ -1,11 +1,13 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Task restart runner.
+"""The make-it-running ladder for task containers.
 
-``task_restart`` stops a running container (if any) and starts it again.
-"Restart" means *restart* — if the container is gone it raises rather
-than re-creating it; that's ``task run``'s job.
+Two entry points share one ladder: ``task_restart`` (stop if running,
+then start) and ``ensure_task_running`` (report if running, otherwise
+start).  The start itself resumes the existing container when possible
+and recreates it in place through the launch-only mode runners when
+not.
 """
 
 from __future__ import annotations
@@ -14,24 +16,171 @@ from typing import TYPE_CHECKING
 
 from ...core import runtime as _rt
 from ...core.config import get_public_host
+from ...core.images import project_cli_image
 from ...core.projects import load_project
 from ...util.ansi import (
     blue as _blue,
     green as _green,
     hyperlink as _hyperlink,
     supports_color as _supports_color,
+    yellow as _yellow,
 )
 from ..hooks import run_hook
 from ..ports import assign_web_port, release_web_port
 from ..tasks import container_name, load_task_meta
-from .container import _assert_running, _podman_start, _print_login_instructions
+from .cli import task_run_cli
+from .container import _assert_running, _podman_start, _print_login_instructions, _sandbox
 from .shield import _apply_shield_policy
-from .toad import _rehydrate_toad_token, _toad_browser_url
+from .toad import _rehydrate_toad_token, _toad_browser_url, task_run_toad
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from ...core.project_model import ProjectConfig
+
+
+def task_restart(project_name: str, task_id: str, *, fresh: bool = False) -> None:
+    """Bring a task's container back to running: stop if running, then start.
+
+    The start is a best-effort ladder.  First rung: resume the existing
+    container in place.  When that rung is gone — the container no longer
+    exists, podman refuses to start it, or its image no longer matches
+    the current project image — warn and recreate the container through
+    the normal launch path: same task and container name, workspace
+    reused as-is (never re-seeded), project config re-read, tokens
+    minted fresh, per-task settings carried over from the saved
+    metadata.  *fresh* skips straight to the recreate rung (e.g. to pick
+    up a rebuilt image).
+
+    Headless tasks (mode ``run``) only ever take the resume rung:
+    recreating one would replay its original prompt against the
+    workspace.
+    """
+    _make_running(project_name, task_id, bounce=True, fresh=fresh)
+
+
+def ensure_task_running(
+    project_name: str,
+    task_id: str,
+    *,
+    mode: str | None = None,
+    unrestricted: bool | None = None,
+) -> None:
+    """Bring a task to running without bouncing it.
+
+    The attach flavor of the restart ladder: already running → report
+    how to reach it; stopped → resume; container gone → launch through
+    the mode runner.  *mode* overrides the task's recorded mode — an
+    attach picks the interface, and a first attach on a fresh task
+    records it.  *unrestricted* seeds a launch; a resume keeps the
+    existing container as-is.
+    """
+    _make_running(
+        project_name,
+        task_id,
+        bounce=False,
+        fresh=False,
+        mode_override=mode,
+        unrestricted=unrestricted,
+    )
+
+
+def _make_running(
+    project_name: str,
+    task_id: str,
+    *,
+    bounce: bool,
+    fresh: bool,
+    mode_override: str | None = None,
+    unrestricted: bool | None = None,
+) -> None:
+    """The shared ladder behind both entry points.
+
+    *bounce* is the only fork: a restart stops a running container first,
+    an ensure reports it and returns.  Everything below — resume, the
+    recreate fallbacks, the headless refusal — is identical.
+    """
+    project = load_project(project_name)
+    meta, meta_path = load_task_meta(project.name, task_id)
+
+    mode = mode_override or meta.get("mode")
+    if not mode:
+        raise SystemExit(f"Task {task_id} has never been run (no mode set)")
+
+    cname = container_name(project.name, mode, task_id)
+    container_state = _rt.resolve_runtime(project).container(cname).state
+
+    if not bounce and container_state == "running":
+        # Ensure never disturbs a live container — stale image or not.
+        _validate_restart_preconditions(project, task_id, mode, meta, cname)
+        print(f"Task {task_id} is already running: {_green(cname, _supports_color())}")
+        _print_reach_footer(project, task_id, mode, cname, meta)
+        return
+
+    if bounce:
+        print(f"Restarting task {project_name}/{task_id} ({mode})...")
+
+    reason = _recreate_reason(project, mode, cname, container_state, fresh=fresh)
+
+    if container_state is not None:
+        _validate_restart_preconditions(project, task_id, mode, meta, cname)
+    elif isinstance(meta.get("web_port"), int):
+        # Best-effort pin: keep the task's port stable across a recreate
+        # when it is still free; the launch path reuses the claim.  A
+        # lost port is no reason to refuse — the relaunch just moves.
+        assign_web_port(project.name, task_id, preferred=meta["web_port"])
+
+    if reason is None:
+        if container_state == "running":
+            _stop_running_container(project, task_id, mode, cname, meta_path)
+        try:
+            _start_and_report_restart(project, task_id, mode, cname, meta, meta_path)
+            return
+        except SystemExit as exc:
+            reason = str(exc) or "podman start failed"
+
+    _recreate_in_place(
+        project, task_id, mode, cname, meta, meta_path, reason, unrestricted=unrestricted
+    )
+
+
+def _recreate_reason(
+    project: ProjectConfig, mode: str, cname: str, container_state: str | None, *, fresh: bool
+) -> str | None:
+    """First reason the resume rung can't be taken, or ``None`` to resume.
+
+    Headless tasks skip the image-drift probe: they have no recreate
+    rung (the refusal in
+    [`_recreate_in_place`][terok.lib.orchestration.task_runners.restart._recreate_in_place]),
+    so flagging drift would only turn a working resume into an error.
+    """
+    if fresh:
+        return "--fresh requested"
+    if container_state is None:
+        return "the container no longer exists"
+    if mode == "run":
+        return None
+    return _image_drift(project, cname)
+
+
+def _image_drift(project: ProjectConfig, cname: str) -> str | None:
+    """Detect a container whose image no longer matches the project image.
+
+    Compares image IDs, not tags: a rebuild moves the tag to a new ID
+    while the existing container keeps pointing at the old one — exactly
+    the situation where a plain start would resurrect stale tooling.
+    When either ID is unavailable the probe abstains rather than block
+    the resume.
+    """
+    runtime = _rt.resolve_runtime(project)
+    current = runtime.container(cname).image
+    expected = runtime.image(project_cli_image(project.name))
+    if current is None or expected is None:
+        return None
+    current_id, expected_id = current.id, expected.id
+    if current_id and expected_id and current_id != expected_id:
+        return "the project image was rebuilt since this container was created"
+    return None
 
 
 def _validate_restart_preconditions(
@@ -42,6 +191,8 @@ def _validate_restart_preconditions(
     Taking down a working service only to then error out is worse than
     refusing to stop: re-claim the saved web port and rehydrate the toad
     token here, raising ``SystemExit`` if either is no longer viable.
+    The port claim also pins the recreate rung to the saved port — the
+    registry hands the same claim back to the launch path.
     """
     web_port = meta.get("web_port")
     if isinstance(web_port, int):
@@ -97,8 +248,15 @@ def _start_and_report_restart(
     )
     _apply_shield_policy(project, cname, task_dir, is_restart=True)
 
+    print(f"Restarted task {task_id}: {_green(cname, _supports_color())}")
+    _print_reach_footer(project, task_id, mode, cname, meta)
+
+
+def _print_reach_footer(
+    project: ProjectConfig, task_id: str, mode: str, cname: str, meta: dict
+) -> None:
+    """Print how to reach a running container: login command or toad URL."""
     color_enabled = _supports_color()
-    print(f"Restarted task {task_id}: {_green(cname, color_enabled)}")
     if mode == "cli":
         _print_login_instructions(project.name, task_id, cname, color_enabled)
     elif mode == "toad":
@@ -109,42 +267,54 @@ def _start_and_report_restart(
             print(f"Toad: {_hyperlink(_blue(url, color_enabled), url, enabled=color_enabled)}")
 
 
-def task_restart(project_name: str, task_id: str) -> None:
-    """Restart a task's container.
+def _recreate_in_place(
+    project: ProjectConfig,
+    task_id: str,
+    mode: str,
+    cname: str,
+    meta: dict,
+    meta_path: Path,
+    reason: str,
+    *,
+    unrestricted: bool | None = None,
+) -> None:
+    """Tear the old container down and relaunch the task into the same name.
 
-    Semantics: stop the container if running, then start it.  If the
-    container doesn't exist (e.g. because it was deleted out-of-band),
-    raise ``SystemExit`` with an actionable pointer to ``terok task run``
-    — "restart" only means restart, not re-run.
+    The mode runner's launch path re-reads project config and mints
+    fresh tokens; the workspace is reused as-is — with no new-task
+    marker the init script fetches without resetting — and the task's
+    ``unrestricted`` choice (caller override, else saved metadata)
+    overrides the runner's config resolution.
+
+    The headless refusal lives here, next to the teardown it guards:
+    every path that could destroy a container — pre-checked reasons and
+    the resume-failure fallback alike — must refuse *before* anything
+    is removed, or a headless container would be torn down with nothing
+    relaunched into its place.
     """
-    project = load_project(project_name)
-    meta, meta_path = load_task_meta(project.name, task_id)
-
-    mode = meta.get("mode")
-    if not mode:
-        raise SystemExit(f"Task {task_id} has never been run (no mode set)")
-
-    cname = container_name(project.name, mode, task_id)
-    container_state = _rt.resolve_runtime(project).container(cname).state
-
-    print(f"Restarting task {project_name}/{task_id} ({mode})...")
-
-    if container_state is None:
-        # Container is gone — restart can't recreate it.  User must start
-        # a fresh task with ``task run``.
+    if mode == "run":
         raise SystemExit(
-            f"Container {cname} no longer exists.  Restart requires a running "
-            f"or stopped container.  Create a new task with:\n"
-            f"  terok task run {project_name}"
-            + (' "<prompt>" --mode headless' if mode == "run" else "")
+            f"Container {cname} cannot be resumed ({reason}), and a headless "
+            f"container is never recreated in place — starting one replays "
+            f"its original prompt.  Create a new task with:\n"
+            f'  terok task run {project.name} "<prompt>" --mode headless'
         )
 
-    _validate_restart_preconditions(project, task_id, mode, meta, cname)
-    if container_state == "running":
+    print(_yellow(f"Recreating container {cname}: {reason}", _supports_color()))
+    runtime = _rt.resolve_runtime(project)
+    if runtime.container(cname).state == "running":
         _stop_running_container(project, task_id, mode, cname, meta_path)
-    _start_and_report_restart(project, task_id, mode, cname, meta, meta_path)
+    if runtime.container(cname).state is not None:
+        _sandbox(project).rm([cname])
+    if unrestricted is None:
+        unrestricted = meta.get("unrestricted")
+    if mode == "cli":
+        task_run_cli(project.name, task_id, unrestricted=unrestricted)
+    else:  # toad — the refusal above keeps mode binary here
+        task_run_toad(project.name, task_id, unrestricted=unrestricted)
 
 
 __all__ = [
+    "ensure_task_running",
     "task_restart",
 ]

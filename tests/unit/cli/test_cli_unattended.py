@@ -263,18 +263,12 @@ def test_run_missing_image_exits_on_non_tty(capsys: pytest.CaptureFixture[str]) 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("mode", "runner_target"),
-    [
-        ("cli", "terok.cli.commands.task.task_run_cli"),
-        ("toad", "terok.cli.commands.task.task_run_toad"),
-    ],
-)
-def test_task_attach_forwards_to_runner(mode: str, runner_target: str) -> None:
-    """``terokctl task attach <p> <t> --mode cli|toad`` routes to the right runner."""
+@pytest.mark.parametrize("mode", ["cli", "toad"])
+def test_task_attach_forwards_to_ensure_running(mode: str) -> None:
+    """``terokctl task attach <p> <t> --mode cli|toad`` routes to the ensure ladder."""
     with (
         patch("terok.cli.commands.task.resolve_task_id", side_effect=lambda _pid, tid: tid),
-        patch(runner_target) as mock_run,
+        patch("terok.cli.commands.task.ensure_task_running") as mock_ensure,
     ):
         run_cli(
             "task",
@@ -286,7 +280,7 @@ def test_task_attach_forwards_to_runner(mode: str, runner_target: str) -> None:
             prog="terokctl",
         )
 
-    mock_run.assert_called_once_with("myproject", "1", unrestricted=None)
+    mock_ensure.assert_called_once_with("myproject", "1", mode=mode, unrestricted=None)
 
 
 def test_task_attach_not_in_terok() -> None:

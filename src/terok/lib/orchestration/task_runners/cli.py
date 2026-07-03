@@ -3,8 +3,10 @@
 
 """Interactive CLI task runner.
 
-``task_run_cli`` launches (or resumes) a detached CLI-mode container and
-waits for its readiness marker before printing login instructions.
+``task_run_cli`` launches a detached CLI-mode container and waits for
+its readiness marker before printing login instructions.  It only ever
+creates: bringing an existing container back is ``task restart``'s job
+([`ensure_task_running`][terok.lib.orchestration.task_runners.restart.ensure_task_running]).
 """
 
 from __future__ import annotations
@@ -30,8 +32,8 @@ from ..tasks import (
 from .config import _apply_unrestricted_env, _prepare_agent_config, _str_to_bool
 from .container import (
     _assert_running,
-    _podman_start,
     _print_login_instructions,
+    _refuse_existing_container,
     _run_container,
 )
 from .shield import _apply_shield_policy
@@ -44,45 +46,17 @@ def task_run_cli(
 ) -> None:
     """Launch a CLI-mode task container and wait for its readiness marker.
 
-    Creates (or reattaches to) a detached Podman container for interactive
-    CLI access.  After the container reports ready the task metadata is
-    marked ``running`` and the user is shown login instructions.
+    Creates a detached Podman container for interactive CLI access.
+    After the container reports ready the task metadata is marked
+    ``running`` and the user is shown login instructions.
     """
     project = load_project(project_name)
     meta, meta_path = load_task_meta(project.name, task_id, "cli")
 
     cname = container_name(project.name, "cli", task_id)
-    container_state = _rt.resolve_runtime(project).container(cname).state
-
-    # If container already exists, handle it
-    if container_state is not None:
-        color_enabled = _supports_color()
-        if container_state == "running":
-            print(f"Container {_green(cname, color_enabled)} is already running.")
-            _print_login_instructions(project.name, task_id, cname, color_enabled)
-            return
-        # Container exists but is stopped/exited - start it
-        print(f"Starting existing container {_green(cname, color_enabled)}...")
-        _podman_start(project, cname)
-        _assert_running(project, cname)
-        task_dir = project.tasks_root / str(task_id)
-        run_hook(
-            "post_start",
-            project.hook_post_start,
-            project_name=project.name,
-            task_id=task_id,
-            mode="cli",
-            cname=cname,
-            task_dir=task_dir,
-            meta_path=meta_path,
-        )
-        _apply_shield_policy(project, cname, task_dir, is_restart=True)
-        meta["mode"] = "cli"
-        meta["ready_at"] = datetime.now(UTC).isoformat()
-        write_task_meta(meta_path, meta)
-        print("Container started.")
-        _print_login_instructions(project.name, task_id, cname, color_enabled)
-        return
+    # One resolve per launch — vault-expensive under krun.
+    runtime = _rt.resolve_runtime(project)
+    _refuse_existing_container(runtime, project.name, cname, task_id)
 
     env, volumes = build_task_env_and_volumes(project, task_id)
 
@@ -143,7 +117,7 @@ def task_run_cli(
     )
 
     # Stream initial logs until ready marker is seen (or timeout), then detach
-    _rt.resolve_runtime(project).container(cname).stream_initial_logs(
+    runtime.container(cname).stream_initial_logs(
         ready_check=lambda line: "__CLI_READY__" in line or ">> init complete" in line,
         timeout_sec=60.0,
     )

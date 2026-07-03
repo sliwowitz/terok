@@ -16,6 +16,7 @@ from ...lib.api import (
     HeadlessRunRequest,
     LogViewOptions,
     build_images,
+    ensure_task_running,
     project_image_exists,
     require_project_exists,
     task_archive_list,
@@ -260,7 +261,14 @@ def register(
 
     t_restart = tsub.add_parser(
         "restart",
-        help="Restart a task's container (stop if running, then start)",
+        help="Restart a task's container (stop if running, then start; "
+        "recreates in place when the container can't be resumed)",
+    )
+    t_restart.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Skip the resume and recreate the container (e.g. after an image "
+        "rebuild); the workspace is kept as-is",
     )
     _add_project_task_args(t_restart)
 
@@ -713,11 +721,13 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
             mode=getattr(args, "filter_mode", None),
         )
     elif args.task_cmd == "attach":
-        # terokctl-only: run an existing task in the chosen interactive mode.
-        runner = task_run_toad if getattr(args, "mode", "cli") == "toad" else task_run_cli
-        runner(
+        # terokctl-only: bring an existing task up in the chosen interactive mode.
+        # Same setup gate as run/restart — attach can launch containers too.
+        _setup_verdict_or_exit()
+        ensure_task_running(
             pid,
             tid,
+            mode=getattr(args, "mode", "cli"),
             unrestricted=_resolve_unrestricted(args),
         )
     elif args.task_cmd == "delete":
@@ -732,7 +742,7 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
         task_stop(pid, tid, timeout=getattr(args, "timeout", None))
     elif args.task_cmd == "restart":
         _setup_verdict_or_exit()
-        task_restart(pid, tid)
+        task_restart(pid, tid, fresh=args.fresh)
     elif args.task_cmd == "followup":
         _setup_verdict_or_exit()
         task_followup_headless(

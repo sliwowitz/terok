@@ -37,6 +37,7 @@ from terok.lib.domain.task_logs import (  # noqa: F401 — re-exported public AP
 )
 from terok.lib.orchestration.task_runners import (  # noqa: F401 — re-exported public API
     HeadlessRunRequest,
+    ensure_task_running,
     task_followup_headless,
     task_restart,
     task_run_cli,
@@ -107,6 +108,7 @@ __all__ = [
     "task_logs",
     "task_new",
     "task_rename",
+    "ensure_task_running",
     "task_restart",
     "task_run_cli",
     "task_run_headless",
