@@ -416,6 +416,31 @@ def test_task_restart_image_drift_recreates() -> None:
         run_cli.assert_called_once()
 
 
+def test_task_restart_headless_start_failure_never_destroys() -> None:
+    """A headless container that refuses to start is refused, not torn down.
+
+    The resume-failure fallback must hit the headless refusal *before*
+    any teardown — otherwise the container would be removed with nothing
+    relaunched into its place (a headless task has no recreate rung).
+    """
+    project_name = "proj_restart_run_fallback"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name, mode="run")
+
+        container = _mock_container(state="exited")
+        container.start.side_effect = RuntimeError("layer missing")
+        runtime_mock = _mock_runtime(container)
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+            patch("terok.lib.orchestration.task_runners.restart._sandbox") as sandbox,
+        ):
+            with pytest.raises(SystemExit, match="never recreated"):
+                task_restart(project_name, task_id)
+
+        sandbox.return_value.rm.assert_not_called()
+
+
 def test_task_restart_headless_ignores_image_drift() -> None:
     """Headless tasks resume on their old image — drift has no recreate rung to take."""
     project_name = "proj_restart_run_drift"

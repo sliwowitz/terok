@@ -121,13 +121,6 @@ def _make_running(
         print(f"Restarting task {project_name}/{task_id} ({mode})...")
 
     reason = _recreate_reason(project, mode, cname, container_state, fresh=fresh)
-    if reason is not None and mode == "run":
-        raise SystemExit(
-            f"Container {cname} cannot be resumed ({reason}), and a headless "
-            f"container is never recreated in place — starting one replays "
-            f"its original prompt.  Create a new task with:\n"
-            f'  terok task run {project_name} "<prompt>" --mode headless'
-        )
 
     if container_state is not None:
         _validate_restart_preconditions(project, task_id, mode, meta, cname)
@@ -157,7 +150,8 @@ def _recreate_reason(
     """First reason the resume rung can't be taken, or ``None`` to resume.
 
     Headless tasks skip the image-drift probe: they have no recreate
-    rung (see [`task_restart`][terok.lib.orchestration.task_runners.restart.task_restart]),
+    rung (the refusal in
+    [`_recreate_in_place`][terok.lib.orchestration.task_runners.restart._recreate_in_place]),
     so flagging drift would only turn a working resume into an error.
     """
     if fresh:
@@ -291,7 +285,21 @@ def _recreate_in_place(
     marker the init script fetches without resetting — and the task's
     ``unrestricted`` choice (caller override, else saved metadata)
     overrides the runner's config resolution.
+
+    The headless refusal lives here, next to the teardown it guards:
+    every path that could destroy a container — pre-checked reasons and
+    the resume-failure fallback alike — must refuse *before* anything
+    is removed, or a headless container would be torn down with nothing
+    relaunched into its place.
     """
+    if mode == "run":
+        raise SystemExit(
+            f"Container {cname} cannot be resumed ({reason}), and a headless "
+            f"container is never recreated in place — starting one replays "
+            f"its original prompt.  Create a new task with:\n"
+            f'  terok task run {project.name} "<prompt>" --mode headless'
+        )
+
     print(_yellow(f"Recreating container {cname}: {reason}", _supports_color()))
     runtime = _rt.resolve_runtime(project)
     if runtime.container(cname).state == "running":
@@ -302,7 +310,7 @@ def _recreate_in_place(
         unrestricted = meta.get("unrestricted")
     if mode == "cli":
         task_run_cli(project.name, task_id, unrestricted=unrestricted)
-    else:  # toad — headless never reaches the recreate rung
+    else:  # toad — the refusal above keeps mode binary here
         task_run_toad(project.name, task_id, unrestricted=unrestricted)
 
 
