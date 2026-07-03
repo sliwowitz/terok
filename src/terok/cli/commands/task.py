@@ -722,6 +722,8 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
         )
     elif args.task_cmd == "attach":
         # terokctl-only: bring an existing task up in the chosen interactive mode.
+        # Same setup gate as run/restart — attach can launch containers too.
+        _setup_verdict_or_exit()
         ensure_task_running(
             pid,
             tid,
