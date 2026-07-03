@@ -144,7 +144,9 @@ def task_run_toad(
     meta, meta_path = load_task_meta(project.name, task_id, "toad")
 
     cname = container_name(project.name, "toad", task_id)
-    _refuse_existing_container(project, cname, task_id)
+    # One resolve per launch — vault-expensive under krun.
+    runtime = _rt.resolve_runtime(project)
+    _refuse_existing_container(runtime, project.name, cname, task_id)
 
     pub_host = get_public_host()
 
@@ -236,7 +238,6 @@ def task_run_toad(
         """Return True when the supervisor wrapper reports both listeners are up."""
         return "TEROK_READY" in line
 
-    runtime = _rt.resolve_runtime(project)
     ready = runtime.container(cname).stream_initial_logs(
         ready_check=_toad_ready,
         timeout_sec=None,

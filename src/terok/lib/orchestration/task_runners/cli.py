@@ -54,7 +54,9 @@ def task_run_cli(
     meta, meta_path = load_task_meta(project.name, task_id, "cli")
 
     cname = container_name(project.name, "cli", task_id)
-    _refuse_existing_container(project, cname, task_id)
+    # One resolve per launch — vault-expensive under krun.
+    runtime = _rt.resolve_runtime(project)
+    _refuse_existing_container(runtime, project.name, cname, task_id)
 
     env, volumes = build_task_env_and_volumes(project, task_id)
 
@@ -115,7 +117,7 @@ def task_run_cli(
     )
 
     # Stream initial logs until ready marker is seen (or timeout), then detach
-    _rt.resolve_runtime(project).container(cname).stream_initial_logs(
+    runtime.container(cname).stream_initial_logs(
         ready_check=lambda line: "__CLI_READY__" in line or ">> init complete" in line,
         timeout_sec=60.0,
     )

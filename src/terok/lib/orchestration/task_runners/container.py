@@ -40,6 +40,8 @@ from ..tasks import dossier_path, tasks_meta_dir
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from terok.lib.integrations.sandbox import ContainerRuntime
+
     from ...core.project_model import ProjectConfig
 
 
@@ -60,18 +62,22 @@ def _podman_start(project: ProjectConfig, cname: str) -> None:
         raise SystemExit(f"Failed to start container:\n{exc}")
 
 
-def _refuse_existing_container(project: ProjectConfig, cname: str, task_id: str) -> None:
+def _refuse_existing_container(
+    runtime: ContainerRuntime, project_name: str, cname: str, task_id: str
+) -> None:
     """Guard a launch-only runner against a name that is already taken.
 
     The run/launch verbs only ever create; bringing an existing
     container back — running, stopped, or stale — is ``task restart``'s
     ladder.  Failing loudly here keeps the two verbs from silently
-    overlapping.
+    overlapping.  Takes the caller's already-resolved *runtime* —
+    resolving is vault-expensive under krun, so one launch resolves
+    once.
     """
-    if _rt.resolve_runtime(project).container(cname).state is not None:
+    if runtime.container(cname).state is not None:
         raise SystemExit(
             f"Container {cname} already exists.  Bring it back with:\n"
-            f"  terok task restart {project.name} {task_id}"
+            f"  terok task restart {project_name} {task_id}"
         )
 
 

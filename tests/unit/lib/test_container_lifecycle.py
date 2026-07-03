@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 import pytest
 from terok_sandbox import PodmanRuntime
 
-from terok.lib.orchestration.task_runners import task_restart
+from terok.lib.orchestration.task_runners import ensure_task_running, task_restart
 from terok.lib.orchestration.tasks import (
     get_task_container_state,
     read_task_meta,
@@ -348,10 +348,31 @@ def test_task_restart_missing_container_recreates_in_place() -> None:
         run_cli.assert_called_once_with(project_name, task_id, unrestricted=False)
 
 
+def test_task_restart_missing_toad_container_recreates_via_toad_runner() -> None:
+    """A gone toad container takes the recreate rung through the toad runner."""
+    project_name = "proj_restart_toad_gone"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name, mode="toad")
+        update_task_meta(ctx, project_name, task_id, web_port=8080, web_token="tok")
+
+        runtime_mock = _mock_runtime(_mock_container(state=None))
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+            patch("terok.lib.orchestration.task_runners.restart._sandbox"),
+            patch("terok.lib.orchestration.task_runners.restart.assign_web_port"),
+            patch("terok.lib.orchestration.task_runners.restart.task_run_toad") as run_toad,
+            patch("terok.lib.orchestration.task_runners.restart.task_run_cli") as run_cli,
+        ):
+            output = capture_stdout(task_restart, project_name, task_id)
+
+        assert "Recreating" in output
+        run_toad.assert_called_once_with(project_name, task_id, unrestricted=None)
+        run_cli.assert_not_called()
+
+
 def test_ensure_task_running_launches_missing_container() -> None:
     """The ensure ladder (attach) launches a task whose container is gone."""
-    from terok.lib.orchestration.task_runners import ensure_task_running
-
     project_name = "proj_ensure_launch"
     with project_env(project_config(project_name), project_name=project_name) as ctx:
         task_id = create_task_with_mode(ctx, project_name)
