@@ -11,7 +11,7 @@ terok builds project containers in three logical layers. L0 (dev) and L1 (agent)
 
 ### L0 — Development Base (`terok-l0:<base-tag>`)
 
-- Based on Ubuntu 24.04 by default (override via `image.base_image`).
+- Based on `fedora:44` by default (override via `image.base_image`).
 - Installs common tooling (git, openssh-client, ripgrep, vim, etc.).
 - Creates `/workspace` and sets `WORKDIR` to `/workspace`.
 - Creates a `dev` user with passwordless sudo and runs containers as that user.
@@ -32,7 +32,7 @@ image:
 
 Built `FROM` L0.
 
-- Installs the agent CLIs and supporting tools selected from the roster (`terok agents` lists what is available; defaults come from `image.agents`).
+- Installs the agent CLIs and supporting tools selected from the roster (`terok agents list` shows what is available; defaults come from `image.agents`).
 - The unsuffixed tag (`terok-l1-cli:<base-tag>`) is a **default alias**: it points at whichever L1 was last built with the user's configured default agent selection, so host-wide flows (`terok auth <provider>`) can rely on it containing every configured agent. Explicit selections get only their suffixed tag.
 
 ### L2 — Project Image (`<project>:l2-cli`)

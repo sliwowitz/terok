@@ -64,10 +64,6 @@ exist).  This tells `crun` to skip the
 keyring = false
 ```
 
-!!! tip "Sickbay detection"
-    `terok sickbay` warns when keyring creation is not disabled.
-    Run it after installation to verify your setup.
-
 ## References
 
 - [containers/podman#13363](https://github.com/containers/podman/issues/13363) — original keyring leak report

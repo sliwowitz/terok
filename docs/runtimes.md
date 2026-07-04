@@ -48,7 +48,7 @@ run:
   cpus: 4        # optional, podman --cpus format
 ```
 
-Project-level settings override the global default.  Without `experimental: true` set globally, any krun selection fails fast at startup with a pointer at the opt-in — a typo in `project.yml` can't silently switch isolation backends.
+Project-level settings override the global default.  Without `experimental: true` set globally, any krun selection fails fast at launch with a pointer at the opt-in — a typo in `project.yml` can't silently switch isolation backends.
 
 ## Resource limits
 
@@ -66,7 +66,7 @@ Under **krun** the asymmetry surfaces:
 For one-off testing without editing any file:
 
 ```bash
-TEROK_RUNTIME=krun terok task start <project>
+TEROK_RUNTIME=krun terok task run <project>
 ```
 
 Accepted values: `crun`, `krun`, `null` (in-memory stub for tests).
@@ -74,7 +74,7 @@ Unset means "fall through to project/global config".
 
 ## krun runner behaviour
 
-The container's PID 1 runs as `root`, and `run.nested_containers: true` is rejected at launch.
+The container's PID 1 runs as `root`.  Rejected at launch: `run.nested_containers: true` and `services.mode: socket` (the microVM's kernel doesn't see the host's Unix sockets — set `services.mode: tcp` for krun tasks).
 
 ## Login
 

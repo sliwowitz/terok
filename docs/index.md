@@ -91,9 +91,11 @@ pipx install terok
 terok setup
 ```
 
-`setup` installs the shield OCI hooks, the vault, the git gate, the
-D-Bus clearance bridge, the XDG desktop entry for the TUI, and shell
-completions for your detected shell.  Idempotent — safe to re-run.
+`setup` installs the supervisor + shield OCI hooks, sets up the encrypted
+credential store and its vault routes, and adds the XDG desktop entry for
+the TUI plus shell completions for your detected shell.  The per-container
+services (vault, gate, clearance) are started on demand by the supervisor
+at task launch.  Idempotent — safe to re-run.
 
 ### First project
 
@@ -114,7 +116,7 @@ terok auth claude                       # authenticate host-wide
 terok project wizard                    # interactive project setup
 terok task run myproj                   # create a CLI task and attach (default on TTY)
 terok task run myproj --mode toad       # web interface (browser access)
-terok login myproj a3                   # re-attach later by task ID prefix
+terok login myproj v9k                  # re-attach later by task ID prefix
 ```
 
 For manual project configuration or CI, see the [User Guide](usage.md).
@@ -123,13 +125,13 @@ For manual project configuration or CI, see the [User Guide](usage.md).
 
 ```bash
 # Run an agent headlessly with a prompt
-terok task run myproj "Fix the authentication bug"
+terok task run myproj --mode headless --prompt "Fix the authentication bug"
 
 # With model override and timeout
-terok task run myproj "Add tests" --model opus --timeout 3600
+terok task run myproj --mode headless --prompt "Add tests" --model opus --timeout 3600
 
 # Use a specific agent
-terok task run myproj "Fix the bug" --agent codex
+terok task run myproj --mode headless --prompt "Fix the bug" --agent codex
 ```
 
 ## Documentation

@@ -49,6 +49,7 @@ on a TTY to launch the TUI; pass a subcommand to drive the CLI.
 | Flag | Description |
 |------|-------------|
 | `--no-emoji` | Replace emojis with text labels (e.g. `[gate]` instead of emoji) |
+| `--experimental` | Enable experimental features (e.g. web tasks, krun runtime) |
 
 ### Subsystem Surfaces
 
@@ -120,7 +121,7 @@ terok completions zsh    # Print zsh completion script to stdout
 terok completions fish   # Print fish completion script to stdout
 ```
 
-Run `terok config` to check whether completions are detected as installed.
+Run `terok config paths` to check whether completions are detected as installed.
 
 ---
 
@@ -140,17 +141,22 @@ Run `terok config` to check whether completions are detected as installed.
 |--------------|------|
 | Root | `/var/lib/terok` |
 | User | `${XDG_DATA_HOME:-~/.local/share}/terok` |
-| Override | `TEROK_STATE_DIR=/path/to/state` |
+| Override (whole tree) | `TEROK_ROOT=/path/to/root` or `paths.root` in config.yml |
+| Override (terok core state only) | `TEROK_STATE_DIR=/path/to/state` |
 
 ---
 
 ## Global Configuration
 
-The tool looks for a global config file in this order (first found wins):
+Global config is merged from up to three layers (later layers override
+earlier ones, key by key):
 
-1. `${XDG_CONFIG_HOME:-~/.config}/terok/config.yml` (user override)
+1. `/etc/terok/config.yml` (system default)
 2. `sys.prefix/etc/terok/config.yml` (pip/venv installs)
-3. `/etc/terok/config.yml` (system default)
+3. `${XDG_CONFIG_HOME:-~/.config}/terok/config.yml` (user override)
+
+Setting `TEROK_CONFIG_FILE=/path/to/config.yml` disables layering and
+uses only that file.  `terok config paths` prints the merge order.
 
 ### Example Config
 
@@ -421,7 +427,7 @@ unambiguous prefix in place of the full task ID.
 
 #### From the TUI
 
-Press `l` on any running task to open a login session. The TUI picks the best
+Press `i` on any running task to open a login session. The TUI picks the best
 method automatically:
 
 | Environment | What happens |
@@ -481,8 +487,10 @@ terok auth claude
 terok auth gh
 terok auth codex
 
-# Project-scoped escape hatch — uses the project's L2 image for the auth
-# container; the credential still lands provider-scoped in the vault
+# Project-scoped — uses the project's L2 image for the auth container.
+# With the default credentials.scope: shared the token still lands in the
+# host-wide bucket; credentials.scope: project stores it in the project's
+# private vault bucket instead.
 terok auth claude --project myproj
 
 # Interactive menu — pick one or more providers in sequence
@@ -529,8 +537,9 @@ which providers were unauthenticated when the container was created.
 ### Vault passphrase backend
 
 The credentials DB itself is SQLCipher-encrypted; the passphrase
-travels through a resolver chain (session-unlock file → systemd-creds
-→ keyring → `credentials.passphrase` plaintext → interactive prompt).
+travels through a six-tier resolver chain (session-unlock file →
+systemd-creds → OS keyring → `credentials.passphrase_command` helper →
+`credentials.passphrase` plaintext → interactive prompt).
 `terok vault unlock` writes to the session tier, `terok vault lock`
 clears it, and `terok-sandbox setup` picks the persistent tier at
 install time.  To move the passphrase between backends —
@@ -538,9 +547,10 @@ install time.  To move the passphrase between backends —
 ["Changing tiers" recipe](https://github.com/terok-ai/terok-sandbox/blob/master/docs/credentials-encryption.md)
 in terok-sandbox.
 
-Pressing PANIC also clears the session-unlock file so a
-freshly-spawned supervisor can't auto-resume from that tier; persistent
-tiers stay so the panic is reversible.
+Pressing PANIC hard-locks the vault: it destroys **every** stored
+passphrase tier (session file *and* persistent tiers), so nothing can
+auto-unlock the vault afterwards.  Recovery means re-supplying the
+escrowed recovery passphrase.
 
 ---
 
@@ -549,23 +559,26 @@ tiers stay so the panic is reversible.
 Run any supported agent headlessly in a container — no interactive session needed.
 Useful for CI/CD pipelines, batch tasks, or scripted workflows.
 
-Supported providers: `claude`, `codex`, `copilot`, `vibe`, `blablador`, `opencode`.
+Supported agents (`--agent`): `claude`, `codex`, `copilot`, `opencode`,
+`pi`, `vibe`.  Endpoint providers such as `blablador`, `kisski`, or
+`openrouter` are selected with `--provider` and route a harness agent
+(OpenCode) to a different LLM endpoint.
 
 ### Basic Usage
 
 ```bash
-# Run with a prompt (uses default provider — claude unless configured otherwise)
-terok task run myproj "Fix the authentication bug in login.py"
+# Run with a prompt (uses the default agent — claude unless configured otherwise)
+terok task run myproj --mode headless --prompt "Fix the authentication bug in login.py"
 
 # Override model and set a timeout
-terok task run myproj "Add unit tests for utils.py" --model opus --timeout 3600
+terok task run myproj --mode headless --prompt "Add unit tests for utils.py" --model opus --timeout 3600
 
 # Detach immediately (don't stream output)
-terok task run myproj "Refactor the database layer" --no-follow
+terok task run myproj --mode headless --prompt "Refactor the database layer" --no-follow
 
 # Use a specific agent
-terok task run myproj "Fix the auth bug" --agent codex
-terok task run myproj "Add tests" --agent copilot
+terok task run myproj --mode headless --prompt "Fix the auth bug" --agent codex
+terok task run myproj --mode headless --prompt "Add tests" --agent copilot
 ```
 
 The command creates a new task, starts a container, runs the agent with the given
@@ -588,34 +601,40 @@ default_agent: codex
 default_agent: claude
 ```
 
-### Provider Feature Matrix
+### Agent Feature Matrix
 
-| Feature | claude | codex | copilot | vibe | blablador | opencode |
-|---------|--------|-------|---------|------|-----------|----------|
-| `--model` | Yes | Yes | Yes | Yes (`--agent`) | No | Yes |
+| Feature | claude | codex | copilot | opencode | pi | vibe |
+|---------|--------|-------|---------|----------|----|------|
+| `--model` | Yes | Yes | Yes | Yes | Yes | Yes (maps to `--agent`) |
 | Session resume | Yes | No | No | Yes | Yes | Yes |
 | Structured log output | Yes | No | No | No | No | No |
 
+Endpoint providers (`blablador`, `kisski`, …) inherit the capabilities of
+the harness agent (OpenCode) they ride on.
+
 ### Per-Provider Config Values
 
-Config keys like `model` and `timeout` can be set per-provider
-using a dict syntax.  A flat value applies to all providers:
+Config keys like `model` and `timeout` live in the `agent:` section of
+`project.yml` or `config.yml` and can be set per-provider using a dict
+syntax.  A flat value applies to all providers:
 
 ```yaml
-# Flat value — same for all providers
-model: sonnet
+agent:
+  # Flat value — same for all providers
+  model: sonnet
 ```
 
 A dict maps each provider to its own value, with `_default` as fallback:
 
 ```yaml
-# Per-provider values
-model:
-  claude: opus
-  codex: codex-mini
-  vibe: mistral-small
-  _default: fast
-timeout: 1800  # flat values still work
+agent:
+  # Per-provider values
+  model:
+    claude: opus
+    codex: codex-mini
+    vibe: mistral-small
+    _default: fast
+  timeout: 1800  # flat values still work
 ```
 
 Providers not listed in the dict (and without `_default`) use their own built-in
@@ -707,7 +726,7 @@ own, exactly as it would outside a container:
 Any extra flags you pass to the in-container `claude` command are forwarded
 straight through, so per-invocation customization needs no terok support.
 
-Run `terok config` to see the actual paths on your system.
+Run `terok config paths` to see the actual paths on your system.
 
 ---
 
@@ -871,11 +890,11 @@ Hook commands receive task context via environment variables:
 |----------|-------------|---------|
 | `TEROK_HOOK` | Hook name | `post_ready` |
 | `TEROK_PROJECT_NAME` | Project name | `myproject` |
-| `TEROK_TASK_ID` | Task number | `3` |
+| `TEROK_TASK_ID` | Task ID | `v9krt` |
 | `TEROK_TASK_MODE` | Task mode | `cli`, `toad`, `run` |
-| `TEROK_CONTAINER_NAME` | Podman container name | `myproject-toad-3` |
-| `TEROK_WEB_PORT` | Web port (toad only) | `7861` |
-| `TEROK_TASK_DIR` | Host-side task directory | `/home/user/.local/share/terok/tasks/myproject/3` |
+| `TEROK_CONTAINER_NAME` | Podman container name | `myproject-toad-v9krt` |
+| `TEROK_WEB_PORT` | Web port (toad only) | `18701` |
+| `TEROK_TASK_DIR` | Host-side task directory | `/home/user/.local/share/terok/sandbox-live/tasks/myproject/v9krt` |
 
 ### Hook tracking and sickbay
 
@@ -886,7 +905,7 @@ without its `post_stop` hook running (e.g. after a crash or host reboot),
 ```bash
 terok sickbay                    # check all projects
 terok sickbay myproject          # check one project
-terok sickbay myproject 3        # check one task
+terok sickbay myproject v9krt    # check one task
 terok sickbay --fix              # auto-reconcile (run missed hooks)
 terok sickbay --system           # host-wide checks only; skip the per-container walk (fast)
 ```
@@ -1040,8 +1059,8 @@ run:
 
 ## Tips
 
-- **Show resolved paths:** `terok config`
-- **Where credentials live:** `~/.local/share/terok/credentials` (or `/var/lib/terok/credentials` if root, or as configured under `credentials.dir`)
+- **Show resolved paths:** `terok config paths`
+- **Where credentials live:** `~/.local/share/terok/vault` (or `/var/lib/terok/vault` if root; override with `credentials.dir` in config.yml or `TEROK_VAULT_DIR`)
 - **Shared directories:** See [shared-dirs.md](shared-dirs.md)
 - **Security modes:** See [git-gate-and-security-modes.md](git-gate-and-security-modes.md)
 - **Copying text from the terminal:** TUI and tmux can intercept mouse

@@ -17,7 +17,7 @@ This page explains **what you lose** when the shield is weakened or absent.
 | State | Meaning | Risk |
 |-------|---------|------|
 | **up** (deny-all) | Only allowlisted IPs/domains and the gate server are reachable | Low — intended production state |
-| **down** (bypass) | All egress traffic is allowed; audit logging still active | High — see [Shield Down](#shield-down-bypass-mode) |
+| **down** (bypass) | Egress allowed except private ranges (`down --allow-all` lifts even that); audit logging still active | High — see [Shield Down](#shield-down-bypass-mode) |
 | **disabled** / missing | No firewall hooks installed at all; no audit logging | Highest — see [Shield Disabled](#shield-disabled-or-missing) |
 
 ---
@@ -25,9 +25,10 @@ This page explains **what you lose** when the shield is weakened or absent.
 ## Shield Down (Bypass Mode)
 
 When the shield is **down** — whether via `terok shield down`, the TUI
-toggle, or the `shield.drop_on_task_run` config — the nftables rules switch
-to allow-all but the OCI hook infrastructure remains in place.  **Audit
-logging continues.**
+toggle, or the `shield.drop_on_task_run` config — the nftables rules
+switch to allow, but the OCI hook infrastructure remains in place and the
+private-range (RFC 1918) reject stays unless you pass `--allow-all`.
+**Audit logging continues.**
 
 ### What you lose protection against
 
@@ -44,12 +45,12 @@ the internet, including attacker-controlled pages.  The shield narrows
 this to the allowlist; it does not stop injection from content served by
 allowlisted hosts.
 
-**Internal network exposure.**
-Containers without egress filtering can reach hosts on private networks
-(RFC 1918 ranges: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).  On a
-host connected to a corporate LAN, VPN, or cloud VPC, that exposes
-internal services to the agent.  The shield blocks RFC 1918 destinations
-by default.
+**Internal network exposure** (only with `down --allow-all` or the shield
+disabled).  Containers without egress filtering can reach hosts on
+private networks (RFC 1918 ranges: `10.0.0.0/8`, `172.16.0.0/12`,
+`192.168.0.0/16`).  On a host connected to a corporate LAN, VPN, or cloud
+VPC, that exposes internal services to the agent.  Plain `shield down`
+keeps the private-range reject in place.
 
 ### What you keep
 
@@ -115,7 +116,7 @@ If you must operate without the shield, consider these compensating controls:
    directs agent pushes to the host-side mirror instead of upstream.
    This is a configuration default, not a hard barrier — see
    [Security Modes](git-gate-and-security-modes.md) for details.
-2. **Protect credentials** — SSH keys are served via the agent proxy
+2. **Protect credentials** — SSH keys are served via the vault SSH signer
    (never mounted). Avoid placing raw API tokens in shared config dirs.
 3. **Monitor container traffic externally** — use host-level firewall
    rules or network monitoring tools.

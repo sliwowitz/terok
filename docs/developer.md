@@ -31,7 +31,7 @@ api.get_project("myproj")  →  Project          (Aggregate Root)
 | Type | Module | Role |
 |------|--------|------|
 | `Project` | `lib/domain/project.py` | Aggregate root; entry point for all project-scoped operations.  Wraps `ProjectConfig` with behavior. |
-| `Task` | `lib/domain/task.py` | Entity; wraps `TaskMeta` with lifecycle methods (run, stop, delete, rename, logs). |
+| `Task` | `lib/domain/task.py` | Entity; wraps `TaskMeta` with lifecycle methods (`run_cli`, `stop`, `restart`, `delete`, `rename`, `logs`, …). |
 | `ProjectConfig` | `lib/core/project_model.py` | Value object loaded from `project.yml`.  No I/O. |
 | `TaskMeta` | `lib/orchestration/tasks/` | Task metadata snapshot, persisted as a dossier + meta file pair (see below). |
 | `GitGate` | `terok_sandbox` (via `lib/integrations/sandbox.py`) | Manages the bare git mirror; wraps the git CLI. |
@@ -41,7 +41,7 @@ api.get_project("myproj")  →  Project          (Aggregate Root)
 ### Design Principles
 
 **Snapshot semantics.** `Task` captures a point-in-time snapshot of
-`TaskMeta`.  Mutations (`rename()`, `stop()`) update persistent storage but
+`TaskMeta`.  Mutations (`rename()`, `run_cli()`, `stop()`) update persistent storage but
 do *not* refresh the in-memory snapshot — obtain a fresh `Task` via
 `project.get_task(id)` to observe new state.  This keeps entities free of
 implicit I/O.
@@ -77,8 +77,8 @@ presentation (terok.cli, terok.tui)
 
 `terok.lib.api` is a pure re-export front door split into focused
 submodules (`api.task`, `api.project`, `api.vault`, `api.gate`,
-`api.shield`, `api.agents`, `api.clearance`, `api.setup`) plus a
-process-wide `Config` snapshot.  Presentation code imports from `api`
+`api.shield`, `api.agents`, `api.clearance`, `api.setup`,
+`api.ssh_routing`) plus a process-wide `Config` snapshot.  Presentation code imports from `api`
 only; new TUI/CLI features that need internal modules should extend `api`
 first.  Sibling-wheel imports outside `lib/integrations/` fail CI
 (`.importlinter` `*-boundary` contracts); `terok_util` is the exception —
@@ -107,9 +107,9 @@ Readiness markers, in order of appearance:
   string as `READY_MARKER`.
 - `"__CLI_READY__"` — echoed after the init script succeeds.
 
-The host follows logs via the runtime's `stream_initial_logs()`
-([`ContainerRuntime`][terok_sandbox.runtime.protocol.ContainerRuntime]
-protocol) and detaches when either marker appears or after a 60 s timeout.
+The host follows logs via the container handle's `stream_initial_logs()`
+([`Container`][terok_sandbox.runtime.protocol.Container] protocol) and
+detaches when either marker appears or after a 60 s timeout.
 On timeout the container keeps running; `podman logs -f <container>`
 continues to work.
 
@@ -172,8 +172,9 @@ Containers follow podman's own lifecycle, split across the three layers:
 
 Invariants: the task workspace is never re-seeded on relaunch (the
 new-task-marker protocol decides), podman is the source of truth for
-container state (no lifecycle field in task metadata), and `task
-delete` is the only teardown of task state.
+run state (no running/stopped status is persisted in task metadata —
+only markers such as `exit_code` and `ready_at`), and `task delete`
+is the only teardown of task state.
 
 ---
 
@@ -196,7 +197,7 @@ vault's SSH signer serves them (see below).
 | `REPO_ROOT` | executor | `/workspace` — init script clone target |
 | `CLAUDE_CONFIG_DIR` | executor | `/home/dev/.claude` |
 | `GIT_RESET_MODE` | executor (terok can override via host `TEROK_GIT_RESET_MODE`) | Workspace reset behavior, default `none` |
-| `TEROK_GIT_AUTHORSHIP` | executor | Maps human/agent identities onto git author/committer (default `agent-human`) |
+| `TEROK_GIT_AUTHORSHIP` | executor | Maps human/agent identities onto git author/committer (terok's default: `agent-human`) |
 | `HUMAN_GIT_NAME` / `HUMAN_GIT_EMAIL` | executor | Human git identity (from terok config or host git config) |
 | `TEROK_UNRESTRICTED` | executor | `1` when the task runs unrestricted (see permission modes) |
 
@@ -237,8 +238,9 @@ setup` sweeps systemd units left behind by pre-supervisor releases.)
 terok-sandbox installs an OCI hook pair (`createRuntime` + `poststop`)
 that matches on the `terok.sandbox.sidecar` annotation.  The annotation
 carries the absolute path of a **sidecar JSON** the launch path writes
-before `podman run`; the hook spawns `terok-sandbox supervisor
-<container-id>`, which reads its entire identity (project, task, vault DB
+before `podman run`; the hook spawns (via a rendered wrapper)
+`terok-sandbox supervisor <container-id> <sidecar>`, which reads its
+entire identity (project, task, vault DB
 path, gate mirror path + token, transport mode, ports) from that file —
 no environment guessing.  The supervisor awaits `podman wait
 <container-id>` and tears everything down when the container exits; the
@@ -331,15 +333,16 @@ trusted as liveness sentinels.
 
 ### Shield (no host service)
 
-`terok-shield` runs no host-side service.  Its own OCI hook pair
-(`createRuntime` / `poststop`) applies the pre-generated nftables ruleset
-inside the container's network namespace and starts/reaps the
-per-container dnsmasq; the hook also forks the NFLOG reader that
-translates kernel rejects into `connection_blocked` events on the
-supervisor's events socket.  Shield hooks are **fail-closed**: a hook
-failure prevents the container from starting.  The supervisor hook is
-deliberately **soft-fail** (a container without vault/gate still starts —
-the shield independently denies its egress).
+`terok-shield` runs no host-side service.  It installs two OCI hook
+pairs (`createRuntime` / `poststop`): the nft hook applies the
+pre-generated nftables ruleset inside the container's network namespace
+and starts/reaps the per-container dnsmasq; the separate bridge hook
+spawns the NFLOG reader that translates kernel rejects into
+`connection_blocked` events on the supervisor's events socket.  The nft
+hook is **fail-closed**: a failure prevents the container from starting.
+The reader hook and the supervisor hook are deliberately **soft-fail**
+(a container without vault/gate still starts — the shield independently
+denies its egress).
 
 ### Other per-task plumbing
 
@@ -431,7 +434,7 @@ make install-dev
 make lint      # before every commit; make format auto-fixes
 make test      # alias for make test-unit (fast suite with coverage)
 make tach      # after changing cross-module imports
-make check     # everything CI runs: lint + test + tach + security + docstrings + deadcode + reuse
+make check     # everything CI runs: lint + test + tach + lint-imports + typecheck + security + docstrings + deadcode + reuse
 ```
 
 Integration tests live under `tests/integration/`:
@@ -456,7 +459,7 @@ Security/quality extras: `make security` (bandit), `make sonar-inputs`,
 export TEROK_CONFIG_DIR=$PWD/examples
 export TEROK_STATE_DIR=$PWD/tmp/dev-runtime/var-lib-terok
 
-python -m terok.cli projects
+python -m terok.cli project list
 python -m terok.tui
 ```
 

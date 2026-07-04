@@ -3,8 +3,10 @@
 > [!WARNING]
 > This documentation was written by an AI agent and might be inaccurate.
 
-Last verified: 2026-05-07. Re-verify quarterly and whenever an agent version
-update breaks the existing integration.
+Last verified: 2026-07-04 (terok-side mechanisms, against the pinned
+terok-executor roster); upstream vendor behaviour last verified 2026-05-07.
+Re-verify quarterly and whenever an agent version update breaks the
+existing integration.
 
 Per-agent reference for permission control, instruction delivery, and ACP
 integration. See [Agent Permission Mode Architecture](developer.md#agent-permission-mode-architecture)
@@ -18,7 +20,7 @@ local LLM via OpenCode; Tier-3: Copilot.
 | Agent | CLI flag | Env var | Config file | ACP adapter | terok uses (per-task) |
 |-------|----------|---------|-------------|-------------|----------------------|
 | Claude | `--dangerously-skip-permissions` | — | `permissions.defaultMode: bypassPermissions` in settings.json | `claude-agent-acp` (npm) | `/etc/claude-code/managed-settings.json` |
-| Vibe | `--agent auto-approve` | `VIBE_AUTO_APPROVE=true` | `auto_approve = true` in TOML | `vibe-acp` (bundled) | `VIBE_AUTO_APPROVE` env var |
+| Vibe | `--agent auto-approve` | `VIBE_BYPASS_TOOL_PERMISSIONS=true` | `bypass_tool_permissions = true` in TOML | `vibe-acp` (bundled) | `VIBE_BYPASS_TOOL_PERMISSIONS` env var |
 | Blablador | (inherits OpenCode) | `OPENCODE_PERMISSION='{"*":"allow"}'` | `"permission": {"*":"allow"}` in opencode.json | needs wrapper (#410) | `OPENCODE_PERMISSION` env var |
 | OpenCode | — | `OPENCODE_PERMISSION='{"*":"allow"}'` | `"permission": {"*":"allow"}` in opencode.json | `opencode acp` (native) | `OPENCODE_PERMISSION` env var |
 | Codex | `--yolo` | — | `approval_policy` + `sandbox_mode` in `~/.codex/config.toml` | `codex-acp` (npm) | `--yolo` CLI flag (no env var or managed config) |
@@ -39,7 +41,7 @@ Every agent except Codex has a mechanism that is (a) per-container and
 | Agent | Per-container mechanism | Why not the alternative |
 |-------|------------------------|------------------------|
 | Claude | `/etc/claude-code/managed-settings.json` | `~/.claude/` is shared; managed settings have highest precedence |
-| Vibe | `VIBE_AUTO_APPROVE=true` env var | pydantic-settings: env var overrides all config layers (verified) |
+| Vibe | `VIBE_BYPASS_TOOL_PERMISSIONS=true` env var | pydantic-settings: env var overrides all config layers; the older `VIBE_AUTO_APPROVE` matched no config field and was silently ignored |
 | OpenCode | `OPENCODE_PERMISSION` env var | merged on top of all config layers |
 | Blablador | `OPENCODE_PERMISSION` env var | inherits OpenCode's mechanism |
 | Copilot | `COPILOT_ALLOW_ALL=true` env var | env for `--allow-all-tools` (tools only, not paths/URLs) |
@@ -79,9 +81,9 @@ Valid `permissions.defaultMode` values: `default`, `acceptEdits`, `plan`,
 ### Vibe
 
 All config fields overridable via `VIBE_<FIELD_NAME>` env vars (pydantic-settings,
-case-insensitive). `vibe-acp` defaults to `auto_approve=False` (unlike `-p`
-mode which auto-selects the `auto-approve` agent). Env var is the reliable
-cross-path mechanism.
+case-insensitive). The permission field is `bypass_tool_permissions`
+(default `False`); vibe-acp gates its approval callback on that exact field.
+The env var is the reliable cross-path mechanism.
 
 ### OpenCode / Blablador
 
@@ -145,4 +147,4 @@ Check these when re-verifying.
 | OpenCode | `github.com/sst/opencode` | `packages/opencode/src/config/config.ts`, `src/flag/flag.ts`, `src/cli/cmd/acp.ts` |
 | Codex | `github.com/openai/codex` | `codex-rs/config/src/lib.rs`, `codex-rs/codex-acp/src/main.rs`; also `github.com/zed-industries/codex-acp` |
 | Copilot | `github.com/github/copilot` | CHANGELOG.md (v0.0.397–v1.0.5); issues #179, #307, #1020, #1607 |
-| terok | This repo | `headless_providers.py`, `agents.py`, `task_runners.py`, `docs/developer.md` |
+| terok | This repo + terok-executor | terok-executor `resources/agents/*.yaml` (roster manifests), terok `src/terok/lib/orchestration/task_runners/`, `docs/developer.md` |

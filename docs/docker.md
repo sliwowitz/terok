@@ -22,7 +22,6 @@ docker run -d --privileged --network host \
 ```
 
 Open <http://localhost:8566> in your browser.
-Run `docker logs terok` to see the gate admin token.
 
 `--privileged` is required for nested rootless Podman (user namespaces
 and cgroup delegation).  `--network host` is the simplest setup: all
@@ -31,12 +30,15 @@ ports bind directly to the host with no `-p` mapping needed.
 ## Bridge networking
 
 If you prefer Docker's default bridge network, map ports explicitly.
-Note: agent web task ports (7860+) won't be reachable from the host
-unless you also map their range.
+Note: agent web task (toad) ports are auto-allocated from the shared
+port registry (default range 18700–32700; narrow it with
+`network.port_range_start` / `network.port_range_end` in config.yml),
+so they won't be reachable from the host unless you pin the range and
+map it too.
 
 ```bash
 docker run -d --privileged \
-  -p 8566:8566 -p 9418:9418 -p 7860-7880:7860-7880 \
+  -p 8566:8566 \
   --name terok \
   terok-in-docker
 ```
@@ -65,8 +67,9 @@ The entrypoint automatically fixes ownership of mounted directories.
 
 ## LAN / reverse proxy access
 
-All ports bind to `0.0.0.0` by default, so toad and gate are
-LAN-reachable out of the box with `--network host`.
+The web TUI binds to `0.0.0.0` (the entrypoint passes
+`--host 0.0.0.0` to `terok-web`), so it is LAN-reachable out of the box
+with `--network host`.
 
 To make the TUI's WebSocket links and toad URLs display the correct
 external address, set `TEROK_PUBLIC_URL` and optionally
@@ -86,18 +89,17 @@ Behind nginx with TLS:
 
 ## Git gate access from host
 
-The gate server (port 9418) lets the host clone/pull/push repos managed
-by terok.  A random admin token is generated at startup and printed to
-`docker logs`.
+The gate no longer runs as a standalone host server: it is served per
+task by each container's supervisor over a Unix socket, with per-task
+tokens.  The startup log line about a "gate admin token" and the
+`TEROK_GATE_ADMIN_TOKEN` / `TEROK_GATE_BIND` variables are leftovers
+from the retired host gate daemon and have no effect.
+
+To reach a project's gate mirror from inside the terok container, use
+the `file://` URL printed by:
 
 ```bash
-git clone http://<token>@localhost:9418/myproject.git
-```
-
-For a stable token across restarts:
-
-```bash
--e TEROK_GATE_ADMIN_TOKEN=mysecret
+docker exec -it -u podman terok terok project gate-path myproject
 ```
 
 ## Interactive shell
@@ -122,10 +124,8 @@ bind-mount ownership) and then drops to `podman` internally.
 
 | Variable | Purpose |
 |----------|---------|
-| `TEROK_PUBLIC_URL` | Browser-facing WebSocket URL for the web TUI; also sets toad subpath URLs when behind a reverse proxy |
-| `TEROK_PUBLIC_HOST` | Hostname/IP used in toad URLs and bind address (defaults to `0.0.0.0` in Docker) |
-| `TEROK_GATE_ADMIN_TOKEN` | Stable gate admin token (auto-generated if unset) |
-| `TEROK_GATE_BIND` | Gate bind address (defaults to `0.0.0.0` in Docker) |
+| `TEROK_PUBLIC_URL` | Browser-facing URL for the web TUI (passed to `terok-web --public-url` by the entrypoint) |
+| `TEROK_PUBLIC_HOST` | Hostname/IP advertised in toad URLs (default `127.0.0.1`; display only, does not change bind addresses) |
 
 ## Known limitations
 
@@ -133,9 +133,8 @@ bind-mount ownership) and then drops to `podman` internally.
 rootless Podman, which uses pasta for port forwarding.  Pasta only
 forwards connections arriving on `127.0.0.1`, so toad is reachable
 from the Docker host but not from other LAN machines.  The web TUI
-and gate server are unaffected (they run directly in the Docker
-container's process space).  A future reverse-proxy integration
-(nginx) will resolve this.
+is unaffected (it runs directly in the Docker container's process
+space).  A future reverse-proxy integration (nginx) may resolve this.
 
 ## Architecture
 

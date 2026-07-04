@@ -9,7 +9,7 @@ When a task starts, terok mounts host directories into the container for workspa
 
 ## Per-Task Workspace
 
-- Host path: `<state_dir>/tasks/<project_name>/<task_id>/workspace-dangerous`
+- Host path: `<sandbox_live_dir>/tasks/<project_name>/<task_id>/workspace-dangerous` (default `~/.local/share/terok/sandbox-live/tasks/...`)
 - Mounted as: `<host_dir>:/workspace:Z`
 - Created automatically when the task runs (permissions `700`).
 - The project repository is cloned or synced here by `init-ssh-and-repo.sh`.
@@ -29,7 +29,7 @@ on first task launch.  The base dir defaults to
 `<sandbox_live_dir>/mounts` (override via `TEROK_SANDBOX_LIVE_DIR`).
 
 > **Trust boundary:** Mount directories are intentionally separated from the
-> credentials store (`~/.local/share/terok/credentials/`) since containers have
+> vault credential store (`~/.local/share/terok/vault/`) since containers have
 > read-write access to mounts and could potentially poison them.
 
 | Host Dir | Container Mount | Purpose |
@@ -43,18 +43,28 @@ on first task launch.  The base dir defaults to
 | `_opencode-state` | `/home/dev/.local/state` | OpenCode/Bun state (shared by both) |
 | `_gh-config` | `/home/dev/.config/gh` | GitHub CLI config |
 | `_glab-config` | `/home/dev/.config/glab-cli` | GitLab CLI config |
+| `_pi-config` | `/home/dev/.pi` | Pi credentials |
+| `_toad-config` | `/home/dev/.config/toad` | Toad config |
+| `_coderabbit-config` | `/home/dev/.coderabbit` | CodeRabbit credentials |
+| `_sonar-config` | `/home/dev/.sonar` | Sonar credentials |
+| `_kisski-config` | `/home/dev/.kisski` | KISSKI (OpenCode provider) config |
+| `_openrouter-config` | `/home/dev/.openrouter` | OpenRouter (OpenCode provider) config |
 
-All shared dirs use `:z` (shared SELinux label); the workspace uses `:Z` (private label).
+The table follows terok-executor's agent roster — new roster entries get a
+`_<name>-config` mount automatically.  All shared dirs use `:z` (shared
+SELinux label); the workspace uses `:Z` (private label).
 
 > **Note:** SSH keys are **not** mounted into containers.  The vault's
-> SSH signer serves keys over TCP — private keys never enter the
-> container.  See `terok project ssh-init` for key generation.
+> SSH signer answers signing requests over the per-container socket (TCP
+> in `services.mode: tcp`) — private keys never enter the container.
+> See `terok project ssh-init` for key generation.
 
 ## SSH Key Management
 
 SSH keys are generated and stored on the **host only** — they are served to
-containers via the vault's SSH signer (TCP-based, phantom-token
-authenticated).  Public HTTPS repos don't need SSH setup at all.
+containers via the vault's SSH signer (Unix socket or TCP per
+`services.mode`, phantom-token authenticated).  Public HTTPS repos don't
+need SSH setup at all.
 
 ### Setup
 
@@ -77,7 +87,7 @@ real credential — the actual secret never enters any container.
 
 | Auth method | Token scope | Notes |
 |-------------|------------|-------|
-| API key (all providers) | Per-task | Each task gets a unique phantom token that is revoked when the task ends. |
+| API key (all providers) | Per-task | Each task gets a unique phantom token.  Tokens are not auto-revoked at task end — use `terok task revoke-credentials`. |
 | OAuth (Codex, etc.) | Per-task | Same per-task lifecycle as API keys. |
 | **Claude OAuth** | **Shared** | Uses a static marker token in `.credentials.json` instead of a per-task phantom. All tasks share the same lookup key. |
 
@@ -121,7 +131,7 @@ Agent email addresses are GitHub-recognized and display with avatars in commit h
 ## Quick Reference
 
 ```text
-/workspace                    ← <state_dir>/tasks/<project>/<task>/workspace-dangerous:Z
+/workspace                    ← <sandbox_live_dir>/tasks/<project>/<task>/workspace-dangerous:Z
 /home/dev/.codex              ← <mounts_dir>/_codex-config:z
 /home/dev/.claude             ← <mounts_dir>/_claude-config:z
 /home/dev/.vibe               ← <mounts_dir>/_vibe-config:z
@@ -129,6 +139,7 @@ Agent email addresses are GitHub-recognized and display with avatars in commit h
 /home/dev/.config/opencode    ← <mounts_dir>/_opencode-config:z
 /home/dev/.local/share/opencode ← <mounts_dir>/_opencode-data:z
 /home/dev/.local/state        ← <mounts_dir>/_opencode-state:z
+(… one <mounts_dir>/_<name>-config mount per further roster entry)
 ```
 
-Run `terok config` to see resolved paths on your system.
+Run `terok config paths` to see resolved paths on your system.
