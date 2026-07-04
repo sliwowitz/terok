@@ -188,11 +188,12 @@ gate:
 
 ### Collapse when upstream is absent
 
-When `upstream_url` is absent, `online` and `gatekeeping` describe the
-same act — there is nothing to push beyond the gate.  Both values are
-accepted and behave identically in that sub-case.  The table above
-describes them distinctly only because they diverge once an upstream
-exists.
+When `upstream_url` is absent there is nothing to promote beyond the
+gate, and both `security_class` values are accepted.  They are not quite
+identical in practice, though: `gatekeeping` sets `CODE_REPO` to the gate
+so the container clones from it, while `online` leaves `CODE_REPO` unset
+and the workspace starts empty.  Use `gatekeeping` for local-only scratch
+projects that should push to the gate.
 
 ### Incoherent combination (rejected)
 

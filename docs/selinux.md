@@ -4,8 +4,8 @@
 > This documentation was written by an AI agent and might be inaccurate.
 
 Since 0.7.3, terok defaults to **`services.mode: socket`** — Unix-socket
-IPC between host services (gate, vault, SSH-agent) and task containers.
-No TCP ports are claimed for terok's own services.
+IPC between the per-container host services (gate, vault, SSH signer)
+and task containers.  No TCP ports are claimed for terok's own services.
 
 This page explains what that means on your distro, and how to opt out.
 
@@ -13,10 +13,9 @@ This page explains what that means on your distro, and how to opt out.
 
 ### Non-SELinux distros (Ubuntu, Debian, Arch, Alpine, …)
 
-Nothing extra.  `terok setup` installs socket-mode units, services bind
-Unix sockets, containers mount the sockets with `:z`, and everything
-works.  You will never see a SELinux block in the setup output and you
-never need `sudo`.
+Nothing extra.  The per-container supervisor services bind Unix sockets,
+containers mount them with `:z`, and everything works.  You will never
+see a SELinux block in the setup output and you never need `sudo`.
 
 ### SELinux distros in permissive mode
 
@@ -28,27 +27,22 @@ policy covers the flow, `terok setup` skips the SELinux block.
 By default SELinux blocks `container_t → unconfined_t` `connectto` on
 Unix sockets (see [Dan Walsh][1] / [Podman #23972][2]).  To let rootless
 Podman containers reach terok's host-side sockets, we ship a narrowly
-targeted policy module (`terok_socket_t`) that carves out this single
-exception.  Installing it is a one-time `sudo` operation per host.
+targeted policy module (`terok_socket`, defining the `terok_socket_t`
+socket type) that carves out this single exception.  Installing it is a one-time `sudo` operation per host.
 
-`terok setup` on an enforcing host will print:
-
-```text
-SELinux:
-  terok_socket_t   WARN (policy NOT installed)
-                   Containers cannot connect to service sockets.
-                   Fix (pick one):
-                     install policy: sudo bash /path/to/install_policy.sh
-                     or opt out:     add `services: {mode: tcp}` to ~/.config/terok/config.yml
-```
+`terok setup` on an enforcing host reports the policy stage as MISSING
+and ends with an "SELinux policy required" hint that gives both fixes:
+install the policy (`sudo bash …/install_policy.sh`) or opt out by
+adding `services: {mode: tcp}` to `~/.config/terok/config.yml`.
+`terok sickbay` reports the same condition as a warning.
 
 The installer script is short, auditable, and sits next to the `.te`
 policy source in the terok-sandbox package.  `cat` it before running.
 It compiles `terok_socket.te` with `checkmodule` / `semodule_package`
 and loads it with `semodule -i`.
 
-After running it, `terok setup` shows `ok (policy installed)` and task
-containers can connect to the gate / vault / SSH-agent sockets.
+After running it, `terok setup` reports the policy as installed and task
+containers can connect to the gate / vault / SSH-signer sockets.
 
 #### Removing the policy
 
@@ -68,20 +62,15 @@ services:
   mode: tcp
 ```
 
-This falls back to the previous TCP-loopback transport.  terok claims
-three auto-allocated TCP ports per user (gate, vault, ssh-agent) and
-containers reach them via `host.containers.internal` / slirp4netns.
+This falls back to the TCP-loopback transport.  Each container launch
+allocates three kernel-assigned loopback ports (vault broker, SSH
+signer, gate); containers reach them via `host.containers.internal`.
 Works on any distro, SELinux or not, zero extra setup.
 
 The TCP transport is **not** deprecated — it's a supported opt-out.
-Some caveats:
-
-- Three ports per user are visible on the host via `ss -tlnp`
-  (127.0.0.1 only).  They don't leak off-loopback, but on multi-user
-  hosts another user could see that *something* is listening.
-- Port-allocation edge cases (collisions with other services that
-  bind in the 18700-32700 range) surface as terok setup failures with
-  clear messages.
+Caveat: the per-container ports are visible on the host via `ss -tlnp`
+(127.0.0.1 only).  They don't leak off-loopback, but on multi-user
+hosts another user could see that *something* is listening.
 
 ## Background
 

@@ -38,8 +38,8 @@ A task consists of three persistent components:
 
 ```text
 Task v9krt
-├── Workspace    ~/.local/share/terok/tasks/<project>/v9krt/workspace-dangerous/
-├── Metadata     ~/.local/share/terok/projects/<project>/tasks/v9krt.yml
+├── Workspace    ~/.local/share/terok/sandbox-live/tasks/<project>/v9krt/workspace-dangerous/
+├── Metadata     ~/.local/share/terok/core/projects/<project>/tasks/v9krt_dossier.json + v9krt_meta.yml
 └── Container    <project>-cli-v9krt
 ```
 
@@ -66,7 +66,7 @@ All three persist independently and survive:
     │  │          │                │                  │  │
     │  │          │◀────────────── │                  │  │
     │  └──────────┘  task restart  └──────────────────┘  │
-    │       │        task run             │              │
+    │       │                             │              │
     │       │                             │              │
     │       └──────────┬──────────────────┘              │
     │                  │                                 │
@@ -86,9 +86,15 @@ All three persist independently and survive:
 |---------|---------------------------|---------------------------|------------------------|
 | `task run` | Always creates a fresh task + container (new ID) | Always creates a fresh task + container (new ID) | Always creates a fresh task + container (new ID) |
 | `task stop` | `podman stop` | Error: not running | Error: not running |
-| `task restart` | `podman stop` → `podman start` | `podman start` | Error: suggests `task run` |
+| `task restart` | `podman stop`, then resume — or recreate in place on `--fresh` / image drift | Resume (`podman start`) — or recreate in place on `--fresh` / image drift | Recreates the container in place (same task ID, name, workspace) |
 | `task status`  | Shows state            | Shows state     | Shows "not found"      |
 | `task delete` | `podman rm -f` + cleanup | `podman rm -f` + cleanup | Cleanup only |
+
+`task restart` is a resume-or-recreate ladder: it resumes the existing
+container when it can, and otherwise warns and recreates it through the
+normal launch path (workspace kept, fresh tokens).  Headless tasks are the
+exception — recreating would replay their original prompt, so a missing
+container is an error there.
 
 ### Container Naming
 
@@ -98,6 +104,7 @@ All three persist independently and survive:
 Examples:
   myproject-cli-v9krt   # CLI container for task v9krt
   myproject-auth-codex  # Auth container (ephemeral, uses --rm)
+  host-auth-codex       # Host-wide auth container (no project scope)
 ```
 
 ### Ephemeral vs Persistent Containers
@@ -108,7 +115,7 @@ Examples:
 | Auth | `*-auth-*` | Ephemeral | Yes |
 
 Task containers persist to allow:
-- Fast restart (`podman start` vs full `podman run`)
+- Fast resume (`podman start` vs full `podman run`)
 - Preserved in-container state (apt installs, pip packages, shell history)
 - Consistent task = workspace + metadata + container model
 
@@ -127,7 +134,7 @@ Auth containers are ephemeral because:
 ┌───────────────────────────────────────────────────────────────────┐
 │ L0: terok-l0:<base-tag>                                           │
 │ ┌───────────────────────────────────────────────────────────────┐ │
-│ │ Ubuntu 24.04 + common tools (git, ssh, vim, ripgrep, ...)     │ │
+│ │ Distro base (default fedora:44) + git, ssh, vim, ripgrep, ... │ │
 │ │ + dev user + /workspace                                       │ │
 │ └───────────────────────────────────────────────────────────────┘ │
 └───────────────────────────────────────────────────────────────────┘
@@ -170,16 +177,21 @@ Auth containers are ephemeral because:
 The TUI detects when a task's container uses an outdated image:
 
 ```text
-Container image hash ≠ Current project build hash
+Container's build-context hash ≠ current build hash
         │
         ▼
   "Image: old" warning in TUI
         │
         ▼
   User should: terok project build <project>
-               then: task delete + task run
-               or:   task stop + podman rm <container> + task run
+               then: terok task restart <project> <task>
 ```
+
+Staleness is detected by comparing per-layer build-context hashes
+(`build_manifest.json`, with the `terok.build_context_hash` image label
+as fallback) — not raw image IDs.  `task restart` probes for image drift
+and recreates the container in place automatically; `--fresh` forces it.
+The workspace is kept either way — no need to delete the task.
 
 ---
 
@@ -199,7 +211,7 @@ terok login myproject v9krt
 
 ```bash
 terok task stop myproject v9krt     # Graceful stop (container persists)
-terok task restart myproject v9krt  # Fast restart (podman start)
+terok task restart myproject v9krt  # Resume (or recreate in place if needed)
 ```
 
 ### Checking Status

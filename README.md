@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://terok-ai.github.io/terok/terok-logo-w.svg">
-    <img src="https://terok-ai.github.io/terok/terok-logo-b.svg" alt="terok" width="120">
+    <source media="(prefers-color-scheme: dark)" srcset="https://terok-ai.github.io/terok/dev/terok-logo-w.svg">
+    <img src="https://terok-ai.github.io/terok/dev/terok-logo-b.svg" alt="terok" width="120">
   </picture>
 </p>
 
@@ -27,7 +27,7 @@ and a Textual TUI on top of a stack of independently-released
 Python packages.
 
 <p align="center">
-  <img src="https://terok-ai.github.io/terok/img/architecture.svg" alt="terok ecosystem at a glance">
+  <img src="https://terok-ai.github.io/terok/dev/img/architecture.svg" alt="terok ecosystem at a glance">
 </p>
 
 ## Acknowledgements
@@ -35,9 +35,9 @@ Python packages.
 <table border="0" style="border: none;">
 <tr style="border: none;">
 <td valign="top" style="border: none;">
-<a href="https://www.casus.science"><img src="https://terok-ai.github.io/terok/casus-logo.svg" alt="CASUS" width="120"></a>
+<a href="https://www.casus.science"><img src="https://terok-ai.github.io/terok/dev/casus-logo.svg" alt="CASUS" width="120"></a>
 <br>
-<a href="https://www.hzdr.de"><img src="https://terok-ai.github.io/terok/hzdr-logo.svg" alt="HZDR" width="120"></a>
+<a href="https://www.hzdr.de"><img src="https://terok-ai.github.io/terok/dev/hzdr-logo.svg" alt="HZDR" width="120"></a>
 </td>
 <td valign="top" style="border: none;">
 Terok was started at the
@@ -119,8 +119,9 @@ pipx install terok
 terok setup                             # idempotent; safe to re-run after upgrades
 ```
 
-`setup` installs the shield OCI hooks, the XDG desktop entry for the TUI, and shell
-completions for your detected shell.
+`setup` installs the supervisor + shield OCI hooks, sets up the encrypted
+credential store and its vault routes, and adds the XDG desktop entry for the
+TUI plus shell completions for your detected shell.
 
 To remove everything later:
 
@@ -157,13 +158,13 @@ For manual project configuration or CI, see the [User Guide](docs/usage.md).
 
 ```bash
 # Run an agent headlessly with a prompt (uses default_agent config; falls back to claude)
-terok task run myproj "Fix the authentication bug"
+terok task run myproj --mode headless --prompt "Fix the authentication bug"
 
 # With model override and timeout
-terok task run myproj "Add tests" --model opus --timeout 3600
+terok task run myproj --mode headless --prompt "Add tests" --model opus --timeout 3600
 
-# Use a specific provider
-terok task run myproj "Fix the bug" --provider codex
+# Use a specific agent
+terok task run myproj --mode headless --prompt "Fix the bug" --agent codex
 ```
 
 ### Common Commands
@@ -222,7 +223,7 @@ the way to override the host-level identity for container commits.
 To see what you can pick from for `image.agents`:
 
 ```bash
-terok agents                            # list available AI coding agents
+terok agents list                       # list available AI coding agents
 ```
 
 Officially-tested base images for `image.base_image`: `ubuntu:24.04`,

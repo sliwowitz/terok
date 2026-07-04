@@ -49,6 +49,9 @@ is always the same regardless of how the user reaches the container:
 
     podman exec -it <container> tmux new-session -A -s main
 
+(Under the krun runtime the transport is an equivalent `ssh` invocation instead of
+`podman exec` — see [runtimes.md](runtimes.md).)
+
 `-A` means "attach if session exists, create if not." This is idempotent — first login
 creates, subsequent logins reattach.
 
