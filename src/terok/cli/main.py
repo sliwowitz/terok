@@ -13,6 +13,7 @@ argcomplete integration, and top-level dispatch loop.
 import argparse
 import os
 import sys
+from typing import Any
 
 from ..lib.core.version import format_version_string, get_version_info
 from .tree import CommandDef, CommandTree, inject_cfg_factory, inject_pt_resolver
@@ -69,6 +70,86 @@ def _invocation_needs_wired_tree(argv: list[str]) -> bool:
     return verb in _WIRED_TREE_ROOTS
 
 
+#: Own top-level verb -> the command module (basename under ``.commands``) that
+#: registers and handles it.  Some modules own several verbs (``info`` →
+#: ``config``, ``task`` → ``task`` + ``login``).  Kept static so resolving the
+#: invoked verb imports exactly one command module rather than all fourteen;
+#: ``test_own_verb_registry_matches_registration`` cross-checks it against what
+#: the modules actually register so it can't silently drift.
+_OWN_VERB_MODULES: dict[str, str] = {
+    "panic": "panic",
+    "setup": "setup",
+    "uninstall": "uninstall",
+    "auth": "auth",
+    "project": "project",
+    "task": "task",
+    "login": "task",
+    "image": "image",
+    "clearance": "clearance",
+    "sickbay": "sickbay",
+    "shield": "shield",
+    "agents": "agents",
+    "config": "info",
+    "acp": "acp",
+    "completions": "completions",
+}
+
+#: Command modules in ``--help`` listing order, for the full-surface cases
+#: (bare invocation, ``--help``, unknown verb, shell completion).
+_OWN_MODULE_ORDER: tuple[str, ...] = (
+    "panic",
+    "setup",
+    "uninstall",
+    "auth",
+    "project",
+    "task",
+    "image",
+    "clearance",
+    "sickbay",
+    "shield",
+    "agents",
+    "info",
+    "acp",
+    "completions",
+)
+
+
+def _needs_full_own_surface(argv: list[str]) -> bool:
+    """Whether every own command must be registered (not just the invoked one).
+
+    The full surface is needed when the top-level command listing must be
+    complete: shell completion, a bare invocation, ``--help`` / ``-h`` ahead of
+    any verb, or an unknown verb (so argparse can error against the full choice
+    list).  A recognised own verb or a sibling-wired verb needs only its own
+    module (or none) — the whole point of lazy dispatch.
+    """
+    if os.environ.get("_ARGCOMPLETE"):
+        return True
+    verb = _first_verb(argv)
+    if verb is None or verb == "--help":
+        return True
+    return verb not in _OWN_VERB_MODULES and verb not in _WIRED_TREE_ROOTS and verb != "tui"
+
+
+def _load_own_commands(argv: list[str]) -> list[Any]:
+    """Import the command modules needed for *argv*, in registration order.
+
+    Fast path: a recognised own verb imports exactly that verb's module; a
+    sibling-wired verb (or ``tui``) imports none.  The full-surface cases import
+    every own module.  Returned modules are registered and their ``dispatch``
+    hooks wired, in order.
+    """
+    import importlib
+
+    if _needs_full_own_surface(argv):
+        names: list[str] = list(_OWN_MODULE_ORDER)
+    else:
+        verb = _first_verb(argv)
+        module = _OWN_VERB_MODULES.get(verb) if verb is not None else None
+        names = [module] if module is not None else []
+    return [importlib.import_module(f"{__package__}.commands.{name}") for name in names]
+
+
 def _commandtree_dispatch(args: argparse.Namespace) -> bool:
     """Dispatch verbs wired by [`CommandTree.wire`][terok_util.cli_types.CommandTree.wire].
 
@@ -97,30 +178,13 @@ def main(prog: str = "terok") -> None:
       split exists so ``terok`` can evolve richer UX while ``terokctl``
       preserves backwards compatibility.
     """
-    # Command modules and the config helpers are imported here, at dispatch
-    # time, rather than at module scope: the command modules transitively
-    # pull ``core``/``domain``/``orchestration`` (and thus the executor /
-    # sandbox wheels), so importing them eagerly would make a bare
-    # ``import terok.cli`` pay for the whole stack.  Deferring keeps import
-    # cheap; the cost lands only when a command is actually run.
+    # The config helpers are imported here, at dispatch time, rather than at
+    # module scope: they pull ``core.config`` (and thus the sandbox wheel), so
+    # importing them eagerly would make a bare ``import terok.cli`` pay for the
+    # stack.  Command modules are loaded lazily too — only the invoked verb's
+    # module (see ``_load_own_commands``) — so ``terok <verb>`` imports one
+    # command module instead of all fourteen.
     from terok.lib.core.config import declare_setup_invocation, set_experimental
-
-    from .commands import (
-        acp,
-        agents,
-        auth,
-        clearance,
-        completions,
-        image,
-        info,
-        panic,
-        project,
-        setup,
-        shield,
-        sickbay,
-        task,
-        uninstall,
-    )
 
     declare_setup_invocation()
     # Fast-path: bare ``terok`` in a terminal launches the TUI.  Scripts
@@ -182,24 +246,18 @@ def main(prog: str = "terok") -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # Register subcommands.  Order matters — it's the order they appear in
-    # ``--help``.  Emergency and bootstrap first, then the daily-workflow
-    # verbs (auth → project → task → login), then operator tools, then
-    # sibling-wired groups, then dev/shell niceties.
-    panic.register(sub)
-    setup.register(sub)
-    uninstall.register(sub)
-    auth.register(sub)
-    project.register(sub)
-    task.register(
-        sub, prog=prog
-    )  # task group + flat ``login`` shortcut; ``prog`` gates terokctl-only verbs
-    image.register(sub)
-    clearance.register(sub)
-    sickbay.register(sub)
-    shield.register(sub)
-    agents.register(sub)
-    info.register(sub)
-    acp.register(sub)
+    # ``--help``.  Lazy: only the invoked verb's module is imported (the whole
+    # point — each command module transitively pulls the executor / sandbox
+    # stack).  The full-surface cases (bare, ``--help``, unknown verb, shell
+    # completion) register every own command so the listing stays complete.
+    argv = sys.argv[1:]
+    cmd_modules = _load_own_commands(argv)
+    for module in cmd_modules:
+        if module.__name__.rsplit(".", 1)[-1] == "task":
+            # task group + flat ``login`` shortcut; ``prog`` gates terokctl-only verbs.
+            module.register(sub, prog=prog)
+        else:
+            module.register(sub)
 
     # Build the terok-side CommandTree from upstream packages, apply
     # terok's cfg-injection overlay (concept translation: terok's
@@ -209,14 +267,11 @@ def main(prog: str = "terok") -> None:
     # identity with the deep path.
     #
     # Gated: building the tree imports the executor / sandbox / clearance
-    # wheels, so a terok-own verb (``info``, ``task``, …) skips it and its
-    # sibling-registration parsers.  ``--help``, the no-verb case, and shell
-    # completion still build it so the full command surface stays visible.
-    if _invocation_needs_wired_tree(sys.argv[1:]):
+    # wheels, so a terok-own verb (``config``, ``task``, …) skips it.  The
+    # full-surface cases still build it so the command listing (and an unknown
+    # verb's error) include the sibling groups.
+    if _invocation_needs_wired_tree(argv) or _needs_full_own_surface(argv):
         _build_wired_tree().wire(sub)
-
-    # Dev / shell niceties at the bottom of the help listing.
-    completions.register(sub)
 
     # TUI launcher — only on the human-facing ``terok`` binary.  ``terokctl``
     # is the scripting surface; launching an interactive TUI from there is
@@ -259,24 +314,12 @@ def main(prog: str = "terok") -> None:
 
     from terok.lib.api.vault import NoPassphraseError
 
-    # Dispatch chain — tried in order; first True wins.
-    dispatchers = [
-        panic.dispatch,
-        setup.dispatch,
-        uninstall.dispatch,
-        auth.dispatch,
-        project.dispatch,
-        task.dispatch,
-        image.dispatch,
-        _commandtree_dispatch,
-        shield.dispatch,
-        clearance.dispatch,
-        sickbay.dispatch,
-        info.dispatch,
-        acp.dispatch,
-        agents.dispatch,
-        completions.dispatch,
-    ]
+    # Dispatch chain — tried in order; first True wins.  Only the modules we
+    # actually loaded contribute a ``dispatch`` (own verbs are disjoint, so at
+    # most one matches); ``_commandtree_dispatch`` handles the sibling-wired
+    # verbs, which set ``args._cmd`` rather than ``args.cmd``.
+    dispatchers = [module.dispatch for module in cmd_modules]
+    dispatchers.append(_commandtree_dispatch)
     try:
         for dispatch in dispatchers:
             if dispatch(args):
@@ -317,6 +360,13 @@ def _build_wired_tree() -> CommandTree:
 
     from ..lib.core.config import make_sandbox_config
 
+    # The executor forest now ships lazy nodes (``source`` set) whose children
+    # materialise only on ``resolve()``.  Terok's cfg-injection / ``find_at``
+    # composition walks the structure directly, so it needs the fully resolved
+    # subtree — deep-resolve up front.  This is gated to sibling verbs
+    # (``_invocation_needs_wired_tree``), so a terok-own verb never pays it.
+    executor_tree = _resolve_tree(EXECUTOR_COMMANDS)
+
     # Executor exposes ``CommandTree`` (its top-level forest).  Apply
     # terok's cfg wrap to every handler that declares a ``cfg``
     # parameter, anywhere in the tree — executor-native verbs (run,
@@ -328,7 +378,7 @@ def _build_wired_tree() -> CommandTree:
     # inconsistency users hit as "I authenticated already, why is
     # ``terok executor run`` re-prompting?"
     modified = inject_cfg_factory(
-        EXECUTOR_COMMANDS,
+        executor_tree,
         subtree_paths=((),),
         factory=make_sandbox_config,
     )
@@ -389,6 +439,28 @@ def _build_wired_tree() -> CommandTree:
         "wired-tree roots drifted from _WIRED_TREE_ROOTS — update the gate set"
     )
     return tree
+
+
+def _resolve_node(cmd: CommandDef) -> CommandDef:
+    """Resolve *cmd* (importing its ``source`` if lazy) and all descendants."""
+    resolved = cmd.resolve()
+    if resolved.children:
+        resolved = resolved.with_children(
+            tuple(_resolve_node(child) for child in resolved.children)
+        )
+    return resolved
+
+
+def _resolve_tree(tree: CommandTree) -> CommandTree:
+    """Deep-resolve a lazy [`CommandTree`][terok_util.cli_types.CommandTree].
+
+    The sibling forests ship lazy [`CommandDef`][terok_util.cli_types.CommandDef]
+    nodes whose children materialise only on ``resolve()``.  Terok's wired-tree
+    composition (``inject_cfg_factory`` / ``find_at`` / ``extend_at``) walks the
+    structure directly, so it needs the resolved subtree — materialise every
+    node and its descendants once, up front.
+    """
+    return CommandTree(tuple(_resolve_node(root) for root in tree.roots))
 
 
 def terokctl_main() -> None:

@@ -57,7 +57,7 @@ slow startup doesn't show up as a phantom failure."""
 
 
 def acp_socket_is_live(sock_path: Path) -> bool:
-    """Lazy shim for [`acp_socket_is_live`][terok.lib.integrations.executor.acp_socket_is_live].
+    """Lazy shim for `acp_socket_is_live` from the executor integration adapter.
 
     Kept as a module-level function that imports its target on call rather
     than a module-scope ``from …import`` so that registering the ``acp``

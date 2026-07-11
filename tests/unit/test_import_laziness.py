@@ -67,14 +67,39 @@ def test_import_terok_cli_stays_lazy() -> None:
 # polluted) module set.
 
 
+def _run_cli(argv: list[str], report_expr: str) -> str:
+    """Run ``terok <argv>`` in a fresh interpreter; return the ``RESULT:`` line body.
+
+    *report_expr* is a Python expression evaluated after dispatch (which exits
+    via ``SystemExit`` for ``--help``); its ``str()`` is printed behind a
+    ``RESULT:`` sentinel so it survives argparse's own stdout.
+    """
+    probe = (
+        "import sys\n"
+        f"sys.argv = {['terok', *argv]!r}\n"
+        "import importlib\n"
+        "M = importlib.import_module('terok.cli.main')\n"
+        "try:\n"
+        "    M.main()\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        f"print('RESULT:' + str({report_expr}))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+    line = next(x for x in result.stdout.splitlines() if x.startswith("RESULT:"))
+    return line[len("RESULT:") :]
+
+
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
         # terok-own verbs — skip the wired tree.
-        (["info"], False),
-        (["info", "--help"], False),
+        (["config", "paths"], False),
+        (["config", "--help"], False),
         (["task", "list"], False),
-        (["--no-emoji", "info"], False),
+        (["--no-emoji", "config"], False),
         (["--experimental", "task", "run", "p"], False),
         # sibling-wired groups — must build it.
         (["executor", "run", "claude", "."], True),
@@ -102,7 +127,7 @@ def test_wired_tree_gate_completion_forces_full_tree(monkeypatch: pytest.MonkeyP
     from terok.cli.main import _invocation_needs_wired_tree
 
     monkeypatch.setenv("_ARGCOMPLETE", "1")
-    assert _invocation_needs_wired_tree(["info"]) is True
+    assert _invocation_needs_wired_tree(["config"]) is True
 
 
 def test_wired_tree_roots_match_builder() -> None:
@@ -114,72 +139,18 @@ def test_wired_tree_roots_match_builder() -> None:
     assert {root.name for root in tree.roots} == set(main._WIRED_TREE_ROOTS)
 
 
-def test_info_invocation_skips_building_wired_tree() -> None:
-    """``terok info --help`` must not call ``_build_wired_tree`` (siblings stay unloaded)."""
+def test_own_verb_invocation_skips_building_wired_tree() -> None:
+    """A terok-own verb (``config``) must not call ``_build_wired_tree``."""
     import importlib
 
     main = importlib.import_module("terok.cli.main")
     with (
         mock.patch.object(main, "_build_wired_tree") as build,
-        mock.patch("sys.argv", ["terok", "info", "--help"]),
+        mock.patch("sys.argv", ["terok", "config", "--help"]),
         pytest.raises(SystemExit),
     ):
         main.main()
     build.assert_not_called()
-
-
-#: Modules whose only load path on a terok-own verb is the wired tree (or the
-#: ACP subsystem).  The gate keeps them out of ``terok info``.  Note:
-#: ``terok_executor`` / ``terok_sandbox`` are NOT here — they still load via
-#: command *registration* (command modules import ``core.config`` /
-#: ``orchestration`` / ``domain`` at module scope), which a follow-up
-#: lazy-registration change would address.
-_WIRED_ONLY = ("terok_clearance", "acp")
-
-
-def test_info_invocation_does_not_load_wired_only_siblings() -> None:
-    """``terok info --help`` keeps the wired-tree-only siblings (clearance, acp) unloaded."""
-    probe = (
-        "import sys\n"
-        "sys.argv = ['terok', 'info', '--help']\n"
-        "import importlib\n"
-        "M = importlib.import_module('terok.cli.main')\n"
-        "try:\n"
-        "    M.main()\n"
-        "except SystemExit:\n"
-        "    pass\n"
-        f"present = [m for m in {_WIRED_ONLY!r} if m in sys.modules]\n"
-        "print('RESULT:' + ','.join(present))\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
-    )
-    line = next(x for x in result.stdout.splitlines() if x.startswith("RESULT:"))
-    present = [m for m in line[len("RESULT:") :].split(",") if m]
-    assert not present, (
-        f"terok info loaded wired-tree-only siblings {present} — the gate should "
-        "have skipped _build_wired_tree for a terok-own verb."
-    )
-
-
-def test_executor_invocation_loads_siblings() -> None:
-    """``terok executor --help`` does build the wired tree, so the clearance wheel loads."""
-    probe = (
-        "import sys\n"
-        "sys.argv = ['terok', 'executor', '--help']\n"
-        "import importlib\n"
-        "M = importlib.import_module('terok.cli.main')\n"
-        "try:\n"
-        "    M.main()\n"
-        "except SystemExit:\n"
-        "    pass\n"
-        "print('RESULT:' + str('terok_clearance' in sys.modules))\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
-    )
-    line = next(x for x in result.stdout.splitlines() if x.startswith("RESULT:"))
-    assert line == "RESULT:True"
 
 
 def test_executor_invocation_builds_wired_tree() -> None:
@@ -195,3 +166,100 @@ def test_executor_invocation_builds_wired_tree() -> None:
     ):
         main.main()
     build.assert_called_once()
+
+
+# ── Per-verb command-module laziness ───────────────────────────────────
+#
+# ``main`` imports only the invoked verb's command module (plus shared,
+# stack-free helpers), never all fourteen.  ``config`` (owned by the ``info``
+# module) is the clean reference: its module defers every heavy import into
+# handlers, so registering it pulls no wheels at all.
+
+#: Every own-verb command module *except* ``info`` (which owns ``config``).
+_OTHER_OWN_MODULES = (
+    "panic",
+    "setup",
+    "uninstall",
+    "auth",
+    "project",
+    "task",
+    "image",
+    "clearance",
+    "sickbay",
+    "shield",
+    "agents",
+    "acp",
+    "completions",
+)
+
+
+def test_config_invocation_imports_only_its_own_command_module() -> None:
+    """``terok config --help`` imports the ``info`` module and none of the other verbs'."""
+    loaded = _run_cli(
+        ["config", "--help"],
+        "[n for n in " + repr(_OTHER_OWN_MODULES) + " if 'terok.cli.commands.' + n in sys.modules]",
+    )
+    others = [m for m in loaded.strip("[]").replace("'", "").split(", ") if m]
+    assert not others, f"terok config eagerly imported other command modules: {others}"
+
+
+def test_config_invocation_loads_no_heavy_stack() -> None:
+    """``terok config --help`` pulls none of the executor / sandbox / pydantic stack."""
+    present = _run_cli(
+        ["config", "--help"],
+        "[m for m in " + repr(_FORBIDDEN) + " if m in sys.modules]",
+    )
+    heavy = [m for m in present.strip("[]").replace("'", "").split(", ") if m]
+    assert not heavy, f"terok config eagerly loaded the heavy stack: {heavy}"
+
+
+def test_help_lists_every_verb() -> None:
+    """``terok --help`` still lists all own and sibling-wired verbs."""
+    result = subprocess.run(
+        [sys.executable, "-m", "terok.cli", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    out = result.stdout
+    for verb in (
+        # own verbs
+        "panic",
+        "setup",
+        "auth",
+        "project",
+        "task",
+        "config",
+        "acp",
+        "completions",
+        # sibling-wired verbs
+        "executor",
+        "sandbox",
+        "vault",
+        "gate",
+        "ssh",
+        "dbus",
+    ):
+        assert verb in out, f"terok --help omitted the {verb!r} verb"
+
+
+def test_own_verb_registry_matches_registration() -> None:
+    """``_OWN_VERB_MODULES`` maps each verb to the module that actually registers it."""
+    import argparse
+    import importlib
+
+    from terok.cli.main import _OWN_MODULE_ORDER, _OWN_VERB_MODULES
+
+    actual: dict[str, str] = {}
+    for name in _OWN_MODULE_ORDER:
+        module = importlib.import_module(f"terok.cli.commands.{name}")
+        parser = argparse.ArgumentParser()
+        sub = parser.add_subparsers()
+        before = set(sub.choices)
+        if name == "task":
+            module.register(sub, prog="terok")
+        else:
+            module.register(sub)
+        for verb in set(sub.choices) - before:
+            actual[verb] = name
+    assert actual == _OWN_VERB_MODULES

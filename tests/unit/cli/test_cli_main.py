@@ -263,10 +263,11 @@ class TestLockedVaultRendering:
         def _raise(_args: object) -> bool:
             raise NoPassphraseError("no SQLCipher passphrase available for /vault.db")
 
-        # ``panic.dispatch`` is the first entry in ``main``'s dispatch chain;
-        # replacing it with a raiser exercises the top-level except hint.
+        # ``config`` is owned by the ``info`` command module — the only own
+        # module ``main`` lazily imports for this invocation; replacing its
+        # ``dispatch`` with a raiser exercises the top-level except hint.
         with (
-            patch("terok.cli.commands.panic.dispatch", _raise),
+            patch("terok.cli.commands.info.dispatch", _raise),
             patch("sys.argv", ["terok", "config", "paths"]),
             pytest.raises(SystemExit) as exc_info,
         ):
