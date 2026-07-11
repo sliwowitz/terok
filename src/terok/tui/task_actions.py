@@ -626,8 +626,7 @@ class TaskActionsMixin(_MixinBase):
 
         Keeps the container as-is even when the project image was
         rebuilt; a stale image is warned about, not upgraded.  Use
-        [`_action_recreate_task`][terok.tui.task_actions.TaskActionsMixin._action_recreate_task]
-        to pick up a rebuilt image.
+        ``_action_recreate_task`` to pick up a rebuilt image.
         """
         if not self.current_project_name or not self.current_task:
             self.notify("No task selected.")
