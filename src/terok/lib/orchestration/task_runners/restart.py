@@ -46,7 +46,7 @@ def task_restart(project_name: str, task_id: str, *, fresh: bool = False) -> Non
     container in place — kept as-is even when the project image was
     rebuilt underneath it, so a long-running task keeps its in-container
     state.  A stale image is only *warned* about, not acted on (see
-    [`_warn_if_stale_image`][terok.lib.orchestration.task_runners.restart._warn_if_stale_image]).
+    ``_warn_if_stale_image``).
     When the resume rung is gone — the container no longer exists or
     podman refuses to start it — recreate the container through the
     normal launch path: same task and container name, workspace reused
@@ -154,8 +154,7 @@ def _recreate_reason(container_state: str | None, *, fresh: bool) -> str | None:
 
     Image drift is deliberately *not* a reason: a plain restart keeps a
     long-running task's container as-is and only warns about the stale
-    image (see
-    [`_warn_if_stale_image`][terok.lib.orchestration.task_runners.restart._warn_if_stale_image]).
+    image (see ``_warn_if_stale_image``).
     Picking up a rebuilt image is the explicit job of *fresh* — the
     "recreate + restart" the caller asked for.
     """
