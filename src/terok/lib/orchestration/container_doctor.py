@@ -39,7 +39,7 @@ from ..core.config import make_sandbox_config
 from ..core.projects import load_project
 from ..util.check_reporter import CheckReporter
 from ..util.logging_utils import _log_debug
-from .tasks import container_name, load_task_meta, task_exists
+from .tasks import container_name, load_task_meta, read_task_meta, task_exists, tasks_meta_dir
 
 # Type alias matching sickbay.py convention
 _CheckResult = tuple[str, str, str]
@@ -205,6 +205,71 @@ def _git_remote_check(security_class: str) -> DoctorCheck:
     )
 
 
+def _gate_token_check(security_class: str, meta_token: str | None) -> DoctorCheck:
+    """Audit the gate-token chain: task meta → container env → workspace remote.
+
+    The task meta's ``gate_token`` is the single source of truth; the
+    container env is a snapshot frozen at (re)creation, and the
+    workspace's token-bearing remote (``origin`` in gatekeeping mode,
+    ``gate`` in online mode) is derived from that env.  The one broken
+    link that 403s git *right now* — workspace remote ≠ this container's
+    env — is an error and fixable in place; drift between the running
+    generation and the task meta merely reconciles at the next recreate,
+    so it only warns.  Token values never appear in messages.
+    """
+    remote, url_var = (
+        ("origin", "CODE_REPO") if security_class == "gatekeeping" else ("gate", "GATE_REMOTE_URL")
+    )
+
+    def _eval(rc: int, stdout: str, stderr: str) -> CheckVerdict:
+        """Compare the env token against the workspace remote and the task meta."""
+        lines = stdout.splitlines()
+        env_token = lines[0].strip() if lines else ""
+        remote_url = lines[1].strip() if len(lines) > 1 else ""
+        if not env_token:
+            return CheckVerdict("ok", "gate token: not wired for this container")
+        if not remote_url:
+            return CheckVerdict("warn", f"gate token: no {remote!r} remote to carry it")
+        if (urlparse(remote_url).username or "") != env_token:
+            return CheckVerdict(
+                "error",
+                f"gate token: {remote!r} remote embeds a stale token — git 403s at the gate",
+                fixable=True,
+            )
+        if meta_token is None:
+            return CheckVerdict(
+                "warn",
+                "gate token: consistent in-container, but not recorded in task meta "
+                "(task predates token persistence) — a recreate mints a new one",
+            )
+        if meta_token != env_token:
+            return CheckVerdict(
+                "warn",
+                "gate token: container runs a previous generation's token; "
+                "the task meta value takes over at the next recreate",
+            )
+        return CheckVerdict("ok", "gate token: task meta, container env, and workspace agree")
+
+    return DoctorCheck(
+        category="git",
+        label="Gate token sync",
+        probe_cmd=[
+            "bash",
+            "-lc",
+            f'echo "${{TEROK_GATE_TOKEN:-}}"; '
+            f"git -C {_CONTAINER_WORKSPACE} remote get-url {remote} 2>/dev/null || true",
+        ],
+        evaluate=_eval,
+        fix_cmd=[
+            "bash",
+            "-lc",
+            f'git -C {_CONTAINER_WORKSPACE} remote set-url {remote} "${{{url_var}}}" && '
+            f'git -C {_CONTAINER_WORKSPACE} remote set-url --push {remote} "${{{url_var}}}"',
+        ],
+        fix_description=f"Re-assert the {remote!r} remote URL from the container's ${url_var}.",
+    )
+
+
 def _port_drift_check(env_var: str, label: str, expected: int) -> DoctorCheck:
     """Check that a baked-in port env var still matches the resolved port."""
 
@@ -236,13 +301,16 @@ def _terok_doctor_checks(
     project_name: str,
     token_broker_port: int | None,
     ssh_signer_port: int | None,
+    meta_token: str | None = None,
 ) -> list[DoctorCheck]:
     """Build terok-level health checks from project config.
 
     ``None`` for either port argument selects socket mode for that
     subsystem: the matching drift check is omitted because sandbox
     doesn't bake a ``TEROK_*_PORT`` env into the container in that mode,
-    so there is no value to drift from.
+    so there is no value to drift from.  *meta_token* is the task meta's
+    ``gate_token`` (the durable source of truth) for the token-chain
+    audit; ``None`` when the task meta records none.
     """
     project = load_project(project_name)
 
@@ -257,6 +325,7 @@ def _terok_doctor_checks(
     checks.append(_git_identity_check(human_name, human_email, "email"))
 
     checks.append(_git_remote_check(project.security_class))
+    checks.append(_gate_token_check(project.security_class, meta_token))
     if token_broker_port is not None:
         checks.append(
             _port_drift_check(
@@ -403,6 +472,7 @@ def _check_per_container_services(cname: str) -> list[_CheckResult]:
 def _collect_all_checks(
     project_name: str,
     task_dir: Path,
+    task_id: str | None = None,
 ) -> list[DoctorCheck]:
     """Gather health checks from sandbox, agent, and terok layers.
 
@@ -441,7 +511,15 @@ def _collect_all_checks(
         )
     )
     checks.extend(AgentRoster.shared().doctor_checks(token_broker_port=token_broker_port))
-    checks.extend(_terok_doctor_checks(project_name, token_broker_port, ssh_signer_port))
+    # Tolerant meta read: the doctor must diagnose, not die, when the task
+    # meta is absent (the token-chain check then reports the gap itself).
+    meta = read_task_meta(tasks_meta_dir(project_name), task_id) if task_id else None
+    meta_token = (meta or {}).get("gate_token")
+    checks.extend(
+        _terok_doctor_checks(
+            project_name, token_broker_port, ssh_signer_port, meta_token=meta_token
+        )
+    )
     return checks
 
 
@@ -586,7 +664,7 @@ class ContainerDoctor:
         # (under krun: SSH over a passt-forwarded TCP port; under crun:
         # podman exec).
         runtime = _rt.resolve_runtime(load_project(self.project_name))
-        checks = list(_collect_all_checks(self.project_name, task_dir))
+        checks = list(_collect_all_checks(self.project_name, task_dir, self.task_id))
 
         # Per-container vault + gate reachability — host-side, best-effort.
         # Emitted after the layered probes so they read as a closing

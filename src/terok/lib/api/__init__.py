@@ -94,7 +94,6 @@ from terok.lib.api.gate import (  # noqa: F401 — re-exported public API
     GateAuthNotConfigured,
     GateStalenessInfo,
     make_git_gate,
-    mint_gate_token,
 )
 from terok.lib.api.project import (  # noqa: F401 — re-exported public API
     AGENTS_QUESTION,
@@ -366,7 +365,6 @@ __all__ = [
     "GateAuthNotConfigured",
     "GateStalenessInfo",
     "make_git_gate",
-    "mint_gate_token",
     # Project
     "AGENTS_QUESTION",
     "BrokenProject",

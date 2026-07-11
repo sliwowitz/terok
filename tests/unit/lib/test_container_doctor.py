@@ -14,6 +14,7 @@ from terok_sandbox.doctor import CheckVerdict, DoctorCheck
 
 from terok.lib.orchestration.container_doctor import (
     _exec_in_container,
+    _gate_token_check,
     _git_identity_check,
     _git_remote_check,
     _port_drift_check,
@@ -124,6 +125,66 @@ class TestGitRemoteCheck:
         assert verdict.severity == "error"
         assert "5555" in verdict.detail
         assert "re-allocated" in verdict.detail
+
+
+class TestGateTokenCheck:
+    """Gate-token chain audit: task meta → container env → workspace remote.
+
+    Probe output shape: first line is ``$TEROK_GATE_TOKEN`` (empty when
+    unset), second line the token-bearing remote's URL.  Token values
+    must never leak into verdict messages.
+    """
+
+    def test_ok_when_full_chain_agrees(self) -> None:
+        check = _gate_token_check("gatekeeping", "terok-g-aa")
+        verdict = check.evaluate(0, "terok-g-aa\nhttp://terok-g-aa@localhost:9418/proj.git\n", "")
+        assert verdict.severity == "ok"
+
+    def test_ok_when_gate_not_wired(self) -> None:
+        check = _gate_token_check("gatekeeping", None)
+        verdict = check.evaluate(0, "\n\n", "")
+        assert verdict.severity == "ok"
+        assert "not wired" in verdict.detail
+
+    def test_error_and_fixable_when_workspace_token_stale(self) -> None:
+        """The incident shape: recreate minted a new token, workspace kept the old."""
+        check = _gate_token_check("gatekeeping", "terok-g-new")
+        verdict = check.evaluate(0, "terok-g-new\nhttp://terok-g-old@localhost:9418/proj.git\n", "")
+        assert verdict.severity == "error"
+        assert verdict.fixable is True
+        assert "terok-g-old" not in verdict.detail
+        assert "terok-g-new" not in verdict.detail
+
+    def test_warn_when_meta_has_no_token(self) -> None:
+        """Pre-persistence task: in-container consistent, but no durable record."""
+        check = _gate_token_check("gatekeeping", None)
+        verdict = check.evaluate(0, "terok-g-aa\nhttp://terok-g-aa@localhost:9418/proj.git\n", "")
+        assert verdict.severity == "warn"
+        assert "task meta" in verdict.detail
+
+    def test_warn_when_container_behind_meta(self) -> None:
+        """A resumed old generation is fine now and reconciles at recreate."""
+        check = _gate_token_check("gatekeeping", "terok-g-meta")
+        verdict = check.evaluate(0, "terok-g-aa\nhttp://terok-g-aa@localhost:9418/proj.git\n", "")
+        assert verdict.severity == "warn"
+        assert "recreate" in verdict.detail
+
+    def test_warn_when_remote_missing(self) -> None:
+        check = _gate_token_check("gatekeeping", "terok-g-aa")
+        verdict = check.evaluate(0, "terok-g-aa\n", "")
+        assert verdict.severity == "warn"
+
+    def test_online_mode_audits_gate_remote(self) -> None:
+        check = _gate_token_check("online", "terok-g-aa")
+        assert "gate" in check.probe_cmd[-1]
+        assert "GATE_REMOTE_URL" in check.fix_cmd[-1]
+        verdict = check.evaluate(0, "terok-g-aa\nhttp://terok-g-aa@localhost:9418/proj.git\n", "")
+        assert verdict.severity == "ok"
+
+    def test_gatekeeping_fix_reasserts_origin_from_env(self) -> None:
+        check = _gate_token_check("gatekeeping", "terok-g-aa")
+        assert "origin" in check.fix_cmd[-1]
+        assert "CODE_REPO" in check.fix_cmd[-1]
 
 
 class TestPortDriftCheck:

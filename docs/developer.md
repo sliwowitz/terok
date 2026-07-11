@@ -163,7 +163,8 @@ Containers follow podman's own lifecycle, split across the three layers:
   everything that brings a container back goes through one ladder in
   `task_runners/restart.py`: resume the existing container, else
   recreate it in place through the normal launch path (same names,
-  fresh tokens, config re-read, per-task settings from metadata).
+  same task-persistent gate token, config re-read, per-task settings
+  from metadata).
   `task_restart` is the ladder's bounce flavor (stop-if-running first);
   a plain restart resumes the container as-is and an image-ID drift
   probe only *warns* that the image is stale (long-running tasks keep
@@ -178,6 +179,17 @@ new-task-marker protocol decides), podman is the source of truth for
 run state (no running/stopped status is persisted in task metadata —
 only markers such as `exit_code` and `ready_at`), and `task delete`
 is the only teardown of task state.
+
+**Gate-token SSOT.**  The task meta's `gate_token` is the single source
+of truth for a task's gate token; the only mint point is the task-scoped
+accessor in `orchestration/environment.py` (raw `mint_gate_token` is
+deliberately absent from `terok.lib.api`).  Every other occurrence is a
+derived copy with a defined refresh boundary: the container env and the
+sidecar JSON are snapshots frozen at container (re)creation, and the
+workspace's token-bearing remote is re-asserted from the container env
+by the init script on every start.  The container doctor audits the
+chain (`Gate token sync`) and can re-assert a live container's remote
+without a restart.
 
 ---
 
