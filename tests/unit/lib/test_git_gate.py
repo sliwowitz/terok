@@ -115,6 +115,7 @@ def test_sync_project_gate_https_clone() -> None:
         "updated_branches": ["all"],
         "errors": [],
         "cache_refreshed": True,
+        "cache_error": None,
     }
     clone_call = next(
         call for call in run_mock.call_args_list if call.args[0][:3] == ["git", "clone", "--mirror"]
