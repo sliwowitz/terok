@@ -5,23 +5,26 @@
 
 Re-export catalog for the per-container git gate.  Sources:
 [`terok.lib.integrations.sandbox`][terok.lib.integrations.sandbox] for
-the mirror staleness / auth types and ``mint_gate_token`` (terok-sandbox
-owns the gate infrastructure — the gate runs inside each container's
-supervisor), and
+the mirror staleness / auth types (terok-sandbox owns the gate
+infrastructure — the gate runs inside each container's supervisor), and
 [`terok.lib.domain.project`][terok.lib.domain.project] for
 ``make_git_gate`` (terok's per-project gate factory).
+
+Deliberately absent: raw token minting.  The task meta's ``gate_token``
+is the single source of truth for a task's gate token; the only mint
+point is the task-scoped accessor inside
+[`terok.lib.orchestration.environment`][terok.lib.orchestration.environment],
+so no caller can create a token value that bypasses the store.
 """
 
 from terok.lib.domain.project import make_git_gate  # noqa: F401 — re-exported public API
 from terok.lib.integrations.sandbox import (  # noqa: F401 — re-exported public API
     GateAuthNotConfigured,
     GateStalenessInfo,
-    mint_gate_token,
 )
 
 __all__ = [
     "GateAuthNotConfigured",
     "GateStalenessInfo",
     "make_git_gate",
-    "mint_gate_token",
 ]
