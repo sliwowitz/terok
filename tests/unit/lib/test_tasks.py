@@ -204,7 +204,9 @@ class TestTask:
         write_task_meta(dossier_path(meta_dir, tid), meta)
 
     @staticmethod
-    def _task_list_output(project_name: str, states: dict[str, str | None], **filters: str) -> str:
+    def _task_list_output(
+        project_name: str, states: dict[str, str | None] | None, **filters: str
+    ) -> str:
         """Run ``task_list`` with mocked container states and capture stdout."""
         with unittest.mock.patch(
             "terok.lib.orchestration.tasks.query.get_all_task_states",
@@ -337,6 +339,18 @@ class TestTask:
             # New task has no mode → effective status is "created", not "running"
             output = self._task_list_output(project_name, {tid: None}, status="running")
             assert "No tasks found" in output
+
+    def test_task_list_errors_when_state_query_fails(self) -> None:
+        """A failed batch query (``None``) is an error — not a page of "not found" rows."""
+        project_name = "proj_list_fail"
+        with project_env(
+            f"project:\n  id: {project_name}\n",
+            project_name=project_name,
+        ):
+            task_new(project_name)
+
+            with pytest.raises(SystemExit, match="runtime unavailable"):
+                self._task_list_output(project_name, None)
 
     @unittest.mock.patch(
         "terok.lib.orchestration.environment.mint_gate_token", return_value="tok" * 10 + "ab"
