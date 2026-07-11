@@ -319,6 +319,11 @@ if _HAS_TEXTUAL:
             # Container status tracking: inotify watch + podman event stream,
             # with a slow resync timer as insurance.
             self._container_status_timer = None
+            # Last successfully queried container states per project.  Seeds
+            # freshly loaded task rows and carries the display through polls
+            # where podman doesn't answer (e.g. locked by a concurrent image
+            # build) — only a successful query may overwrite a state (#1134).
+            self._last_container_states: dict[str, dict[str, str | None]] = {}
             self._task_watcher: TaskWatcher | None = None
             self._container_event_stream: ContainerEventStream | None = None
             self._watch_debounce = None
@@ -902,11 +907,7 @@ if _HAS_TEXTUAL:
                 return
             pid = self.current_project_name
             tasks_meta = get_tasks(pid, reverse=True)
-            # Set the launching flag before ``set_tasks`` so the first
-            # label render is already correct — avoids reformatting every
-            # row a second time.
-            for tm in tasks_meta:
-                tm.starting = (pid, tm.task_id) in self._launching_tasks
+            self._seed_task_rows(pid, tasks_meta)
             task_list = self.query_one("#task-list", TaskList)
             task_list.set_tasks(pid, tasks_meta)
 
@@ -943,6 +944,21 @@ if _HAS_TEXTUAL:
             self._last_task_count = task_count
             # Update project state panel (Dockerfiles/images/SSH/cache + task count)
             self._refresh_project_state(task_count=task_count)
+
+        def _seed_task_rows(self, pid: str, tasks_meta: "list[TaskMeta]") -> None:
+            """Seed freshly loaded rows with TUI-held state, in place.
+
+            ``get_tasks`` reads only the on-disk metadata; the ⏳ launching
+            flag and the container states live with the TUI.  Seeding both
+            before ``set_tasks`` makes the first label render already correct
+            — no reformatting pass, and no ❓ "not found" flicker while the
+            batch state poll is still in flight or going unanswered during a
+            concurrent image build (#1134).
+            """
+            known_states = self._last_container_states.get(pid, {})
+            for tm in tasks_meta:
+                tm.starting = (pid, tm.task_id) in self._launching_tasks
+                tm.container_state = known_states.get(tm.task_id)
 
         def _resume_interrupted_deletes(self) -> None:
             """Re-queue deletes a previous session started but never finished.
@@ -1235,6 +1251,14 @@ if _HAS_TEXTUAL:
                 project_name, metas = result
                 if project_name != self.current_project_name:
                     return
+                if metas is None:
+                    # The runtime didn't answer (podman busy — e.g. locked by
+                    # a concurrent image build).  Keep the last-known rows:
+                    # only a successful query may move a status (#1134).
+                    return
+                self._last_container_states[project_name] = {
+                    m.task_id: m.container_state for m in metas
+                }
                 task_list = self.query_one("#task-list", TaskList)
                 # The batch query re-reads the on-disk task set every tick, so
                 # its task IDs reveal tasks created or deleted outside the TUI.

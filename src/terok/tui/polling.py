@@ -304,21 +304,31 @@ class PollingMixin(_MixinBase):
             exclusive=True,
         )
 
-    async def _load_container_state_worker(self, project_name: str) -> tuple[str, list["TaskMeta"]]:
+    async def _load_container_state_worker(
+        self, project_name: str
+    ) -> tuple[str, "list[TaskMeta] | None"]:
         """Batch-snapshot every task for a project with live container state.
 
         Returns fresh ``TaskMeta`` instances — the task set on disk plus each
         one's live container state — so the handler can both detect tasks
         created or deleted outside the TUI *and* refresh the lifecycle fields
         (init marker, work status, exit code) that drift on rows already shown.
+
+        Returns ``(project_name, None)`` when the snapshot failed — most
+        commonly ``podman ps`` erroring on storage-lock contention with a
+        concurrent image build.  The handler then keeps the last-known rows:
+        an unanswered query must not read as "all containers gone", or every
+        task shows "not found" for the duration of the build (#1134).
         """
         import asyncio
 
         from ..lib.api import get_all_task_states, get_tasks
 
-        def _snapshot() -> list["TaskMeta"]:
+        def _snapshot() -> "list[TaskMeta] | None":
             tasks = get_tasks(project_name)
             states = get_all_task_states(project_name, tasks)
+            if states is None:
+                return None
             for task in tasks:
                 task.container_state = states.get(task.task_id)
             return tasks
@@ -328,7 +338,7 @@ class PollingMixin(_MixinBase):
             return (project_name, tasks)
         except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
             self._log_debug(f"container state batch check error: {e}")
-            return (project_name, [])
+            return (project_name, None)
 
     def _poll_upstream(self) -> None:
         """Check upstream for changes and update staleness info.
