@@ -3,13 +3,16 @@
 
 """The container-state poll reconciles the task set with what's on disk.
 
-The 2-second batch query already re-reads every task from disk, so its fresh
+Each batch query — fired by the inotify/podman-event push sources, with the
+slow resync as insurance — re-reads every task from disk, so its fresh
 ``TaskMeta`` snapshots reveal tasks created or deleted *outside* the TUI.  The
 handler diffs that membership against the displayed rows (level-triggered, so it
 cannot miss a change) and reloads the list only when it actually differs —
 otherwise it syncs the live lifecycle fields (container state plus the
 ``ready_at`` init marker, work status and exit code) onto the existing rows so a
 running container's badge can move from "init" to "running" without a reload.
+A poll the runtime didn't answer arrives as ``None`` and must leave every row
+untouched (#1134).
 """
 
 from __future__ import annotations
