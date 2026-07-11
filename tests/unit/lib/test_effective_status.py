@@ -165,11 +165,11 @@ class TestTaskStateInheritance:
             id="parsed-output-normalizes-case",
         ),
         pytest.param("", None, {}, id="empty-output"),
-        pytest.param(None, FileNotFoundError(), {}, id="podman-missing"),
+        pytest.param(None, FileNotFoundError(), None, id="podman-missing"),
         pytest.param(
             None,
             subprocess.CalledProcessError(1, "podman"),
-            {},
+            None,
             id="podman-error",
         ),
     ],
@@ -177,9 +177,9 @@ class TestTaskStateInheritance:
 def test_container_states_handles_output_and_errors(
     output: str | None,
     error: Exception | None,
-    expected: dict[str, str],
+    expected: dict[str, str] | None,
 ) -> None:
-    """Project-wide state lookup parses output and degrades cleanly on errors."""
+    """Project-wide state lookup parses output; a failed query is ``None``, not ``{}``."""
     patch_kwargs = {"side_effect": error} if error else {"return_value": output}
     with patch("terok_sandbox.runtime.podman.subprocess.check_output", **patch_kwargs):
         assert PodmanRuntime().container_states("proj") == expected
@@ -216,3 +216,9 @@ def test_get_all_task_states_maps_project_container_lookup(
     mock_runtime.container_states.return_value = container_states
     assert get_all_task_states("proj", tasks) == expected
     mock_runtime.container_states.assert_called_once_with("proj")
+
+
+def test_get_all_task_states_propagates_query_failure(mock_runtime) -> None:
+    """A failed batch query (``None``) propagates instead of mapping tasks to ``None`` states."""
+    mock_runtime.container_states.return_value = None
+    assert get_all_task_states("proj", [_task(task_id="1", mode="cli")]) is None

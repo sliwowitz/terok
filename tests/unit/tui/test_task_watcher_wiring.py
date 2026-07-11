@@ -159,14 +159,30 @@ def test_load_container_state_worker_sets_live_states() -> None:
 
 
 def test_load_container_state_worker_degrades_on_snapshot_error() -> None:
+    """An exception mid-snapshot signals "no answer" — not an empty task set (#1134)."""
     _app_mod, app_class = import_app()
     instance = app_class()
     instance._log_debug = mock.Mock()
     with mock.patch("terok.lib.api.get_tasks", side_effect=RuntimeError("boom")):
         project_name, refreshed = asyncio.run(instance._load_container_state_worker("p1"))
     assert project_name == "p1"
-    assert refreshed == []
+    assert refreshed is None
     instance._log_debug.assert_called_once()
+
+
+def test_load_container_state_worker_signals_failed_runtime_query() -> None:
+    """A failed batch query (``None`` states) surfaces as "no answer", untouched rows (#1134)."""
+    _app_mod, app_class = import_app()
+    instance = app_class()
+    tasks = [types_ns(task_id="1", container_state="exited")]
+    with (
+        mock.patch("terok.lib.api.get_tasks", return_value=tasks),
+        mock.patch("terok.lib.api.get_all_task_states", return_value=None),
+    ):
+        project_name, refreshed = asyncio.run(instance._load_container_state_worker("p1"))
+    assert project_name == "p1"
+    assert refreshed is None
+    assert tasks[0].container_state == "exited"  # snapshot rows left untouched
 
 
 class TestLifecycleWiring:

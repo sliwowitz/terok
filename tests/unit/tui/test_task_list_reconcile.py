@@ -132,3 +132,50 @@ class TestProjectGuard:
         _poll(instance, app_mod, [_meta("1"), _meta("2")], pid="other")
         instance.refresh_tasks.assert_not_awaited()
         instance.query_one.assert_not_called()
+
+
+class TestFailedQueryKeepsLastKnown:
+    """A poll the runtime didn't answer must not move any status (#1134).
+
+    ``podman ps`` failing (e.g. storage-lock contention with a concurrent
+    image build) used to read as "all containers gone", flipping every
+    initialised task to ❓ "not found" for the duration of the build.
+    """
+
+    def test_none_result_keeps_rows_untouched(self) -> None:
+        app_mod, app_class = import_app()
+        row = _meta("1", container_state="exited", initialized=True)
+        instance = _instance(app_class, [row])
+        _poll(instance, app_mod, None)
+        instance.refresh_tasks.assert_not_awaited()
+        instance.query_one.assert_not_called()
+        assert row.status == "stopped"  # unchanged: 🔴, not ❓
+
+    def test_successful_poll_records_last_known_states(self) -> None:
+        """A successful poll snapshots states for seeding later reloads."""
+        app_mod, app_class = import_app()
+        instance = _instance(app_class, [_meta("1", initialized=True)])
+        _poll(instance, app_mod, [_meta("1", container_state="running", initialized=True)])
+        assert instance._last_container_states["p1"] == {"1": "running"}
+
+
+class TestSeedTaskRows:
+    """Freshly loaded rows inherit the TUI-held launch flag and last-known state."""
+
+    def test_seeds_last_known_state_and_launching_flag(self) -> None:
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        instance._last_container_states["p1"] = {"1": "exited"}
+        instance._launching_tasks.add(("p1", "2"))
+        rows = [_meta("1", initialized=True), _meta("2")]
+        instance._seed_task_rows("p1", rows)
+        assert rows[0].status == "stopped"  # 🔴 from the first render — no ❓ flash
+        assert rows[1].starting is True
+
+    def test_container_state_comes_only_from_the_poll_cache(self) -> None:
+        """Rows carry exactly the cached state — never an invented one."""
+        _app_mod, app_class = import_app()
+        instance = app_class()
+        rows = [_meta("1", container_state="running", initialized=True)]
+        instance._seed_task_rows("p1", rows)  # no successful poll recorded yet
+        assert rows[0].container_state is None

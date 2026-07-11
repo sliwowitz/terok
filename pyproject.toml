@@ -30,7 +30,7 @@ dependencies = [
     "textual-serve~=1.1",
     "jinja2~=3.1",
     "terok-executor>=0.3.0,<0.4.0",
-    "terok-sandbox>=0.4.0,<0.5.0",
+    "terok-sandbox @ git+https://github.com/sliwowitz/terok-sandbox.git@fix/container-states-signal-query-failure",
     "terok-shield>=0.7.2,<0.8.0",
     "terok-clearance>=0.7.3,<0.8.0",
     "terok-util>=0.2.1,<0.3.0",

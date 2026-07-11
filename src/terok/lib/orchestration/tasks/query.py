@@ -296,7 +296,7 @@ def get_tasks(project_name: str, reverse: bool = False) -> list[TaskMeta]:
 def get_all_task_states(
     project_name: str,
     tasks: list[TaskMeta],
-) -> dict[str, str | None]:
+) -> dict[str, str | None] | None:
     """Map each task to its live container state via a single batch query.
 
     Args:
@@ -304,13 +304,19 @@ def get_all_task_states(
         tasks: List of ``TaskMeta`` instances (must have ``task_id`` and ``mode``).
 
     Returns:
-        ``{task_id: container_state_or_None}`` dict.
+        ``{task_id: container_state_or_None}`` dict, or ``None`` when the
+        batch query itself failed (podman missing, or ``podman ps`` erroring
+        on storage-lock contention with a concurrent build).  A failure must
+        stay distinguishable from "these containers don't exist", or every
+        task degrades to "not found" while the runtime is busy (#1134).
     """
     # Use PodmanRuntime directly: this is a `podman ps` enumeration that
     # doesn't differ across OCI runtimes.
     from terok.lib.integrations.sandbox import PodmanRuntime
 
     container_states = PodmanRuntime().container_states(project_name)
+    if container_states is None:
+        return None
     result: dict[str, str | None] = {}
     for t in tasks:
         if t.mode:
@@ -379,8 +385,12 @@ def task_list(
         print("No tasks found")
         return
 
-    # Batch-query podman for all container states in one call
+    # Batch-query podman for all container states in one call.  A one-shot
+    # listing has no last-known state to fall back on, so a failed query is
+    # an error — not a page of bogus "not found" rows.
     live_states = get_all_task_states(project_name, tasks)
+    if live_states is None:
+        raise SystemExit("Container runtime unavailable — cannot query container states.")
     for t in tasks:
         t.container_state = live_states.get(t.task_id)
 
