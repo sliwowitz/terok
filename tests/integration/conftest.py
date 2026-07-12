@@ -45,12 +45,22 @@ from .helpers import (
     start_shielded_container,
 )
 
+# One try block per import: bundling them lets a single moved symbol
+# silently null the whole set — the import-lazification barrel shrink
+# did exactly that, and every capability probe below degraded at once
+# (the matrix then reported hooks *and* nft "missing" while both were
+# fine).  has_global_hooks lives in the public podman_info submodule.
 try:
-    from terok_shield import Shield, ShieldConfig, ShieldMode, has_global_hooks
-    from terok_shield.run import find_nft as _shield_find_nft
+    from terok_shield import Shield, ShieldConfig, ShieldMode
 except ImportError:  # pragma: no cover - optional integration dependency
     Shield = ShieldConfig = ShieldMode = None  # type: ignore[assignment]
+try:
+    from terok_shield.podman_info import has_global_hooks
+except ImportError:  # pragma: no cover - optional integration dependency
     has_global_hooks = None  # type: ignore[assignment]
+try:
+    from terok_shield.run import find_nft as _shield_find_nft
+except ImportError:  # pragma: no cover - optional integration dependency
     _shield_find_nft = None
 
 SHIELD_MISSING_SKIP_REASON = "terok_shield not installed"
