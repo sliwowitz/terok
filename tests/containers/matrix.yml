@@ -19,7 +19,7 @@
 image-prefix: terok-test
 flavor: podman
 expect: [podman, nft, dnsmasq, dig, getent, git, ssh-keygen, internet]
-poetry-groups: [test, stories]
+groups: [test, stories]
 
 slots:
   debian12:
@@ -46,7 +46,7 @@ slots:
   mageia:
     extra-packages: [openssh-clients, dbus, dbus-devel, glib2-devel, pkgconf, meson]
   nix:
-    poetry-groups: [test, docs]
+    groups: [test, docs]
     expect: []
     phases:
       - name: unit tests
