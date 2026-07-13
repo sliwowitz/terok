@@ -478,7 +478,11 @@ def terok_env(
     # the ambient podman where it lives -- deriving (not hardcoding) the
     # driver keeps vfs-backed slots correct too.
     storage_conf = xdg_config_home / "containers" / "storage.conf"
-    if not storage_conf.exists():
+    # The nix slot ships no podman at all: probing for a binary that isn't
+    # there raises FileNotFoundError (check=False does not cover it), which
+    # would error this fixture for every test that only *might* need podman
+    # -- they must keep reaching their own skip guards.
+    if _has("podman") and not storage_conf.exists():
         # Probe with the real environment: HOME/XDG are already scrubbed at
         # this point, and asking a scrubbed podman where its store is would
         # answer with the empty tmp store it would create -- pinning every
