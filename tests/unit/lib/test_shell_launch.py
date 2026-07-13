@@ -113,14 +113,23 @@ class TestTmuxNewWindow:
     @pytest.mark.parametrize(
         ("side_effect", "expected"),
         [
-            (subprocess.CompletedProcess(args=[], returncode=0), True),
+            (subprocess.CompletedProcess(args=[], returncode=0, stdout="@7\n"), True),
             (subprocess.CalledProcessError(1, "tmux"), False),
             (FileNotFoundError("tmux"), False),
         ],
         ids=["success", "failure", "tmux-not-found"],
     )
     def test_tmux_new_window(self, side_effect: object, expected: bool) -> None:
-        expected_argv = ["tmux", "new-window", "-n", "login:c1", _shell_payload(SHELL_COMMAND)]
+        expected_argv = [
+            "tmux",
+            "new-window",
+            "-P",
+            "-F",
+            "#{window_id}",
+            "-n",
+            "login:c1",
+            _shell_payload(SHELL_COMMAND),
+        ]
         with unittest.mock.patch("terok.tui.shell_launch.subprocess.run") as mock_run:
             if isinstance(side_effect, Exception):
                 mock_run.side_effect = side_effect
@@ -128,7 +137,33 @@ class TestTmuxNewWindow:
                 mock_run.return_value = side_effect
             result = tmux_new_window(SHELL_COMMAND, title="login:c1")
         assert result is expected
-        mock_run.assert_called_once_with(expected_argv, check=True)
+        mock_run.assert_called_once_with(expected_argv, check=True, capture_output=True, text=True)
+
+    @pytest.mark.parametrize(
+        ("stamp", "stdout", "expected_stamps"),
+        [
+            ("terok-p1-t1", "@7\n", [("@7", "terok-p1-t1")]),
+            ("terok-p1-t1", "", []),
+            (None, "@7\n", []),
+        ],
+        ids=["stamps-new-window", "no-window-id-no-stamp", "no-stamp-requested"],
+    )
+    def test_tmux_new_window_stamping(
+        self, stamp: str | None, stdout: str, expected_stamps: list[tuple[str, str]]
+    ) -> None:
+        stamped: list[tuple[str, str]] = []
+        with (
+            unittest.mock.patch(
+                "terok.tui.shell_launch.subprocess.run",
+                return_value=subprocess.CompletedProcess(args=[], returncode=0, stdout=stdout),
+            ),
+            unittest.mock.patch(
+                "terok.tui.shell_launch.stamp_login_window",
+                side_effect=lambda wid, cname: stamped.append((wid, cname)),
+            ),
+        ):
+            assert tmux_new_window(SHELL_COMMAND, title="login:c1", stamp=stamp)
+        assert stamped == expected_stamps
 
 
 class TestSpawnTerminal:
@@ -343,12 +378,53 @@ class TestLaunchLogin:
         mock_inside_tmux.assert_called_once_with()
 
         if expected == ("tmux", None):
-            mock_tmux.assert_called_once_with(SHELL_COMMAND, title="login:c1")
+            mock_tmux.assert_called_once_with(SHELL_COMMAND, title="login:c1", stamp=None)
             mock_spawn_terminal.assert_not_called()
             return
 
         if patches["is_inside_tmux"]:
-            mock_tmux.assert_called_once_with(SHELL_COMMAND, title="login:c1")
+            mock_tmux.assert_called_once_with(SHELL_COMMAND, title="login:c1", stamp=None)
         else:
             mock_tmux.assert_not_called()
         mock_spawn_terminal.assert_called_once_with(SHELL_COMMAND, title="login:c1")
+
+    @pytest.mark.parametrize(
+        ("existing_window", "select_ok", "expected"),
+        [
+            ("@7", True, ("tmux-existing", None)),
+            ("@7", False, ("tmux", None)),
+            (None, True, ("tmux", None)),
+        ],
+        ids=["switches-to-existing", "creates-when-select-fails", "creates-when-none-open"],
+    )
+    def test_launch_login_reuses_container_window(
+        self,
+        existing_window: str | None,
+        select_ok: bool,
+        expected: tuple[str, int | None],
+    ) -> None:
+        """A reuse key switches to the container's open window; otherwise a stamped one opens."""
+        with (
+            unittest.mock.patch("terok.tui.shell_launch.is_inside_tmux", return_value=True),
+            unittest.mock.patch(
+                "terok.tui.shell_launch.find_login_window",
+                return_value=existing_window,
+            ) as mock_find,
+            unittest.mock.patch(
+                "terok.tui.shell_launch.select_window",
+                return_value=select_ok,
+            ) as mock_select,
+            unittest.mock.patch(
+                "terok.tui.shell_launch.tmux_new_window",
+                return_value=True,
+            ) as mock_new,
+        ):
+            assert launch_login(SHELL_COMMAND, title="login:c1", reuse_key="c1") == expected
+
+        mock_find.assert_called_once_with("c1")
+        if existing_window is None:
+            mock_select.assert_not_called()
+        if expected[0] == "tmux-existing":
+            mock_new.assert_not_called()
+        else:
+            mock_new.assert_called_once_with(SHELL_COMMAND, title="login:c1", stamp="c1")

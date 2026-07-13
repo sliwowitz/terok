@@ -16,6 +16,8 @@ import os
 import shlex
 import subprocess
 
+from .tmux_session import find_login_window, select_window, stamp_login_window
+
 
 def is_inside_tmux() -> bool:
     """Return True if the current process is running inside a tmux session."""
@@ -117,22 +119,32 @@ def _parent_process_has_name(*names: str) -> bool:
     return False
 
 
-def tmux_new_window(command: list[str], title: str | None = None) -> bool:
+def tmux_new_window(command: list[str], title: str | None = None, stamp: str | None = None) -> bool:
     """Open a new tmux window running the given command.
+
+    With *stamp*, the created window is marked as the login window for
+    that container (``@terok-login``) so a later login can switch back to
+    it instead of opening a duplicate.  ``-P -F`` makes tmux print the new
+    window's id, which the stamp needs — window indexes are not stable
+    under ``renumber-windows``.
 
     Returns True if the tmux command succeeded, False otherwise.
     The caller must verify that we are inside tmux before calling this.
     """
     shell_cmd = " ".join(shlex.quote(c) for c in command)
-    tmux_cmd: list[str] = ["tmux", "new-window"]
+    tmux_cmd: list[str] = ["tmux", "new-window", "-P", "-F", "#{window_id}"]
     if title:
         tmux_cmd += ["-n", title]
     tmux_cmd.append(shell_cmd)
     try:
-        subprocess.run(tmux_cmd, check=True)
-        return True
+        result = subprocess.run(  # nosec B603 — fixed tmux verbs; command is shell-quoted above
+            tmux_cmd, check=True, capture_output=True, text=True
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
+    if stamp and (window_id := result.stdout.strip()):
+        stamp_login_window(window_id, stamp)
+    return True
 
 
 def spawn_terminal_with_command(command: list[str], title: str | None = None) -> bool:
@@ -197,19 +209,27 @@ def is_web_mode() -> bool:
 def launch_login(
     command: list[str],
     title: str | None = None,
+    reuse_key: str | None = None,
 ) -> tuple[str, int | None]:
     """Launch a login session using the best available method.
 
     Only reached from a local-terminal TUI (the web case is refused
-    upstream), so a host terminal is assumed available.  Returns a
-    tuple of (method, port):
+    upstream), so a host terminal is assumed available.  With a
+    *reuse_key* (the container name), an existing tmux login window for
+    that container is switched to instead of opening a duplicate, and a
+    newly created window is stamped for future reuse.  Returns a tuple
+    of (method, port):
 
+    - ("tmux-existing", None): switched to the container's open tmux window
     - ("tmux", None): opened in a new tmux window
     - ("terminal", None): opened in a new desktop terminal window
     - ("none", None): no external method available; caller should suspend
     """
-    if is_inside_tmux() and tmux_new_window(command, title=title):
-        return ("tmux", None)
+    if is_inside_tmux():
+        if reuse_key and (window := find_login_window(reuse_key)) and select_window(window):
+            return ("tmux-existing", None)
+        if tmux_new_window(command, title=title, stamp=reuse_key):
+            return ("tmux", None)
     if spawn_terminal_with_command(command, title=title):
         return ("terminal", None)
     return ("none", None)
