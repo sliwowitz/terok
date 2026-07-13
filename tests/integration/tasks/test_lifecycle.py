@@ -12,6 +12,7 @@ import pytest
 from tests.test_utils import assert_task_id
 from tests.testnet import EXAMPLE_UPSTREAM_URL
 
+from ..conftest import podman_missing
 from ..helpers import NEW_TASK_MARKER, TerokIntegrationEnv
 
 pytestmark = pytest.mark.needs_host_features
@@ -35,6 +36,10 @@ def _extract_task_id(stdout: str) -> str:
 class TestTaskLifecycle:
     """Verify task creation, status, rename, and archive flows."""
 
+    # ``task list`` computes live state from the container runtime, so this
+    # one needs podman despite the module's needs_host_features marker --
+    # the nix slot (no podman by design) is where that claim first failed.
+    @podman_missing
     def test_task_new_creates_workspace_and_lists_tasks(
         self, terok_env: TerokIntegrationEnv
     ) -> None:
