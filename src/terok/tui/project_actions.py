@@ -122,6 +122,11 @@ class ProjectActionsMixin(_MixinBase):
     ) -> None:
         """Launch *cmd* via tmux/terminal, falling back to a suspended TUI.
 
+        Inside tmux, a window already logged into *cname* is switched to
+        instead of opening a duplicate — every login command attaches to
+        the same tmux session *inside* the container, so one host window
+        per container is always enough.
+
         Hard-gated on ``App.is_web``: a container login attaches a host
         terminal, and under textual-serve there is none — the in-process
         ``suspend()`` fallback would literally kill
@@ -139,9 +144,11 @@ class ProjectActionsMixin(_MixinBase):
             )
             return
 
-        method, _port = launch_login(cmd, title=title)
+        method, _port = launch_login(cmd, title=title, reuse_key=cname)
 
-        if method == "tmux":
+        if method == "tmux-existing":
+            self.notify(f"Switched to existing tmux window: {cname}")
+        elif method == "tmux":
             self.notify(f"{label} in tmux window: {cname}")
         elif method == "terminal":
             self.notify(f"{label} in new terminal: {cname}")

@@ -13,6 +13,10 @@ that makes that session recognisably *terok's*:
 - the ``@terok-main`` window option stamp the TUI puts on its own window
   at startup, so a resume can land the client back on terok even after
   the user killed and relaunched the TUI in a different window;
+- the ``@terok-login`` window option stamp on every container-login
+  window terok opens, so a repeated login switches to the container's
+  existing window instead of piling up duplicates (this one works in
+  *any* tmux — it only ever touches windows terok itself created);
 - quit-time guidance for users unfamiliar with tmux: detecting that
   quitting the TUI will drop them into another tmux window, and flashing
   a status-line hint that survives the window switch.
@@ -33,6 +37,9 @@ TEROK_TMUX_ENV = "TEROK_TMUX"
 
 MAIN_WINDOW_OPTION = "@terok-main"
 """tmux window option stamped on the window the TUI is running in."""
+
+LOGIN_WINDOW_OPTION = "@terok-login"
+"""tmux window option stamped with the container name a login window is attached to."""
 
 _TMUX_TIMEOUT_S = 5
 _EXIT_HINT_MS = 10000
@@ -68,6 +75,19 @@ def session_exists() -> bool:
     return _tmux("has-session", "-t", f"={SESSION_NAME}") is not None
 
 
+def _window_stamps(option: str, *target: str) -> list[tuple[str, str]]:
+    """List ``(window_id, stamp)`` pairs for *option* across the targeted session.
+
+    With no *target* the current session (from ``$TMUX``) is listed;
+    pass ``"-t", "=name"`` to query a named session from outside tmux.
+    """
+    out = _tmux("list-windows", *target, "-F", f"#{{window_id}} #{{{option}}}")
+    return [
+        (window_id, stamp)
+        for window_id, _, stamp in (line.partition(" ") for line in (out or "").splitlines())
+    ]
+
+
 def find_main_window(session: str = SESSION_NAME) -> str | None:
     """Return the window id (``@N``) stamped as terok's main window, or None.
 
@@ -75,11 +95,7 @@ def find_main_window(session: str = SESSION_NAME) -> str | None:
     config sets ``renumber-windows on``, so index 1 can become a task
     window the moment an earlier window closes.
     """
-    out = _tmux(
-        "list-windows", "-t", f"={session}", "-F", f"#{{window_id}} #{{{MAIN_WINDOW_OPTION}}}"
-    )
-    for line in (out or "").splitlines():
-        window_id, _, stamp = line.partition(" ")
+    for window_id, stamp in _window_stamps(MAIN_WINDOW_OPTION, "-t", f"={session}"):
         if stamp == "1":
             return window_id
     return None
@@ -101,12 +117,33 @@ def stamp_main_window() -> None:
     own = (_tmux("display-message", "-p", "-t", pane, "#{window_id}") or "").strip()
     if not own:
         return
-    listed = _tmux("list-windows", "-F", f"#{{window_id}} #{{{MAIN_WINDOW_OPTION}}}") or ""
-    for line in listed.splitlines():
-        window_id, _, stamp = line.partition(" ")
+    for window_id, stamp in _window_stamps(MAIN_WINDOW_OPTION):
         if stamp and window_id != own:
             _tmux("set-option", "-w", "-t", window_id, "-u", MAIN_WINDOW_OPTION)
     _tmux("set-option", "-w", "-t", own, MAIN_WINDOW_OPTION, "1")
+
+
+def find_login_window(cname: str) -> str | None:
+    """Return the current session's window logged into container *cname*, or None.
+
+    Login windows close with their ``podman exec`` (no ``remain-on-exit``
+    in the host config), so a stamp never outlives its session — whatever
+    this finds is live.
+    """
+    for window_id, stamp in _window_stamps(LOGIN_WINDOW_OPTION):
+        if stamp == cname:
+            return window_id
+    return None
+
+
+def stamp_login_window(window_id: str, cname: str) -> None:
+    """Stamp *window_id* as the login window for container *cname*."""
+    _tmux("set-option", "-w", "-t", window_id, LOGIN_WINDOW_OPTION, cname)
+
+
+def select_window(window_id: str) -> bool:
+    """Make *window_id* the current window; True when tmux accepted it."""
+    return _tmux("select-window", "-t", window_id) is not None
 
 
 def _pane_is_root_command() -> bool:

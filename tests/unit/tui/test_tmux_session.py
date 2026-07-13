@@ -125,6 +125,44 @@ class TestStampMainWindow:
         assert fake.calls[-1] == ["tmux", "set-option", "-w", "-t", "@2", "@terok-main", "1"]
 
 
+class TestLoginWindows:
+    """Login windows are stamped per container and found for reuse."""
+
+    def test_find_login_window_matches_container(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The window stamped with the container name wins; others don't."""
+        fake = FakeTmux(outputs={"list-windows": "@1 \n@3 terok-p1-t1\n@4 terok-p1-t2\n"}).install(
+            monkeypatch
+        )
+        assert tmux_session.find_login_window("terok-p1-t2") == "@4"
+        assert fake.calls == [
+            ["tmux", "list-windows", "-F", "#{window_id} #{@terok-login}"],
+        ]
+
+    def test_find_login_window_none_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No window logged into the container ⇒ None (open a fresh one)."""
+        FakeTmux(outputs={"list-windows": "@1 \n@3 terok-p1-t1\n"}).install(monkeypatch)
+        assert tmux_session.find_login_window("terok-p2-t9") is None
+
+    def test_stamp_login_window(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The stamp is a window option carrying the container name."""
+        fake = FakeTmux().install(monkeypatch)
+        tmux_session.stamp_login_window("@7", "terok-p1-t1")
+        assert fake.calls == [
+            ["tmux", "set-option", "-w", "-t", "@7", "@terok-login", "terok-p1-t1"],
+        ]
+
+    @pytest.mark.parametrize(
+        ("fail", "expected"), [(False, True), (True, False)], ids=["accepted", "window-gone"]
+    )
+    def test_select_window(
+        self, monkeypatch: pytest.MonkeyPatch, fail: bool, expected: bool
+    ) -> None:
+        """Selecting reports whether tmux accepted the window id."""
+        fake = FakeTmux(fail=fail).install(monkeypatch)
+        assert tmux_session.select_window("@7") is expected
+        assert fake.calls == [["tmux", "select-window", "-t", "@7"]]
+
+
 class TestQuitLandsInOtherWindow:
     """Quit guidance fires only for the root command with sibling windows."""
 

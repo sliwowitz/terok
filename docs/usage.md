@@ -445,7 +445,9 @@ terok tui --tmux
 
 This wraps the TUI in a managed tmux session with a blue status bar showing
 keyboard shortcuts. Login sessions open as additional tmux windows — press
-`^b n`/`^b p` to switch between TUI and container shells.
+`^b n`/`^b p` to switch between TUI and container shells. Logging into a
+container that already has a window open switches to that window instead of
+opening a duplicate.
 
 To launch the TUI in tmux by default without passing `--tmux` every time, set
 it in your config:
