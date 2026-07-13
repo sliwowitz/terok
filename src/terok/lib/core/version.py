@@ -28,7 +28,7 @@ def installed_dist_version(timeout: float = 5.0) -> str | None:
     (package not installed, interpreter gone mid-upgrade, timeout).
     """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 — our own interpreter running a fixed probe
             [sys.executable, "-c", _INSTALLED_VERSION_PROBE],
             capture_output=True,
             text=True,

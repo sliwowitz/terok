@@ -27,7 +27,7 @@ in the TUI.
 """
 
 import os
-import subprocess
+import subprocess  # nosec B404 — every call is a fixed "tmux" argv, no shell
 
 SESSION_NAME = "terok"
 """Name of the shared tmux session ``terok tui --tmux`` creates/resumes."""
@@ -49,7 +49,7 @@ _EXIT_HINT = "terok closed — Ctrl-b d returns to your terminal; 'terok tui --t
 def _tmux(*args: str) -> str | None:
     """Run a tmux command quietly; return its stdout, or None on any failure."""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607 — tmux from PATH, argv verbs built here
             ["tmux", *args],
             capture_output=True,
             text=True,

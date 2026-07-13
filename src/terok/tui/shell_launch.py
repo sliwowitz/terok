@@ -137,7 +137,9 @@ def tmux_new_window(command: list[str], title: str | None = None, stamp: str | N
         tmux_cmd += ["-n", title]
     tmux_cmd.append(shell_cmd)
     try:
-        result = subprocess.run(tmux_cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(  # nosec B603 — fixed tmux verbs; command is shell-quoted above
+            tmux_cmd, check=True, capture_output=True, text=True
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
     if stamp and (window_id := result.stdout.strip()):

@@ -2148,7 +2148,7 @@ if _HAS_TEXTUAL:
         if not exe:
             print("terok-tui not found on PATH — restart it manually to pick up the update.")
             return
-        os.execv(exe, [exe, *restart_flags])
+        os.execv(exe, [exe, *restart_flags])  # nosec B606 — resolved entry point, literal flags
 
     def _launch_in_tmux(force_new: bool = False, restart_flags: tuple[str, ...] = ()) -> None:
         """Launch the TUI inside a managed tmux session.
@@ -2198,7 +2198,9 @@ if _HAS_TEXTUAL:
                 land_args = ["select-window", "-t", main_window]
             else:
                 land_args = ["new-window", "-t", session, "-n", "terok", "terok-tui"]
-            os.execvp("tmux", ["tmux", *land_args, ";", "attach-session", "-t", session])
+            os.execvp(  # nosec B606 B607 — tmux from PATH, argv of fixed verbs
+                "tmux", ["tmux", *land_args, ";", "attach-session", "-t", session]
+            )
 
         from importlib import resources as _res
 
