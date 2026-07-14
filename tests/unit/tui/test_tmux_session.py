@@ -152,6 +152,31 @@ class TestSessionMarkerArgs:
         assert tmux_session.session_marker_args() == ()
 
 
+class TestReviveWindowArgs:
+    """A revived TUI window is inserted first on tmux >= 3.2, appended on older."""
+
+    @pytest.mark.parametrize(
+        ("version_line", "expected"),
+        [
+            ("tmux 3.7b\n", ["-b", "-t", "=terok:^"]),
+            ("tmux 3.2a\n", ["-b", "-t", "=terok:^"]),
+            ("tmux 3.1c\n", ["-t", "=terok:"]),
+        ],
+        ids=["modern", "exactly-3.2", "too-old"],
+    )
+    def test_placement_follows_tmux_version(
+        self, monkeypatch: pytest.MonkeyPatch, version_line: str, expected: list[str]
+    ) -> None:
+        """tmux >= 3.2 inserts before the first window; older appends at the next free index."""
+        FakeTmux(outputs={"-V": version_line}).install(monkeypatch)
+        assert tmux_session.revive_window_args() == expected
+
+    def test_appends_when_probe_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unprobeable tmux is treated as too old and gets the append form."""
+        FakeTmux(fail=True).install(monkeypatch)
+        assert tmux_session.revive_window_args() == ["-t", "=terok:"]
+
+
 class TestLoginWindows:
     """Login windows are stamped per container and found for reuse."""
 

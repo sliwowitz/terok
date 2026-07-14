@@ -78,19 +78,28 @@ def session_exists() -> bool:
     return _tmux("has-session", "-t", f"={SESSION_NAME}") is not None
 
 
+def _version_at_least(major: int, minor: int) -> bool:
+    """Return True when the installed tmux reports at least *major*.*minor*.
+
+    Probes ``tmux -V`` (versions like ``3.2a`` or ``next-3.4``); an
+    unprobeable tmux reads as too old — degrade, don't break.
+    """
+    version = re.search(r"(\d+)\.(\d+)", _tmux("-V") or "")
+    if version is None:
+        return False
+    return (int(version.group(1)), int(version.group(2))) >= (major, minor)
+
+
 def session_marker_args() -> tuple[str, ...]:
     """``new-session`` arguments carrying the terok marker, when tmux supports them.
 
     Setting a session-environment variable at creation (``new-session
     -e``) needs tmux >= 3.2; an older tmux rejects the flag outright,
     which would kill session creation entirely rather than merely losing
-    the marker.  Probing ``tmux -V`` (versions like ``3.2a`` or
-    ``next-3.4``) keeps old tmuxes working: without the marker the
-    terok-specific niceties quietly stay off and the base behaviour is
-    unchanged.
+    the marker.  Without the marker the terok-specific niceties quietly
+    stay off and the base behaviour is unchanged.
     """
-    version = re.search(r"(\d+)\.(\d+)", _tmux("-V") or "")
-    if version and (int(version.group(1)), int(version.group(2))) >= (3, 2):
+    if _version_at_least(3, 2):
         return ("-e", f"{TEROK_TMUX_ENV}=1")
     return ()
 
@@ -141,6 +150,24 @@ def stamp_main_window() -> None:
         if stamp and window_id != own:
             _tmux("set-option", "-w", "-t", window_id, "-u", MAIN_WINDOW_OPTION)
     _tmux("set-option", "-w", "-t", own, MAIN_WINDOW_OPTION, "1")
+
+
+def revive_window_args(session: str = SESSION_NAME) -> list[str]:
+    """``new-window`` arguments reviving the TUI as *session*'s first window.
+
+    When a resume finds no stamped main window the TUI is respawned, and
+    it should land where the original lived: window 1, ahead of the task
+    windows that kept the session alive.  Inserting before the
+    lowest-numbered window (``-b -t session:^``) needs tmux >= 3.2 — the
+    same floor as the session marker; an older tmux appends at the
+    session's next free index instead.  Both forms spell the window part
+    of the target out explicitly: a bare session target resolves to the
+    session's *current* window on newer tmuxes and fails with "index in
+    use".
+    """
+    if _version_at_least(3, 2):
+        return ["-b", "-t", f"={session}:^"]
+    return ["-t", f"={session}:"]
 
 
 def find_login_window(cname: str) -> str | None:

@@ -2179,8 +2179,9 @@ if _HAS_TEXTUAL:
         By default a second ``terok --tmux`` resumes the shared ``terok``
         session: the client lands on the window stamped ``@terok-main``,
         and when no stamped window is left (the TUI was quit while task
-        windows kept the session alive) a fresh TUI window is spawned
-        first.  Pass ``force_new=True`` (``--new-session``) to spin up a
+        windows kept the session alive) a fresh TUI window is spawned in
+        the original spot — first in the window list — before attaching.
+        Pass ``force_new=True`` (``--new-session``) to spin up a
         fresh, tmux-named session alongside the existing one instead.
 
         Sessions are created with the ``TEROK_TMUX=1`` session environment
@@ -2206,15 +2207,17 @@ if _HAS_TEXTUAL:
 
         if not force_new and tmux_session.session_exists():
             # Resume: land the client on the TUI's stamped window rather
-            # than wherever the session last was; revive the TUI in a new
-            # window when none is stamped (window ids are stable handles,
-            # indexes are not — the host config renumbers windows).
+            # than wherever the session last was; revive the TUI as the
+            # session's first window when none is stamped (window ids are
+            # stable handles, indexes are not — the host config renumbers
+            # windows).
             session = f"={tmux_session.SESSION_NAME}"
             main_window = tmux_session.find_main_window()
             if main_window:
                 land_args = ["select-window", "-t", main_window]
             else:
-                land_args = ["new-window", "-t", session, "-n", "terok", "terok-tui"]
+                revive = tmux_session.revive_window_args()
+                land_args = ["new-window", *revive, "-n", "terok", "terok-tui"]
             os.execvp(  # nosec B606 B607 — tmux from PATH, argv of fixed verbs
                 "tmux", ["tmux", *land_args, ";", "attach-session", "-t", session]
             )

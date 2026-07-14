@@ -440,7 +440,7 @@ method automatically:
 #### Running the TUI under tmux (recommended)
 
 ```bash
-terok tui --tmux
+terok tui --tmux    # or the shortcut: terok --tmux
 ```
 
 This wraps the TUI in a managed tmux session with a blue status bar showing
@@ -463,9 +463,10 @@ When tmux mode is active, terok **attaches to the shared `terok` session** if
 one is already running, so a second `terok tui --tmux` reconnects to your
 existing TUI instead of failing on the duplicate session name. Resuming lands
 you directly on the window running the TUI (even if you had killed and
-relaunched it in a different window), and revives the TUI in a new window if
-none is running anymore. Pass `--new-session` to opt out and start a separate,
-tmux-named session alongside it.
+relaunched it in a different window), and if none is running anymore — you quit
+the TUI while task windows kept the session alive — it revives the TUI back in
+its original spot as window 1. Pass `--new-session` to opt out and start a
+separate, tmux-named session alongside it.
 
 Inside a terok-managed tmux, a few extra conveniences apply:
 
