@@ -406,8 +406,38 @@ def test_task_restart_fresh_skips_resume_and_recreates() -> None:
             output = capture_stdout(task_restart, project_name, task_id, fresh=True)
 
         assert "Recreating" in output
-        container.stop.assert_called_once_with(timeout=10)
+        # Recreate never grants a grace period — the container is
+        # destroyed right after, so the stop is an outright kill.
+        container.stop.assert_called_once_with(timeout=0)
         container.start.assert_not_called()
+        sandbox.return_value.rm.assert_called_once_with([container_name])
+        run_cli.assert_called_once()
+
+
+def test_task_restart_fresh_survives_wedged_stop() -> None:
+    """A stop failure on the recreate rung is a warning, not an abort.
+
+    The container is force-removed on the next step anyway; refusing
+    the whole recreate because the stop client timed out would strand
+    the operator with a half-stopped container and no relaunch.
+    """
+    project_name = "proj_restart_fresh_stopfail"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name)
+        container_name = f"{project_name}-cli-{task_id}"
+
+        container = _mock_container(state="running")
+        container.stop.side_effect = RuntimeError("podman stop aborted: cleanup wedged")
+        runtime_mock = _mock_runtime(container)
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+            patch("terok.lib.orchestration.task_runners.restart._sandbox") as sandbox,
+            patch("terok.lib.orchestration.task_runners.restart.task_run_cli") as run_cli,
+        ):
+            output = capture_stdout(task_restart, project_name, task_id, fresh=True)
+
+        assert "Stop did not finish cleanly" in output
         sandbox.return_value.rm.assert_called_once_with([container_name])
         run_cli.assert_called_once()
 

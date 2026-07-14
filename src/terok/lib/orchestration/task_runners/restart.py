@@ -238,15 +238,34 @@ def _validate_restart_preconditions(
 
 
 def _stop_running_container(
-    project: ProjectConfig, task_id: str, mode: str, cname: str, meta_path: Path
+    project: ProjectConfig,
+    task_id: str,
+    mode: str,
+    cname: str,
+    meta_path: Path,
+    *,
+    timeout: int | None = None,
+    fatal: bool = True,
 ) -> None:
-    """Stop the running task container, then fire its ``post_stop`` hook."""
+    """Stop the running task container, then fire its ``post_stop`` hook.
+
+    *timeout* overrides the project's graceful-shutdown grace period.
+    With *fatal* (the default) a failed stop aborts via ``SystemExit``
+    — right for the resume rung, which wants this same container back.
+    The recreate rung passes ``fatal=False``: the container is
+    force-removed right after, so a wedged stop is worth a warning,
+    not an abort.
+    """
     try:
-        _rt.resolve_runtime(project).container(cname).stop(timeout=project.shutdown_timeout)
+        _rt.resolve_runtime(project).container(cname).stop(
+            timeout=project.shutdown_timeout if timeout is None else timeout
+        )
     except FileNotFoundError:
         raise SystemExit("podman not found; please install podman")
     except RuntimeError as exc:
-        raise SystemExit(f"Failed to stop container: {exc}")
+        if fatal:
+            raise SystemExit(f"Failed to stop container: {exc}")
+        print(_yellow(f"Stop did not finish cleanly ({exc}); removing anyway", _supports_color()))
     run_hook(
         "post_stop",
         project.hook_post_stop,
@@ -334,7 +353,10 @@ def _recreate_in_place(
     print(_yellow(f"Recreating container {cname}: {reason}", _supports_color()))
     runtime = _rt.resolve_runtime(project)
     if runtime.container(cname).state == "running":
-        _stop_running_container(project, task_id, mode, cname, meta_path)
+        # The container is destroyed on the next line — the grace
+        # period would be pure latency, so kill outright, and let the
+        # force-remove clean up after a stop that failed anyway.
+        _stop_running_container(project, task_id, mode, cname, meta_path, timeout=0, fatal=False)
     if runtime.container(cname).state is not None:
         _sandbox(project).rm([cname])
     if unrestricted is None:
