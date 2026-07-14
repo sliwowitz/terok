@@ -1,19 +1,18 @@
 # SPDX-FileCopyrightText: 2026 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for NVIDIA CDI error detection via sandbox GpuConfigError.
+"""Tests for GPU CDI error detection via sandbox GpuConfigError.
 
-The CDI hint logic lives in the podman backend of
-``terok_sandbox.runtime``.  These tests verify that terok still surfaces
-GPU errors correctly via the ``GpuConfigError`` / ``check_gpu_error``
-path.
+The CDI hint logic lives in ``terok_sandbox.runtime.gpu``.  These tests
+verify that terok still surfaces GPU errors correctly via the
+``GpuConfigError`` / ``check_gpu_error`` path.
 """
 
 import subprocess
 
 import pytest
 from terok_sandbox import GpuConfigError
-from terok_sandbox.runtime.podman import check_gpu_error
+from terok_sandbox.runtime.gpu import check_gpu_error
 
 
 def _make_error(stderr: str | bytes | None, returncode: int = 1) -> subprocess.CalledProcessError:

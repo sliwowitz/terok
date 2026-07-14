@@ -59,8 +59,8 @@ Terok was started at the
   per task; same agents, same hardening
 - **Layered images** — base distro · agent CLIs · per-project
   snippet, cached and reused across projects; Ubuntu / Debian /
-  Fedora / nvidia/cuda out of the box, GPU passthrough for projects
-  whose base image supports it
+  Fedora / nvidia/cuda out of the box, GPU passthrough (NVIDIA / AMD /
+  Intel) for projects whose base image supports it
 - **Sickbay + panic** — health checks with auto-remediation and an
   emergency kill-switch
 - **Multi-vendor agents** — Claude Code, Codex, Copilot, Vibe, plus

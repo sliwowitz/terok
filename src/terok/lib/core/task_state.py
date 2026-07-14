@@ -107,6 +107,11 @@ def has_gpu(project: Any) -> bool:
     Accepts any object with a ``root`` attribute pointing to the project
     directory (typically a ``Project`` instance).  Returns ``False`` on
     any I/O or parse error.
+
+    Badge-level truthiness only — every ``run.gpus`` selector shape
+    (``true``, ``"all"``, a vendor name, a list of vendors) lights the
+    badge; the vendor-aware interpretation happens at launch in
+    terok-sandbox's ``gpu_run_args``.
     """
     root = getattr(project, "root", None)
     if root is None:
@@ -117,7 +122,7 @@ def has_gpu(project: Any) -> bool:
         return False
     gpus = (cfg.get("run") or {}).get("gpus")
     if isinstance(gpus, str):
-        return gpus.lower() == "all"
-    if isinstance(gpus, bool):
-        return gpus
+        return bool(gpus.strip())
+    if isinstance(gpus, bool | list):
+        return bool(gpus)
     return False

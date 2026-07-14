@@ -1012,30 +1012,82 @@ leaves `TZ` unset if none of those resolve.
 ## GPU Passthrough
 
 GPU passthrough is a per-project opt-in feature (disabled by default).
+NVIDIA, AMD, and Intel GPUs are supported — individually or together.
 
 ### Enable in project.yml
 
 ```yaml
 run:
-  gpus: all   # or true
+  gpus: all   # or true — every vendor detected on the host
 ```
 
-### Requirements
+or select vendors explicitly:
 
-- NVIDIA drivers installed on host
-- `nvidia-container-toolkit` with Podman integration
-- A CUDA/NVIDIA-capable base image (e.g., NVIDIA HPC SDK or CUDA)
+```yaml
+run:
+  gpus: amd            # one vendor
+  # gpus: nvidia,intel # comma-separated
+  # gpus: [nvidia, amd, intel]  # YAML list — all three into one container
+```
 
-Set the base image in `project.yml`:
+`all` passes through every vendor whose host support terok detects and
+fails only when none is found; naming a vendor explicitly fails loudly
+at launch when that vendor's prerequisites are missing.
+
+### Per-vendor requirements and flags
+
+For each vendor terok prefers a [CDI](https://github.com/cncf-tags/container-device-interface)
+spec when one is present on the host (`/etc/cdi`, `/var/run/cdi`, or
+podman's configured `cdi_spec_dirs`) and otherwise falls back to the
+vendor's documented raw-device recipe.  CDI needs podman ≥ 4.1; the raw
+recipes also work on older podman releases.
+
+**NVIDIA** — requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html)
+with a generated CDI spec (`nvidia-ctk cdi generate`); there is no raw
+fallback (the toolkit injects the driver userland).  Adds:
+
+- `--device nvidia.com/gpu=all`
+- `NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=all`
+
+**AMD** — CDI via the [AMD Container Toolkit](https://instinct.docs.amd.com/projects/container-toolkit/en/latest/)
+(`amd-ctk cdi generate`, kind `amd.com/gpu`) when present; otherwise the
+[ROCm-documented](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/how-to/docker.html)
+device pair (requires the `amdgpu` kernel driver):
+
+- `--device /dev/kfd --device /dev/dri` (or `--device amd.com/gpu=all` via CDI)
+- `--group-add keep-groups`
+
+**Intel** — CDI (kind `intel.com/gpu`) when present; otherwise plain
+DRM device nodes — the oneAPI / Level Zero / OpenCL stack needs nothing
+else (requires the `i915`/`xe` kernel driver):
+
+- `--device /dev/dri` (or `--device intel.com/gpu=all` via CDI)
+- `--group-add keep-groups`
+
+`--group-add keep-groups` keeps the invoking user's host groups (the
+`render` group gating AMD/Intel nodes) inside the rootless container.
+It is honoured by **crun only** — if your podman defaults to runc,
+install crun and set `run.runtime: crun`.  The invoking user must be in
+the host's `render` group.
+
+### Base image
+
+Pick a base image matching the vendor's userland in `project.yml`, e.g.:
+
 ```yaml
 image:
-  base_image: nvcr.io/nvidia/nvhpc:25.9-devel-cuda13.0-ubuntu24.04
+  base_image: nvcr.io/nvidia/nvhpc:25.9-devel-cuda13.0-ubuntu24.04  # NVIDIA
+  # base_image: rocm/dev-ubuntu-24.04:latest                        # AMD ROCm/HIP
+  # base_image: intel/oneapi-basekit:latest                         # Intel oneAPI/SYCL
 ```
 
-When enabled, terok adds:
-- `--device nvidia.com/gpu=all`
-- `NVIDIA_VISIBLE_DEVICES=all`
-- `NVIDIA_DRIVER_CAPABILITIES=all`
+### Selecting GPUs inside the container
+
+Passthrough is all-GPUs-per-vendor; narrow the view inside the
+container with the vendor's own selector when needed:
+`CUDA_VISIBLE_DEVICES` (NVIDIA), `ROCR_VISIBLE_DEVICES` /
+`HIP_VISIBLE_DEVICES` (AMD), `ONEAPI_DEVICE_SELECTOR` /
+`ZE_AFFINITY_MASK` (Intel).
 
 ---
 

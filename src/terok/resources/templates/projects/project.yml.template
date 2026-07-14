@@ -41,7 +41,8 @@ image:
 {%- if BASE == "nvidia" %}
 
 run:
-  # Enable GPU passthrough for NVIDIA containers.
+  # GPU passthrough: "all" auto-detects every vendor the host supports;
+  # or pick vendors explicitly — nvidia, amd, intel (single or a list).
   gpus: all
 {%- endif %}
 {%- if SECURITY_CLASS == "gatekeeping" %}
