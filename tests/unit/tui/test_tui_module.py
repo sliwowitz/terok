@@ -101,8 +101,9 @@ def test_launch_in_tmux_creates_or_forks(
             [
                 "tmux",
                 "new-window",
+                "-b",
                 "-t",
-                "=terok",
+                "=terok:^",
                 "-n",
                 "terok",
                 "terok-tui",
@@ -129,6 +130,9 @@ def test_launch_in_tmux_resumes_existing_session(
     monkeypatch.setattr(shutil, "which", lambda _cmd: "/usr/bin/tmux")
     monkeypatch.setattr(tmux_session, "session_exists", lambda: True)
     monkeypatch.setattr(tmux_session, "find_main_window", lambda: main_window)
+    # Modern-tmux placement args; the version split itself is pinned in
+    # tests/unit/tui/test_tmux_session.py.
+    monkeypatch.setattr(tmux_session, "revive_window_args", lambda: ("-b", "-t", "=terok:^"))
 
     captured: list[str] = []
 
