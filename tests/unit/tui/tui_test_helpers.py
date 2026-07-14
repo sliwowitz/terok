@@ -251,6 +251,10 @@ def build_textual_stubs() -> dict[str, types.ModuleType]:
     class Label(_StubObject):
         """Stub label widget that only captures construction args."""
 
+    class LoadingIndicator(_StubObject):
+        """Stub spinner widget that only captures construction args."""
+
+    widgets_mod.LoadingIndicator = LoadingIndicator
     widgets_mod.Button = Button
     widgets_mod.Input = Input
     widgets_mod.Footer = Footer

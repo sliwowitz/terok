@@ -36,6 +36,7 @@ from ..lib.api import (
 from .clipboard import copy_to_clipboard_detailed
 from .screens import (
     AgentSelectionScreen,
+    LoginProgressScreen,
     TaskCreateScreen,
     TaskLaunchScreen,
     TaskNameScreen,
@@ -323,28 +324,30 @@ class TaskActionsMixin(_MixinBase):
         # All agents (including bash) launch interactively inside tmux so the
         # user can re-attach later with 'login'.  The base command is always
         # podman exec -it <cname> tmux new-session -A -s main [bash -lc <cmd>].
+        # Blocking spinner + threaded preflight, same rationale as
+        # ``_action_login``.
+        title = _login_title(pid, tid, task_name)
+        progress = LoginProgressScreen(title)
+        await self.push_screen(progress)
         try:
-            # Threaded for the same reason as ``_action_login``: the
-            # preflight's podman state probe must not stall the loop.
             base_cmd = await asyncio.to_thread(get_login_command, pid, tid)
+
+            if agent == "bash":
+                cmd = base_cmd
+            else:
+                from terok.lib.api.agents import AGENTS
+
+                agent_obj = AGENTS.get(agent)
+                if not agent_obj:
+                    self.notify(f"Unknown agent: {agent}")
+                    return
+                cmd = [*base_cmd, "bash", "-lc", agent_obj.binary]
+
+            await self._launch_terminal_session(cmd, title=title, cname=cname)
         except SystemExit as e:
             self.notify(str(e))
-            return
-
-        if agent == "bash":
-            cmd = base_cmd
-        else:
-            from terok.lib.api.agents import AGENTS
-
-            agent_obj = AGENTS.get(agent)
-            if not agent_obj:
-                self.notify(f"Unknown agent: {agent}")
-                return
-            cmd = [*base_cmd, "bash", "-lc", agent_obj.binary]
-
-        await self._launch_terminal_session(
-            cmd, title=_login_title(pid, tid, task_name), cname=cname
-        )
+        finally:
+            progress.dismiss()
 
     async def _action_task_start_toad(self) -> None:
         """Create a new task and immediately run Toad serve."""
@@ -677,6 +680,10 @@ class TaskActionsMixin(_MixinBase):
     async def _action_login(self) -> None:
         """Log into the selected task's running container.
 
+        The whole flow runs under a blocking
+        [`LoginProgressScreen`][terok.tui.screens.LoginProgressScreen]
+        spinner — see its docstring for why blocking is the point here.
+
         CLI login attaches a host terminal to the container — impossible
         when the TUI is served over the web (textual-serve), where there
         is no host terminal.  Gated on ``App.is_web``: web users get an
@@ -697,23 +704,26 @@ class TaskActionsMixin(_MixinBase):
             return
         pid = self.current_project_name
         tid = self.current_task.task_id
-        try:
-            # Threaded: the preflight asks podman for the container's live
-            # state, and podman can sit on its lock for many seconds (a
-            # concurrent build, an event stream hiccup).  Off the loop the
-            # TUI stays responsive; on it, every keystroke and timer would
-            # freeze until podman answered.
-            cmd = await asyncio.to_thread(get_login_command, pid, tid)
-        except SystemExit as e:
-            self.notify(str(e))
-            return
-
         mode = self.current_task.mode or "cli"
         cname = container_name(pid, mode, tid)
         task_name = self.current_task.name or tid
-        await self._launch_terminal_session(
-            cmd, title=_login_title(pid, tid, task_name), cname=cname
-        )
+        title = _login_title(pid, tid, task_name)
+
+        # A blocking spinner covers the whole login: it ends with the view
+        # jumping into the container, so anything the operator started in
+        # the meantime would be yanked away mid-gesture.  The blocking
+        # work runs threaded — the preflight asks podman for the
+        # container's live state, and podman can sit on its lock for many
+        # seconds — which is what keeps the spinner animating.
+        progress = LoginProgressScreen(title)
+        await self.push_screen(progress)
+        try:
+            cmd = await asyncio.to_thread(get_login_command, pid, tid)
+            await self._launch_terminal_session(cmd, title=title, cname=cname)
+        except SystemExit as e:
+            self.notify(str(e))
+        finally:
+            progress.dismiss()
 
     # ---------- Task management actions ----------
 
