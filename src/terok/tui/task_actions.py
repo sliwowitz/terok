@@ -7,6 +7,7 @@ Handles task creation, deletion, renaming, running (CLI/toad/unattended),
 login, restart, follow-up, log viewing, and diff copying.
 """
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -323,7 +324,9 @@ class TaskActionsMixin(_MixinBase):
         # user can re-attach later with 'login'.  The base command is always
         # podman exec -it <cname> tmux new-session -A -s main [bash -lc <cmd>].
         try:
-            base_cmd = get_login_command(pid, tid)
+            # Threaded for the same reason as ``_action_login``: the
+            # preflight's podman state probe must not stall the loop.
+            base_cmd = await asyncio.to_thread(get_login_command, pid, tid)
         except SystemExit as e:
             self.notify(str(e))
             return
@@ -695,7 +698,12 @@ class TaskActionsMixin(_MixinBase):
         pid = self.current_project_name
         tid = self.current_task.task_id
         try:
-            cmd = get_login_command(pid, tid)
+            # Threaded: the preflight asks podman for the container's live
+            # state, and podman can sit on its lock for many seconds (a
+            # concurrent build, an event stream hiccup).  Off the loop the
+            # TUI stays responsive; on it, every keystroke and timer would
+            # freeze until podman answered.
+            cmd = await asyncio.to_thread(get_login_command, pid, tid)
         except SystemExit as e:
             self.notify(str(e))
             return
