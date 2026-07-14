@@ -104,6 +104,22 @@ def session_marker_args() -> tuple[str, ...]:
     return ()
 
 
+def enable_focus_events() -> None:
+    """Ask the tmux server to forward terminal focus to interested panes.
+
+    ``focus-events`` is a server-wide option the host conf turns on for
+    servers terok itself starts — but when terok joins a pre-existing
+    server that conf was never read.  tmux only honours a pane's
+    focus-reporting request (``\\e[?1004h``) made while the option is
+    already on, so this must run *before* Textual starts its driver;
+    flipping the option under a running app does nothing for it.  The
+    TUI probes for landed upgrades on focus-in; without the events it
+    falls back to its slow interval.
+    """
+    if is_terok_tmux():
+        _tmux("set-option", "-s", "focus-events", "on")
+
+
 def _window_stamps(option: str, *target: str) -> list[tuple[str, str]]:
     """List ``(window_id, stamp)`` pairs for *option* across the targeted session.
 
