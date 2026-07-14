@@ -476,7 +476,9 @@ Inside a terok-managed tmux, a few extra conveniences apply:
   hint in the window you land on explains how to get back.
 - **Upgrades:** if a newer terok is installed on disk while the TUI is
   running (e.g. `pipx upgrade terok`), the TUI offers to restart itself in
-  place to pick up the new version.
+  place to pick up the new version. The offer appears as soon as you come
+  back to the TUI — re-attaching the session or switching back to its
+  window — or within ten minutes if you stay put.
 
 #### tmux Quick Reference
 

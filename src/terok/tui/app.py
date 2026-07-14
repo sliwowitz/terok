@@ -106,9 +106,12 @@ if _HAS_TEXTUAL:
     _RESTART_EXIT_RESULT = "terok-restart"
 
     # How often to compare the on-disk terok version against the running
-    # one.  A subprocess probe every five minutes is cheap, and upgrades
-    # under a live TUI are rare events.
-    _UPDATE_CHECK_INTERVAL_S = 300.0
+    # one when nothing else triggers a probe.  Focus-in (re-attaching the
+    # tmux session, switching back to the TUI's window) probes immediately
+    # — that's the "operator just came back" moment the offer should meet
+    # — so the interval only covers terminals that don't report focus, and
+    # can afford to be lazy.
+    _UPDATE_CHECK_INTERVAL_S = 600.0
 
     @dataclass(frozen=True)
     class ProjectStateResult:
@@ -1621,6 +1624,19 @@ if _HAS_TEXTUAL:
                 exit_on_error=False,
             )
 
+        def on_app_focus(self) -> None:
+            """Probe for a landed upgrade the moment attention returns to the TUI.
+
+            Fires on terminal focus-in: re-attaching the tmux session,
+            switching back to the TUI's window or pane, refocusing the
+            terminal.  Whoever just upgraded terok in another window and
+            came back should meet the restart offer right away, not
+            after the idle interval.  The probe worker is exclusive, so
+            a burst of focus flips collapses into one probe.
+            """
+            if not self.is_web:
+                self._check_for_update()
+
         def _probe_installed_version(self) -> None:
             """Compare the on-disk version with the running one (worker thread).
 
@@ -2154,6 +2170,9 @@ if _HAS_TEXTUAL:
         """
         import shutil
 
+        # Must precede the app: tmux honours a pane's focus-reporting
+        # request only if the option is on when Textual makes it.
+        tmux_session.enable_focus_events()
         result = TerokTUI().run()
         if result != _RESTART_EXIT_RESULT:
             return

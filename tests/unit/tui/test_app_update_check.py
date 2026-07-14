@@ -99,6 +99,22 @@ class TestProbeInstalledVersion:
         stub.call_from_thread.assert_not_called()
 
 
+class TestFocusProbe:
+    """Focus-in probes immediately; the interval is only the idle fallback."""
+
+    def test_focus_kicks_the_probe(self) -> None:
+        """Attention returning to the TUI triggers an immediate version check."""
+        stub = SimpleNamespace(is_web=False, _check_for_update=MagicMock())
+        TerokTUI.on_app_focus(stub)
+        stub._check_for_update.assert_called_once_with()
+
+    def test_web_tui_never_probes_on_focus(self) -> None:
+        """A web-served TUI can't re-exec, so focus must not probe."""
+        stub = SimpleNamespace(is_web=True, _check_for_update=MagicMock())
+        TerokTUI.on_app_focus(stub)
+        stub._check_for_update.assert_not_called()
+
+
 class TestOfferUpdateRestart:
     """The offer pushes the modal once per on-disk version."""
 

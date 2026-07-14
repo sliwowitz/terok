@@ -177,6 +177,27 @@ class TestReviveWindowArgs:
         assert tmux_session.revive_window_args() == ["-t", "=terok:"]
 
 
+class TestEnableFocusEvents:
+    """Focus forwarding is switched on for terok's server, and only there."""
+
+    def test_sets_server_option_inside_terok_tmux(
+        self, inside_terok_tmux: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Inside a terok-managed tmux the server option is turned on."""
+        fake = FakeTmux().install(monkeypatch)
+        tmux_session.enable_focus_events()
+        assert fake.calls == [["tmux", "set-option", "-s", "focus-events", "on"]]
+
+    def test_noop_in_users_own_tmux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A user's own tmux server is never reconfigured."""
+        # Any truthy TMUX means "inside some tmux"; without the TEROK_TMUX
+        # marker it is the user's own server.
+        monkeypatch.setenv("TMUX", "users-own-tmux")
+        fake = FakeTmux().install(monkeypatch)
+        tmux_session.enable_focus_events()
+        assert fake.calls == []
+
+
 class TestLoginWindows:
     """Login windows are stamped per container and found for reuse."""
 
