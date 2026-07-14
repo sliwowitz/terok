@@ -202,6 +202,19 @@ def main(prog: str = "terok") -> None:
         except FileNotFoundError:
             pass
 
+    # Fast-path: ``terok --tmux [args...]`` is a shortcut for ``terok tui
+    # --tmux [args...]`` — exec before any parser or subcommand registration
+    # work.  A missing ``terok-tui`` falls through to argparse like the bare
+    # invocation above.
+    if prog == "terok" and sys.argv[1:2] == ["--tmux"]:
+        import os
+
+        try:
+            os.execlp("terok-tui", "terok-tui", *sys.argv[1:])
+            return  # type: ignore[unreachable]  # in tests os.execlp is mocked
+        except FileNotFoundError:
+            pass
+
     # Get version info for --version flag
     version, branch = get_version_info()
     version_string = format_version_string(version, branch)

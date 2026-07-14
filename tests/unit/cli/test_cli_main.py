@@ -84,6 +84,28 @@ class TestTuiSubcommand:
         result = _run_cli("--help")
         assert "tui" in result.stdout
 
+    def test_root_tmux_flag_is_tui_shortcut(self) -> None:
+        """``terok --tmux`` is a shortcut for ``terok tui --tmux``."""
+        with patch("os.execlp") as mock_exec:
+            from terok.cli.main import main
+
+            with patch("sys.argv", ["terok", "--tmux"]):
+                main()
+
+            args = mock_exec.call_args[0]
+            assert args == ("terok-tui", "terok-tui", "--tmux")
+
+    def test_root_tmux_shortcut_forwards_args(self) -> None:
+        """``terok --tmux --new-session`` forwards the extra flags to terok-tui."""
+        with patch("os.execlp") as mock_exec:
+            from terok.cli.main import main
+
+            with patch("sys.argv", ["terok", "--tmux", "--new-session"]):
+                main()
+
+            args = mock_exec.call_args[0]
+            assert args == ("terok-tui", "terok-tui", "--tmux", "--new-session")
+
 
 class TestEmojiFlag:
     """Verify --no-emoji flag propagation."""

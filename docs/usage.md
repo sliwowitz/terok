@@ -440,7 +440,7 @@ method automatically:
 #### Running the TUI under tmux (recommended)
 
 ```bash
-terok tui --tmux
+terok tui --tmux    # or the shortcut: terok --tmux
 ```
 
 This wraps the TUI in a managed tmux session with a blue status bar showing
