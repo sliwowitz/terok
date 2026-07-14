@@ -733,7 +733,8 @@ if _HAS_TEXTUAL:
             if await asyncio.to_thread(credentials_provisioned, cfg):
                 return True
 
-            typed = ""  # the create-modal's "generate for me" sentinel
+            typed: str | None = ""  # the create-modal's "generate for me" sentinel
+            tier: str | None
             if await asyncio.to_thread(systemd_creds_available):
                 tier = "systemd-creds"
             else:
