@@ -59,11 +59,16 @@ def test_clears_nonblock_left_by_child(guarded_tty):
     assert not _nonblock(guarded_tty)
 
 
+def _crashing_polluting_child(fd: int) -> None:
+    """Simulate a child that trashes the tty and then dies."""
+    tty.setraw(fd)
+    _set_nonblock(fd)
+    raise RuntimeError("child launch failed")
+
+
 def test_scrubs_even_when_child_raises(guarded_tty):
     with pytest.raises(RuntimeError), _terminal_pollution_guard():
-        tty.setraw(guarded_tty)
-        _set_nonblock(guarded_tty)
-        raise RuntimeError("child launch failed")
+        _crashing_polluting_child(guarded_tty)
     assert termios.tcgetattr(guarded_tty)[3] & termios.ICANON
     assert not _nonblock(guarded_tty)
 
