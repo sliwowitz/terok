@@ -57,6 +57,14 @@ else:
     except Exception:  # pragma: no cover - textual may be a stub module
         Select = None
 
+if TYPE_CHECKING:
+    from textual.widgets import LoadingIndicator
+else:
+    try:  # pragma: no cover - optional import for test stubs
+        from textual.widgets import LoadingIndicator
+    except Exception:  # pragma: no cover - textual may be a stub module
+        LoadingIndicator = None
+
 from rich.style import Style
 from rich.text import Text
 
@@ -1899,6 +1907,51 @@ class UpdateRestartScreen(screen.ModalScreen[bool]):
         """Restart on ``r``; any other key dismisses the offer."""
         event.stop()
         self.dismiss(event.key == "r")
+
+
+class LoginProgressScreen(screen.ModalScreen[None]):
+    """Blocking "Logging in" overlay while a container login is prepared.
+
+    Login ends with the view jumping into the container's window, so any
+    action the operator starts in the meantime would be yanked away
+    mid-gesture.  This modal deliberately blocks: it swallows every key
+    and covers the screen while the preflight (podman state probe) and
+    the terminal/tmux launch run on a worker thread — the thread keeps
+    the loop free, which is what lets the spinner spin.  The login flow
+    dismisses it once the view has switched (or the attempt failed).
+    """
+
+    CSS = """
+    LoginProgressScreen {
+        align: center middle;
+    }
+    #login-progress {
+        width: auto;
+        height: auto;
+        border: round $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #login-progress LoadingIndicator {
+        width: 8;
+        height: 1;
+    }
+    """
+
+    def __init__(self, label: str) -> None:
+        """Remember the session *label* (project:task:name) being logged into."""
+        super().__init__()
+        self._label = label
+
+    def compose(self) -> ComposeResult:
+        """A centred spinner naming the session being prepared."""
+        with Horizontal(id="login-progress"):
+            yield LoadingIndicator()
+            yield Static(f" Logging in: {self._label} …")
+
+    def on_key(self, event: events.Key) -> None:
+        """Swallow all input — the login flow is the only thing that dismisses this."""
+        event.stop()
 
 
 class TaskDetailsScreen(screen.Screen[str | None]):

@@ -191,7 +191,10 @@ class ProjectActionsMixin(_MixinBase):
             )
             return
 
-        method, _port = launch_login(cmd, title=title, reuse_key=cname)
+        # Threaded: launch_login shells out to tmux / ps / terminal
+        # spawners — each call is timeout-capped, but even a few capped
+        # probes back-to-back would stall the loop for whole seconds.
+        method, _port = await asyncio.to_thread(launch_login, cmd, title=title, reuse_key=cname)
 
         if method == "tmux-existing":
             self.notify(f"Switched to existing tmux window: {cname}")

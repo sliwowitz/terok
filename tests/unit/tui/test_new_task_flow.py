@@ -605,6 +605,7 @@ def _run_launch_with_prompt(agent: str | None, prompt: str | None) -> tuple[mock
     instance.current_project_name = "proj1"
     instance.refresh_tasks = mock.AsyncMock()
     instance._launch_terminal_session = mock.AsyncMock()
+    instance.push_screen = mock.AsyncMock()
 
     fake_provider = mock.Mock()
     fake_provider.binary = "claude"
@@ -617,6 +618,7 @@ def _run_launch_with_prompt(agent: str | None, prompt: str | None) -> tuple[mock
             {
                 "get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c"]),
                 "_save_initial_prompt": save,
+                "LoginProgressScreen": mock.Mock(return_value=mock.Mock()),
             },
         ),
         mock.patch.dict(
@@ -1123,6 +1125,7 @@ class TestActionLoginTitle:
         instance.current_task.mode = "cli"
         instance.notify = mock.Mock()
         instance._launch_terminal_session = mock.AsyncMock()
+        instance.push_screen = mock.AsyncMock()
 
         action_globals = app_class._action_login.__globals__
 
@@ -1131,6 +1134,7 @@ class TestActionLoginTitle:
             {
                 "get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c"]),
                 "container_name": lambda *a: "proj1-cli-5",
+                "LoginProgressScreen": mock.Mock(return_value=mock.Mock()),
             },
         ):
             run(app_class._action_login(instance))
@@ -1150,6 +1154,7 @@ class TestActionLoginTitle:
         instance.current_task.mode = "run"
         instance.notify = mock.Mock()
         instance._launch_terminal_session = mock.AsyncMock()
+        instance.push_screen = mock.AsyncMock()
 
         action_globals = app_class._action_login.__globals__
 
@@ -1158,6 +1163,7 @@ class TestActionLoginTitle:
             {
                 "get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c"]),
                 "container_name": lambda *a: "proj1-run-8",
+                "LoginProgressScreen": mock.Mock(return_value=mock.Mock()),
             },
         ):
             run(app_class._action_login(instance))
@@ -1463,12 +1469,16 @@ class TestOnLaunchScreenResultTitle:
         instance.current_project_name = "proj1"
         instance.refresh_tasks = mock.AsyncMock()
         instance._launch_terminal_session = mock.AsyncMock()
+        instance.push_screen = mock.AsyncMock()
 
         action_globals = app_class._on_launch_screen_result.__globals__
 
         with mock.patch.dict(
             action_globals,
-            {"get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c", "bash"])},
+            {
+                "get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c", "bash"]),
+                "LoginProgressScreen": mock.Mock(return_value=mock.Mock()),
+            },
         ):
             result = ("proj1", "3", "fix-auth", "proj1-cli-3", "bash", None)
             run(app_class._on_launch_screen_result(instance, result))
@@ -1484,6 +1494,7 @@ class TestOnLaunchScreenResultTitle:
         instance.current_project_name = "proj1"
         instance.refresh_tasks = mock.AsyncMock()
         instance._launch_terminal_session = mock.AsyncMock()
+        instance.push_screen = mock.AsyncMock()
 
         fake_provider = mock.Mock()
         fake_provider.binary = "claude"
@@ -1496,6 +1507,7 @@ class TestOnLaunchScreenResultTitle:
                 {
                     "get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c"]),
                     "_save_initial_prompt": mock.Mock(),
+                    "LoginProgressScreen": mock.Mock(return_value=mock.Mock()),
                 },
             ),
             mock.patch.dict(
@@ -1528,6 +1540,7 @@ class TestOnLaunchScreenResultTitle:
         instance.refresh_tasks = mock.AsyncMock()
         instance.notify = mock.Mock()
         instance._launch_terminal_session = mock.AsyncMock()
+        instance.push_screen = mock.AsyncMock()
 
         action_globals = app_class._on_launch_screen_result.__globals__
 
@@ -1537,6 +1550,7 @@ class TestOnLaunchScreenResultTitle:
                 {
                     "get_login_command": mock.Mock(return_value=["podman", "exec", "-it", "c"]),
                     "_save_initial_prompt": mock.Mock(),
+                    "LoginProgressScreen": mock.Mock(return_value=mock.Mock()),
                 },
             ),
             mock.patch.dict(
