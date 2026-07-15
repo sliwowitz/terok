@@ -200,8 +200,10 @@ class TestRunSuspended:
         _record(instance.batch_update, "batch")
 
         async def _spawn(*_argv: str) -> mock.AsyncMock:
-            events.append("child")
-            return self._proc(0)
+            events.append("child:spawn")
+            proc = self._proc(0)
+            proc.wait.side_effect = lambda: events.append("child:exit") or 0
+            return proc
 
         with (
             mock.patch(
@@ -211,7 +213,14 @@ class TestRunSuspended:
             mock.patch("builtins.input"),
         ):
             assert self._run(instance, "agent") == 0
-        assert events == ["suspend:enter", "batch:enter", "child", "batch:exit", "suspend:exit"]
+        assert events == [
+            "suspend:enter",
+            "batch:enter",
+            "child:spawn",
+            "child:exit",
+            "batch:exit",
+            "suspend:exit",
+        ]
 
     def test_eof_at_the_prompt_is_survived(self) -> None:
         """EOF instead of Enter (dead stdin) must not crash the resume path."""
