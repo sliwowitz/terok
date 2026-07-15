@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -32,6 +32,19 @@ def _make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     register(parser.add_subparsers(dest="cmd"))
     return parser
+
+
+@pytest.fixture(autouse=True)
+def mock_authed_entries():
+    """Keep the menu/runner auth-state lookups away from any real vault.
+
+    Yields the mock so individual tests can reshape ``return_value`` to
+    exercise the badge / already-authenticated paths.
+    """
+    with patch(
+        "terok.lib.api.agents.authenticated_entries", return_value=frozenset()
+    ) as mock_authed:
+        yield mock_authed
 
 
 # ── argparse registration ──────────────────────────────────────────────
@@ -182,7 +195,6 @@ def test_run_interactive_cancels_on_empty_answer(capsys: pytest.CaptureFixture[s
     """Empty input aborts without launching any auth."""
     with (
         patch("sys.stdin", new=StringIO("\n")),
-        patch("terok.lib.api.agents.authenticated_entries", return_value=frozenset()),
         patch("terok.cli.commands.auth._run_one") as mock_run,
     ):
         _run_interactive(project_name=None)
@@ -194,7 +206,6 @@ def test_run_interactive_runs_each_selected_provider() -> None:
     with (
         patch("sys.stdin", new=StringIO("claude, codex\n")),
         patch("terok.cli.commands.auth.require_project_exists"),
-        patch("terok.lib.api.agents.authenticated_entries", return_value=frozenset()),
         patch("terok.cli.commands.auth._run_one") as mock_run,
     ):
         _run_interactive(project_name="myproj")
@@ -209,7 +220,6 @@ def test_run_interactive_hides_oauth_when_disabled(capsys: pytest.CaptureFixture
     with (
         patch("sys.stdin", new=StringIO("\n")),
         patch("terok.lib.core.config.is_oauth_enabled_for", return_value=False),
-        patch("terok.lib.api.agents.authenticated_entries", return_value=frozenset()),
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name=None)
@@ -223,7 +233,6 @@ def test_run_interactive_shows_oauth_when_enabled(capsys: pytest.CaptureFixture[
     with (
         patch("sys.stdin", new=StringIO("\n")),
         patch("terok.lib.core.config.is_oauth_enabled_for", return_value=True),
-        patch("terok.lib.api.agents.authenticated_entries", return_value=frozenset()),
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name=None)
@@ -231,11 +240,13 @@ def test_run_interactive_shows_oauth_when_enabled(capsys: pytest.CaptureFixture[
     assert "oauth" in out
 
 
-def test_run_interactive_marks_authenticated_entries(capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_interactive_marks_authenticated_entries(
+    mock_authed_entries: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Entries with a stored credential get the ✓ badge; the rest stay bare."""
+    mock_authed_entries.return_value = frozenset({"claude"})
     with (
         patch("sys.stdin", new=StringIO("\n")),
-        patch("terok.lib.api.agents.authenticated_entries", return_value=frozenset({"claude"})),
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name=None)
@@ -246,11 +257,13 @@ def test_run_interactive_marks_authenticated_entries(capsys: pytest.CaptureFixtu
     assert "✓" not in codex_line
 
 
-def test_run_interactive_notes_unreadable_vault(capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_interactive_notes_unreadable_vault(
+    mock_authed_entries: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
     """When the vault can't be read, no badge is shown and stderr says why."""
+    mock_authed_entries.return_value = None
     with (
         patch("sys.stdin", new=StringIO("\n")),
-        patch("terok.lib.api.agents.authenticated_entries", return_value=None),
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name=None)
@@ -259,18 +272,17 @@ def test_run_interactive_notes_unreadable_vault(capsys: pytest.CaptureFixture[st
     assert "vault locked" in captured.err
 
 
-def test_run_interactive_scopes_auth_state_to_project() -> None:
+def test_run_interactive_scopes_auth_state_to_project(
+    mock_authed_entries: MagicMock,
+) -> None:
     """The badge query follows the menu's project scope."""
     with (
         patch("sys.stdin", new=StringIO("\n")),
         patch("terok.cli.commands.auth.require_project_exists"),
-        patch(
-            "terok.lib.api.agents.authenticated_entries", return_value=frozenset()
-        ) as mock_authed,
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name="myproj")
-    mock_authed.assert_called_once_with("myproj")
+    mock_authed_entries.assert_called_once_with("myproj")
 
 
 # ── single-provider runner ─────────────────────────────────────────────
@@ -307,6 +319,30 @@ def test_run_one_forwards_device_auth() -> None:
     with patch("terok.cli.commands.auth.authenticate") as mock_auth:
         _run_one("codex", project_name=None, device_auth=True)
     mock_auth.assert_called_once_with("codex", None, device_auth=True)
+
+
+def test_run_one_notes_existing_credential(
+    mock_authed_entries: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Re-authing an entry with a stored credential warns that it will be replaced."""
+    mock_authed_entries.return_value = frozenset({"codex"})
+    with patch("terok.cli.commands.auth.authenticate"):
+        # The alias resolves before the check, so ``openai`` matches the codex entry.
+        _run_one("openai", project_name=None)
+    err = capsys.readouterr().err
+    assert "codex already has a stored credential" in err
+    assert "replaces it" in err
+
+
+def test_run_one_stays_quiet_without_stored_credential(
+    mock_authed_entries: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No stored credential — and an unreadable vault — produce no replace note."""
+    for auth_state in (frozenset(), None):
+        mock_authed_entries.return_value = auth_state
+        with patch("terok.cli.commands.auth.authenticate"):
+            _run_one("codex", project_name=None)
+        assert "stored credential" not in capsys.readouterr().err
 
 
 def test_run_one_warns_on_stale_image(capsys: pytest.CaptureFixture[str]) -> None:

@@ -242,8 +242,8 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
             self.dismiss(option_id)
 
     def _open_auth_modal(self) -> None:
-        """Push the authentication provider selection modal."""
-        self.app.push_screen(AuthActionsScreen(), self._on_auth_result)
+        """Push the authentication provider selection modal, project-scoped."""
+        self.app.push_screen(AuthActionsScreen(self._project.name), self._on_auth_result)
 
     def _on_auth_result(self, result: str | None) -> None:
         """Forward the selected auth action from the sub-modal as this screen's result."""
@@ -345,7 +345,15 @@ class AuthActionsScreen(screen.ModalScreen[str | None]):
     """Small modal for authenticating agents and tools.
 
     Options are built dynamically from ``AUTH_PROVIDERS`` — every entry is
-    listed; navigate with the arrow keys and select with Enter.
+    listed; navigate with the arrow keys and select with Enter.  Entries
+    that already hold a stored credential gain a ``✓ authenticated`` badge
+    once a background vault query lands — the lookup does keyring and
+    SQLCipher I/O, so it must never run on the UI thread.
+
+    *project_name* scopes the badge query the same way the auth flow it
+    fronts is scoped: ``None`` for the host-wide bucket, a project name for
+    that project's credential set (which only diverges from the host bucket
+    under ``credentials.scope: project``).
     """
 
     BINDINGS = [
@@ -374,6 +382,11 @@ class AuthActionsScreen(screen.ModalScreen[str | None]):
     }
     """
 
+    def __init__(self, project_name: str | None = None) -> None:
+        """Remember the credential scope the badge query should target."""
+        super().__init__()
+        self._project_name = project_name
+
     def compose(self) -> ComposeResult:
         """Build the list of authentication providers."""
         from terok.lib.api.agents import AUTH_PROVIDERS
@@ -389,9 +402,40 @@ class AuthActionsScreen(screen.ModalScreen[str | None]):
         dialog.border_subtitle = "Esc to close"
 
     def on_mount(self) -> None:
-        """Focus the auth provider list on mount."""
+        """Focus the auth provider list and start the auth-state lookup."""
         actions = self.query_one("#auth-actions-list", OptionList)
         actions.focus()
+        self.run_worker(self._fetch_auth_state, thread=True, exit_on_error=False)
+
+    def _fetch_auth_state(self) -> frozenset[str] | None:
+        """Query which entries already hold a stored credential (thread worker)."""
+        from terok.lib.api.agents import authenticated_entries
+
+        return authenticated_entries(self._project_name)
+
+    def on_worker_state_changed(self, event: Any) -> None:
+        """Apply the badges once the background vault query lands."""
+        if event.state.name == "SUCCESS":
+            self._show_auth_state(event.worker.result)
+
+    def _show_auth_state(self, authed: frozenset[str] | None) -> None:
+        """Badge already-authenticated entries, or flag an unreadable vault.
+
+        ``None`` means the vault couldn't be read (not yet provisioned or
+        sealed) — say so in the subtitle instead of presenting every entry
+        as unauthenticated.
+        """
+        from terok.lib.api.agents import AUTH_PROVIDERS
+
+        if authed is None:
+            dialog = self.query_one("#auth-dialog", Vertical)
+            dialog.border_subtitle = "vault locked — auth state unknown · Esc to close"
+            return
+        option_list = self.query_one("#auth-actions-list", OptionList)
+        for name in authed:
+            option_list.replace_option_prompt(
+                f"auth_{name}", f"{AUTH_PROVIDERS[name].label}  ✓ authenticated"
+            )
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Dismiss with the selected provider's action ID."""

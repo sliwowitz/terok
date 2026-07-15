@@ -512,8 +512,11 @@ terok auth
 
 The interactive menu marks entries that already hold a stored credential
 with `✓ authenticated` (scoped to the project's vault bucket when
-`--project` is given). When the vault can't be read — not yet provisioned
-or currently sealed — the menu says so instead of guessing.
+`--project` is given); the TUI's auth modal shows the same badge.
+Re-authenticating a badged entry replaces the stored credential — the
+single-provider form prints a heads-up first. When the vault can't be
+read — not yet provisioned or currently sealed — both surfaces say so
+instead of guessing.
 
 Each provider offers the methods its vendor supports — OAuth / interactive
 login (launches an auth container), the OAuth **device-code** variant (for
