@@ -434,3 +434,17 @@ class TestCreatePassphraseModalPilot:
             await pilot.click("#vault-create-typed")
             await pilot.pause()
         assert app.result == "s3cret-one"
+
+
+class TestProbeFailureSurfaces:
+    """A broken durable tier fails the pre-flight loudly, not as a silent worker error."""
+
+    async def test_probe_exception_notifies_and_blocks(self, flow_stub: SimpleNamespace) -> None:
+        with patch(
+            "terok.lib.api.vault.credentials_provisioned",
+            side_effect=RuntimeError("sealed credential present but could not be unsealed"),
+        ):
+            assert await TerokTUI._ensure_credentials_provisioned(flow_stub) is False
+        flow_stub.push_screen_wait.assert_not_awaited()
+        messages = [str(c.args[0]) for c in flow_stub.notify.call_args_list]
+        assert any("could not be unsealed" in m for m in messages)

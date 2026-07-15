@@ -730,15 +730,34 @@ if _HAS_TEXTUAL:
             from .screens import VaultCreatePassphraseModal, VaultTierChooserModal
 
             cfg = SandboxConfig()
-            if await asyncio.to_thread(credentials_provisioned, cfg):
+            # The probes get the same user-facing error path as the
+            # provisioning call below: credentials_provisioned fails
+            # closed (WrongPassphraseError) on a configured-but-broken
+            # durable tier, and an unnotified crash here would strand
+            # the palette worker in a silent ERROR state.
+            try:
+                provisioned = await asyncio.to_thread(credentials_provisioned, cfg)
+                auto_tier = not provisioned and await asyncio.to_thread(systemd_creds_available)
+                keyring_ok = (
+                    not provisioned
+                    and not auto_tier
+                    and await asyncio.to_thread(keyring_backend_available)
+                )
+            except Exception as exc:  # noqa: BLE001 — e.g. an unsealable systemd-creds credential
+                self.notify(
+                    f"Vault passphrase probe failed: {exc}",
+                    severity="error",
+                    timeout=15,
+                )
+                return False
+            if provisioned:
                 return True
 
             typed: str | None = ""  # the create-modal's "generate for me" sentinel
             tier: str | None
-            if await asyncio.to_thread(systemd_creds_available):
+            if auto_tier:
                 tier = "systemd-creds"
             else:
-                keyring_ok = await asyncio.to_thread(keyring_backend_available)
                 tier = await self.push_screen_wait(
                     VaultTierChooserModal(keyring_available=keyring_ok)
                 )
