@@ -1042,12 +1042,19 @@ podman's configured `cdi_spec_dirs`) and otherwise falls back to the
 vendor's documented raw-device recipe.  CDI needs podman ≥ 4.1; the raw
 recipes also work on older podman releases.
 
-**NVIDIA** — requires the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html)
-with a generated CDI spec (`nvidia-ctk cdi generate`); there is no raw
-fallback (the toolkit injects the driver userland).  Adds:
+**NVIDIA** — best served by the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html)
+with a generated CDI spec (`nvidia-ctk cdi generate`).  Three tiers,
+picked automatically:
 
-- `--device nvidia.com/gpu=all`
-- `NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=all`
+1. CDI: `--device nvidia.com/gpu=all`
+2. Pre-CDI toolkit installs (podman < 4.1): the toolkit's legacy OCI
+   hook triggers on the env vars and injects devices and driver
+   userland itself — terok emits only the env vars
+3. Driver without toolkit: every `/dev/nvidia*` device node is passed;
+   the image must then carry a driver userland (`libcuda`) matching
+   the host kernel module
+
+All tiers set `NVIDIA_VISIBLE_DEVICES=all`, `NVIDIA_DRIVER_CAPABILITIES=all`.
 
 **AMD** — CDI via the [AMD Container Toolkit](https://instinct.docs.amd.com/projects/container-toolkit/en/latest/)
 (`amd-ctk cdi generate`, kind `amd.com/gpu`) when present; otherwise the
@@ -1063,6 +1070,11 @@ else (requires the `i915`/`xe` kernel driver):
 
 - `--device /dev/dri` (or `--device intel.com/gpu=all` via CDI)
 - `--group-add keep-groups`
+
+The raw AMD/Intel recipes also mount `/dev/dri/by-path` read-only when
+the host has it — `--device /dev/dri` replicates the device nodes but
+not the PCI-addressed symlinks, and Intel's NEO runtime enumerates GPUs
+through that directory first.
 
 `--group-add keep-groups` keeps the invoking user's host groups (the
 `render` group gating AMD/Intel nodes) inside the rootless container.
