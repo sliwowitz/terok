@@ -59,9 +59,22 @@ class TestHasGpu:
         _write_project_yml(tmp_path, "run:\n  gpus: ALL\n")
         assert has_gpu(_project(root=tmp_path)) is True
 
-    def test_returns_false_when_gpus_string_other(self, tmp_path: Path) -> None:
-        """Any other string value is treated as off (single-GPU specifiers aren't supported here)."""
-        _write_project_yml(tmp_path, "run:\n  gpus: '0,1'\n")
+    @pytest.mark.parametrize("value", ["nvidia", "amd", "intel", "nvidia,amd"])
+    def test_vendor_selector_lights_the_badge(self, tmp_path: Path, value: str) -> None:
+        """Vendor-name selectors count as GPU opt-in."""
+        _write_project_yml(tmp_path, f"run:\n  gpus: '{value}'\n")
+        assert has_gpu(_project(root=tmp_path)) is True
+
+    def test_vendor_list_lights_the_badge(self, tmp_path: Path) -> None:
+        """A YAML list of vendors counts; an empty list doesn't."""
+        _write_project_yml(tmp_path, "run:\n  gpus: [amd, intel]\n")
+        assert has_gpu(_project(root=tmp_path)) is True
+        _write_project_yml(tmp_path, "run:\n  gpus: []\n")
+        assert has_gpu(_project(root=tmp_path)) is False
+
+    def test_blank_string_stays_off(self, tmp_path: Path) -> None:
+        """A whitespace-only string is not an opt-in."""
+        _write_project_yml(tmp_path, "run:\n  gpus: '  '\n")
         assert has_gpu(_project(root=tmp_path)) is False
 
     @pytest.mark.parametrize("value", [True, False])

@@ -68,6 +68,15 @@ class ProjectConfig(BaseModel):
     """Podman ``--memory`` value from ``run.memory`` in project.yml."""
     cpus: str | None = None
     """Podman ``--cpus`` value from ``run.cpus`` in project.yml."""
+    gpus: str | bool | list[str] | None = None
+    """GPU passthrough selector from ``run.gpus`` in project.yml.
+
+    ``"all"``/``true`` passes through every vendor detected on the
+    host; ``"nvidia"``, ``"amd"``, ``"intel"`` (single, comma-separated,
+    or a list) select vendors explicitly.  Kept in the raw config shape —
+    terok-executor normalizes it at launch via
+    [`normalize_gpus`][terok_sandbox.config_schema.normalize_gpus].
+    """
     nested_containers: bool = False
     """Project runs podman/docker inside its container (see ``run.nested_containers``)."""
     runtime: Literal["crun", "krun"] | None = None

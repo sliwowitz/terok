@@ -152,7 +152,7 @@ def captured_runspec(agent_runner_mock: unittest.mock.Mock) -> Any:
         volumes=tuple(kwargs["volumes"]),
         command=tuple(kwargs["command"]),
         task_dir=kwargs["task_dir"],
-        gpu_enabled=kwargs.get("gpu", False),
+        gpus=kwargs.get("gpus"),
         memory=kwargs.get("memory"),
         cpus=kwargs.get("cpus"),
         extra_args=tuple(kwargs.get("extra_args") or ()),

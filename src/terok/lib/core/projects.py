@@ -270,6 +270,7 @@ def _build_project_config(
         shutdown_timeout=raw.run.shutdown_timeout,
         memory=raw.run.memory,
         cpus=raw.run.cpus,
+        gpus=raw.run.gpus,
         nested_containers=raw.run.nested_containers,
         runtime=raw.run.runtime,
         timezone=raw.run.timezone,

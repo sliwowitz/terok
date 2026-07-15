@@ -33,7 +33,6 @@ from terok.lib.integrations.sandbox import (
 from ...core import runtime as _rt
 from ...core.config import make_sandbox_config
 from ...core.projects import load_project
-from ...core.task_state import has_gpu
 from ...util.ansi import blue as _blue, yellow as _yellow
 from ..tasks import dossier_path, tasks_meta_dir
 
@@ -193,7 +192,7 @@ def _run_container(
         image: Container image to run.
         env: Environment variables to pass via ``-e``.
         volumes: Typed volume specs (sandbox decides mount vs inject).
-        project: The resolved [`ProjectConfig`][terok.cli.commands.sickbay.ProjectConfig] (used for GPU flag).
+        project: The resolved [`ProjectConfig`][terok.lib.core.project_model.ProjectConfig] (used for the GPU selector).
         task_id: Task identifier — the second component of the clearance
             annotation triple.
         task_dir: Per-task directory (used for per-task shield state).
@@ -230,7 +229,7 @@ def _run_container(
             command=list(command or ()),
             name=cname,
             task_dir=task_dir,
-            gpu=has_gpu(project),
+            gpus=project.gpus,
             memory=project.memory,
             cpus=project.cpus,
             unrestricted="TEROK_UNRESTRICTED" in env,

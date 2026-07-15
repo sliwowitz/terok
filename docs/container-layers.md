@@ -75,4 +75,4 @@ See [Shared Directories](shared-dirs.md) for mount details.
 
 ## GPU Support
 
-GPU passthrough is opt-in per project (`run.gpus` in `project.yml`). When enabled, terok adds the necessary Podman flags for NVIDIA GPUs. See [GPU Passthrough](usage.md#gpu-passthrough) for details.
+GPU passthrough is opt-in per project (`run.gpus` in `project.yml`). The value selects vendors — `all` (auto-detect), `nvidia`, `amd`, `intel`, or a list — and terok adds the matching Podman flags (CDI when available, the vendor's documented device nodes otherwise). See [GPU Passthrough](usage.md#gpu-passthrough) for details.
