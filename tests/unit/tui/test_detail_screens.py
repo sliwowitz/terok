@@ -683,6 +683,38 @@ class TestAuthScreenOptions:
         ids = [opt._stub_kwargs.get("id") for opt in option_list._stub_args if opt is not None]
         assert ids == [f"auth_{name}" for name in AUTH_PROVIDERS] + ["import_opencode_config"]
 
+    def test_auth_screen_badges_authenticated_entries(self) -> None:
+        """Stored-credential entries get their option prompt badged."""
+        from terok_executor import AUTH_PROVIDERS
+
+        screens, _ = import_screens()
+        screen = screens.AuthActionsScreen()
+        option_list = mock.Mock()
+        screen.query_one = mock.Mock(return_value=option_list)
+        screen._show_auth_state(frozenset({"claude"}))
+        option_list.replace_option_prompt.assert_called_once_with(
+            "auth_claude", f"{AUTH_PROVIDERS['claude'].label}  ✓ authenticated"
+        )
+
+    def test_auth_screen_unreadable_vault_flags_subtitle(self) -> None:
+        """``None`` (vault unreadable) flags the state instead of faking 'no auth'."""
+        screens, _ = import_screens()
+        screen = screens.AuthActionsScreen()
+        dialog = mock.Mock()
+        screen.query_one = mock.Mock(return_value=dialog)
+        screen._show_auth_state(None)
+        assert "vault locked" in dialog.border_subtitle
+
+    def test_auth_screen_scopes_badge_query_to_project(self) -> None:
+        """The modal's project scope drives the vault badge query."""
+        screens, _ = import_screens()
+        screen = screens.AuthActionsScreen("myproj")
+        with mock.patch(
+            "terok.lib.api.agents.authenticated_entries", return_value=frozenset()
+        ) as mock_authed:
+            screen._fetch_auth_state()
+        mock_authed.assert_called_once_with("myproj")
+
     def test_opencode_config_screen_construction(self) -> None:
         """Verify OpenCodeConfigScreen can be instantiated."""
         screens, _ = import_screens()
