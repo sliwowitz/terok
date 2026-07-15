@@ -221,12 +221,23 @@ class ProjectActionsMixin(_MixinBase):
         keeps the child's last lines readable before the TUI redraws
         over them.  Failures — launch errors and non-zero exits — always
         prompt so the error stays visible; clean (zero) exits prompt
-        unless *prompt_on_success* is false.
+        unless *prompt_on_success* is false.  Repaints are batched for the
+        entire suspension — a background render against the suspended
+        driver would wedge the whole app (see the in-body comment).
 
         Returns:
             The child's exit code, or ``None`` if it could not be launched.
         """
-        with self.suspend():
+        # ``batch_update`` keeps the app from rendering for the whole
+        # suspension.  ``suspend()`` stops the driver's writer thread but the
+        # loop deliberately keeps running, so anything that still repaints —
+        # a spinner, a podman-events refresh — feeds the writer's bounded
+        # queue that nothing drains any more; once it fills, ``queue.put``
+        # blocks the event loop itself and the app can never observe the
+        # child's exit.  Possibly a workaround for a Textual-level flaw
+        # (writes to a suspended driver deadlock instead of failing loud);
+        # the real cause deserves a later upstream investigation.
+        with self.suspend(), self.batch_update():
             code: int | None
             with _terminal_pollution_guard():
                 try:
