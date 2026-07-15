@@ -107,9 +107,10 @@ class TestRunSuspended:
     """``_run_suspended`` — the shared suspend-run-scrub-prompt dance."""
 
     def _instance(self) -> mock.Mock:
-        """Build a mixin mock with ``suspend`` wired as a context manager."""
+        """Build a mixin mock with the app context managers wired up."""
         instance = mock.Mock(spec=ProjectActionsMixin)
         instance.suspend = mock.MagicMock()
+        instance.batch_update = mock.MagicMock()
         return instance
 
     def _run(self, instance: mock.Mock, *argv: str, **kwargs: bool) -> int | None:
@@ -179,6 +180,47 @@ class TestRunSuspended:
             code = self._run(instance, "bogus", prompt_on_success=False)
         assert code is None
         input_mock.assert_called_once()
+
+    def test_repaints_are_batched_for_the_whole_suspension(self) -> None:
+        """The batch opens after suspend and brackets the child's entire run.
+
+        ``suspend()`` stops the driver's writer thread while the loop keeps
+        running; an unbatched repaint (spinner, podman-events refresh) fills
+        the writer's bounded queue and deadlocks the event loop, so the app
+        never sees the child exit.
+        """
+        instance = self._instance()
+        events: list[str] = []
+
+        def _record(cm: mock.MagicMock, name: str) -> None:
+            cm.return_value.__enter__.side_effect = lambda *a: events.append(f"{name}:enter")
+            cm.return_value.__exit__.side_effect = lambda *a: events.append(f"{name}:exit")
+
+        _record(instance.suspend, "suspend")
+        _record(instance.batch_update, "batch")
+
+        async def _spawn(*_argv: str) -> mock.AsyncMock:
+            events.append("child:spawn")
+            proc = self._proc(0)
+            proc.wait.side_effect = lambda: events.append("child:exit") or 0
+            return proc
+
+        with (
+            mock.patch(
+                "terok.tui.project_actions.asyncio.create_subprocess_exec",
+                new=mock.AsyncMock(side_effect=_spawn),
+            ),
+            mock.patch("builtins.input"),
+        ):
+            assert self._run(instance, "agent") == 0
+        assert events == [
+            "suspend:enter",
+            "batch:enter",
+            "child:spawn",
+            "child:exit",
+            "batch:exit",
+            "suspend:exit",
+        ]
 
     def test_eof_at_the_prompt_is_survived(self) -> None:
         """EOF instead of Enter (dead stdin) must not crash the resume path."""
