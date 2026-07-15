@@ -52,7 +52,7 @@ Built `FROM` the L1 image.
 | `terok project build <project>` | L2 only | Project config changes |
 | `terok project build <project> --refresh-agents` | L1 + L2 | Bust the agent-install cache |
 | `terok project build <project> --full-rebuild` | L0 + L1 + L2 (no cache) | Refresh base image + system packages |
-| `terok project build <project> --agents <list>\|all` | L0 + L1 + L2 | One-shot override of which agents bake into L1 |
+| `terok project build <project> --agents <list>\|all` | L1 (if missing) + L2 | One-shot override of which agents bake into L1 |
 | `terok project build <project> --dev` | + L2-dev image | Manual debugging container |
 
 `--refresh-agents` rebuilds L1 with a fresh `AGENT_CACHE_BUST` build-arg (L0 is re-run fully cached); the per-agent install layers below the cache-bust point are re-executed, the system-package layer above it is reused.
