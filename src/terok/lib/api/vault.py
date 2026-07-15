@@ -65,7 +65,7 @@ _LAZY: dict[str, str] = {
     "handle_vault_seal": "terok.lib.integrations.sandbox",
     "handle_vault_to_keyring": "terok.lib.integrations.sandbox",
     "keyring_backend_available": "terok.lib.integrations.sandbox",
-    "provision_passphrase_tier": "terok.lib.integrations.sandbox",
+    "provision_passphrase_tier": "terok.lib.integrations.sandbox",  # nosec: B105 — export-map path, not a secret
     "provision_session_passphrase": "terok.lib.integrations.sandbox",
     "purge_passphrase_tiers": "terok.lib.integrations.sandbox",
     "session_shadow_state": "terok.lib.integrations.sandbox",

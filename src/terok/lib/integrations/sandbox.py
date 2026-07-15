@@ -168,7 +168,7 @@ _LAZY: dict[str, str] = {
     "mint_gate_token": "terok_sandbox",
     "needs_setup": "terok_sandbox",
     "plaintext_passphrase_config_path": "terok_sandbox.paths",
-    "provision_passphrase_tier": "terok_sandbox",
+    "provision_passphrase_tier": "terok_sandbox",  # nosec: B105 — export-map path, not a secret
     "provision_session_passphrase": "terok_sandbox",
     "public_line_of": "terok_sandbox",
     "purge_passphrase_tiers": "terok_sandbox",

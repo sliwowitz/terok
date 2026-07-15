@@ -303,3 +303,134 @@ class TestCreatePassphraseModalRouting:
         event.button.id = "vault-create-cancel"
         modal.on_button_pressed(event)
         modal.dismiss.assert_called_once_with(None)
+
+
+class TestRevealAndSkipHelpers:
+    """The reveal + ack helper and the shared cancel warning."""
+
+    async def test_reveal_ack_writes_marker_and_refreshes(self) -> None:
+        """'Mark as saved' → recovery marker + pill refresh."""
+        stub = SimpleNamespace(
+            push_screen_wait=AsyncMock(return_value=True),
+            _refresh_vault_status=AsyncMock(),
+        )
+        with (
+            patch("terok.tui.app.RecoveryStatus") as recovery,
+            patch("terok.tui.app.SandboxConfig"),
+        ):
+            await TerokTUI._reveal_new_passphrase(stub, "minted", "keyring")
+        recovery.acknowledge.assert_called_once()
+        stub._refresh_vault_status.assert_awaited_once()
+
+    async def test_reveal_close_leaves_marker_alone(self) -> None:
+        """Closing without the ack keeps the UNSAVED pill warning as the nudge."""
+        stub = SimpleNamespace(
+            push_screen_wait=AsyncMock(return_value=False),
+            _refresh_vault_status=AsyncMock(),
+        )
+        with patch("terok.tui.app.RecoveryStatus") as recovery:
+            await TerokTUI._reveal_new_passphrase(stub, "minted", "keyring")
+        recovery.acknowledge.assert_not_called()
+        stub._refresh_vault_status.assert_not_awaited()
+
+    def test_skip_notice_is_a_warning(self) -> None:
+        stub = SimpleNamespace(notify=MagicMock())
+        TerokTUI._notify_provisioning_skipped(stub)
+        assert stub.notify.call_args.kwargs.get("severity") == "warning"
+
+
+# ── Pilot-driven modal tests (real Textual app) ─────────────────────────
+
+_SENTINEL_PENDING = object()
+
+
+def _modal_host(modal):  # noqa: ANN001, ANN202 — Textual App subclass built per test
+    """Minimal test host that pushes *modal* and stashes its dismissal result.
+
+    Uses the callback form of ``push_screen`` because ``push_screen_wait``
+    requires a running worker — Textual's ``run_test`` does not provide
+    one out of the box.  Same idiom as ``test_wizard_screens.py``.
+    """
+    from textual.app import App
+
+    class _Host(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.result: object = _SENTINEL_PENDING
+
+        def on_mount(self) -> None:
+            self.push_screen(modal, self._capture)
+
+        def _capture(self, result: object) -> None:
+            self.result = result
+
+    return _Host()
+
+
+class TestTierChooserModalPilot:
+    """The chooser rendered in a real Textual app."""
+
+    async def test_keyring_button_dismisses_with_tier(self) -> None:
+        from terok.tui.screens import VaultTierChooserModal
+
+        app = _modal_host(VaultTierChooserModal(keyring_available=True))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#vault-tier-keyring")
+            await pilot.pause()
+        assert app.result == "keyring"
+
+    async def test_unreachable_keyring_disables_the_recommended_button(self) -> None:
+        from textual.widgets import Button
+
+        from terok.tui.screens import VaultTierChooserModal
+
+        modal = VaultTierChooserModal(keyring_available=False)
+        app = _modal_host(modal)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert modal.query_one("#vault-tier-keyring", Button).disabled
+            await pilot.click("#vault-tier-session")
+            await pilot.pause()
+        assert app.result == "session-file"
+
+
+class TestCreatePassphraseModalPilot:
+    """The create modal's live must-match gate, driven through real Inputs."""
+
+    async def test_generate_is_default_and_dismisses_with_sentinel(self) -> None:
+        from terok.tui.screens import VaultCreatePassphraseModal
+
+        app = _modal_host(VaultCreatePassphraseModal())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.click("#vault-create-generate")
+            await pilot.pause()
+        assert app.result == ""
+
+    async def test_typed_button_enables_only_on_match(self) -> None:
+        from textual.widgets import Button, Input, Static
+
+        from terok.tui.screens import VaultCreatePassphraseModal
+
+        modal = VaultCreatePassphraseModal()
+        app = _modal_host(modal)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            typed_button = modal.query_one("#vault-create-typed", Button)
+            assert typed_button.disabled  # nothing entered yet
+
+            modal.query_one("#vault-create-input", Input).value = "s3cret-one"
+            modal.query_one("#vault-create-repeat", Input).value = "s3cret-two"
+            await pilot.pause()
+            assert typed_button.disabled
+            hint = modal.query_one("#vault-create-mismatch", Static)
+            assert "do not match" in str(hint.render())
+
+            modal.query_one("#vault-create-repeat", Input).value = "s3cret-one"
+            await pilot.pause()
+            assert not typed_button.disabled
+
+            await pilot.click("#vault-create-typed")
+            await pilot.pause()
+        assert app.result == "s3cret-one"

@@ -2483,7 +2483,7 @@ def render_vault_status(status: VaultStatusSnapshot | None) -> Text:
 # ---------------------------------------------------------------------------
 
 
-class VaultTierChooserModal(screen.ModalScreen["str | None"]):
+class VaultTierChooserModal(screen.ModalScreen[str | None]):
     """Pick the storage tier for a brand-new vault passphrase.
 
     The TUI counterpart of the setup chooser sandbox shows on a TTY:
@@ -2586,7 +2586,7 @@ class VaultTierChooserModal(screen.ModalScreen["str | None"]):
                 self.dismiss(None)
 
 
-class VaultCreatePassphraseModal(screen.ModalScreen["str | None"]):
+class VaultCreatePassphraseModal(screen.ModalScreen[str | None]):
     """Create a NEW vault passphrase — explicitly not an unlock prompt.
 
     Dismisses with ``""`` (empty string) for "generate a strong
@@ -2675,10 +2675,9 @@ class VaultCreatePassphraseModal(screen.ModalScreen["str | None"]):
 
     def on_mount(self) -> None:
         """Focus the primary (generate) button — it's the recommended path."""
-        try:
-            self.query_one("#vault-create-generate", Button).focus()
-        except Exception:  # pragma: no cover — stubbed textual
-            pass
+        if Input is None:  # pragma: no cover — textual is stubbed in unit tests
+            return
+        self.query_one("#vault-create-generate", Button).focus()
 
     def _typed_values(self) -> tuple[str, str]:
         """Return the two field values (empty strings when widgets are stubbed)."""
