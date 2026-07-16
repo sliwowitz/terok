@@ -6,8 +6,9 @@
 Walks the full operator journey introduced in terok#877 / sandbox#278:
 
 1. A real SQLCipher-encrypted credentials DB exists on disk with a
-   known passphrase but no resolver tier has it (config tier blanked,
-   keyring/systemd-creds disabled, no session-unlock file).
+   known passphrase but no resolver tier has it (fixture
+   passphrase_command removed, keyring/systemd-creds disabled, no
+   session-unlock file).
 2. A real CLI verb (``terok project derive``) that opens the vault
    via [`vault_db`][terok.lib.domain.vault.vault_db] is exercised in a
    subprocess and surfaces the actionable hint installed by PR #936
@@ -56,11 +57,13 @@ class TestVaultUnlockStory:
     def _prime_locked_vault(self, terok_env: TerokIntegrationEnv) -> None:
         """Encrypt the credentials DB and strip every chain tier the harness seeded.
 
-        The default ``terok_env`` fixture writes ``credentials.passphrase``
-        to the user config so most integration tests can open the DB
-        without a real daemon.  This story needs the *opposite* — a
-        locked vault that no tier can unseal — so we have to undo that
-        helper deliberately.
+        The default ``terok_env`` fixture wires a ``passphrase_command``
+        secret file into the user config so most integration tests can
+        open the DB without a real daemon.  This story needs the
+        *opposite* — a locked vault that no tier can unseal — so we
+        undo that helper deliberately (keyring explicitly off: it
+        defaults on now, and a CI host's real Secret Service must not
+        unlock the story's vault).
         """
         from terok_sandbox import CredentialDB
 
@@ -68,7 +71,7 @@ class TestVaultUnlockStory:
         CredentialDB(db_path, passphrase=self._STORY_PASSPHRASE).close()
 
         (terok_env.xdg_config_home / "terok" / "config.yml").write_text(
-            "credentials: {}\n",
+            "credentials:\n  use_keyring: false\n",
             encoding="utf-8",
         )
         (terok_env.system_config_root / "config.yml").write_text(
