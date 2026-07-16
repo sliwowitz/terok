@@ -51,6 +51,7 @@ def _full_variables(*, security_class: str, base: str, **overrides: str) -> dict
         "BASE_IMAGE": BASE_IMAGES[base],
         "AGENTS": overrides.get("agents", "all"),
         "CREDENTIALS_SCOPE": overrides.get("credentials_scope", "shared"),
+        "GPUS": overrides.get("gpus", ""),
     }
 
 
@@ -111,9 +112,11 @@ class TestProjectTemplate:
         assert "# gate:" in _render("online", "ubuntu")
         assert "# gate:" not in _render("gatekeeping", "ubuntu")
 
-    def test_run_gpus_section_only_for_nvidia(self) -> None:
-        assert "gpus: nvidia" in _render("online", "nvidia")
-        assert "gpus: nvidia" not in _render("online", "ubuntu")
+    def test_run_gpus_section_follows_gpus_variable(self) -> None:
+        """The gpus block is driven by GPUS alone — any base can carry it."""
+        assert 'gpus: "nvidia"' in _render("online", "nvidia", gpus="nvidia")
+        assert 'gpus: "amd:1,intel"' in _render("online", "ubuntu", gpus="amd:1,intel")
+        assert "gpus:" not in _render("online", "nvidia")
 
     def test_agents_line_omitted_when_unset(self) -> None:
         """Empty AGENTS suppresses the line and surfaces the commented hint."""

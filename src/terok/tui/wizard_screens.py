@@ -46,11 +46,13 @@ from textual.widgets import (
     RadioButton,
     RadioSet,
     RichLog,
+    Select,
     Static,
     TextArea,
 )
 
 from ..lib.api import (
+    BASE_GPU_VENDOR,
     QUESTIONS,
     Question,
     validate_answer,
@@ -58,6 +60,7 @@ from ..lib.api import (
 )
 from .agents_screen import AgentsSelectScreen
 from .askpass_service import build_askpass_env, gui_askpass_usable
+from .gpu_screen import GpuSelectScreen
 from .widgets.ansi_log import AnsiLog
 
 # ── Step 1: the form ──────────────────────────────────────────────────
@@ -139,6 +142,10 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
         self._errors: dict[str, Label] = {}
         initial = dict(initial) if initial else {}
         self._agents_override: str | None = initial.pop("agents", None) or None
+        # ``None`` = untouched — the effective value then follows the
+        # selected base's implied vendor (GPU software stacks default
+        # their vendor on; plain bases default off).
+        self._gpus_override: str | None = initial.pop("gpus", None)
         self._initial: dict[str, str] = initial
 
     def compose(self) -> ComposeResult:
@@ -156,6 +163,11 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
                     yield from self._field(q)
             with Horizontal(id="wizard-form-buttons"):
                 yield Button(
+                    self._gpus_button_label(),
+                    id="wizard-form-gpus",
+                    variant="default",
+                )
+                yield Button(
                     self._agents_button_label(),
                     id="wizard-form-agents",
                     variant="default",
@@ -171,6 +183,8 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
             yield Label(q.help, classes="wizard-help")
         preset = self._initial.get(q.key, "")
         match q.kind:
+            case "choice" if q.dropdown:
+                yield from self._select_widget(q, selected_slug=preset)
             case "choice":
                 yield from self._choice_widget(q, selected_slug=preset)
             case "text":
@@ -209,6 +223,28 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
                 )
                 if c.disabled_reason:
                     yield Label(c.disabled_reason, classes="wizard-help")
+
+    def _select_widget(self, q: Question, *, selected_slug: str = "") -> ComposeResult:
+        """Render a compact ``Select`` dropdown for a long choice list.
+
+        Preselection order: the form-restore prefill, then the
+        question's declared default, then the first selectable option —
+        like the radio path, the field is never initially unselected.
+        """
+        choices = q.resolve_choices()
+        selectable = [c.slug for c in choices if not c.disabled_reason]
+        preset = selected_slug if selected_slug in selectable else ""
+        value = (
+            preset
+            or (q.default if q.default in selectable else "")
+            or (selectable[0] if selectable else "")
+        )
+        yield Select(
+            ((c.label, c.slug) for c in choices if not c.disabled_reason),
+            value=value,
+            allow_blank=False,
+            id=self._widget_id(q),
+        )
 
     @staticmethod
     def _widget_id(q: Question) -> str:
@@ -251,6 +287,48 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
             return f"Agents: {self._agents_override}"
         return "Override agents…"
 
+    @on(Button.Pressed, "#wizard-form-gpus")
+    def _on_open_gpus_modal(self) -> None:
+        """Open the GPU picker seeded with the effective selector."""
+        self.app.push_screen(
+            GpuSelectScreen(initial=self._effective_gpus()),
+            self._on_gpus_dismissed,
+        )
+
+    def _on_gpus_dismissed(self, selector: str | None) -> None:
+        if selector is None:
+            return
+        self._gpus_override = selector
+        self._refresh_gpus_button()
+
+    @on(Select.Changed, "#wizard-field-base")
+    def _on_base_changed(self) -> None:
+        """Keep the GPU button's implied default in step with the base."""
+        if self._gpus_override is None:
+            self._refresh_gpus_button()
+
+    def _refresh_gpus_button(self) -> None:
+        with contextlib.suppress(NoMatches):
+            self.query_one("#wizard-form-gpus", Button).label = self._gpus_button_label()
+
+    def _gpus_button_label(self) -> str:
+        effective = self._effective_gpus()
+        return f"GPU: {effective}" if effective else "GPU: off"
+
+    def _effective_gpus(self) -> str:
+        """The selector the form will submit — explicit choice or base default."""
+        if self._gpus_override is not None:
+            return self._gpus_override
+        return BASE_GPU_VENDOR.get(self._current_base_slug(), "")
+
+    def _current_base_slug(self) -> str:
+        base_q = next(q for q in QUESTIONS if q.key == "base")
+        with contextlib.suppress(NoMatches):
+            value = self.query_one(f"#{self._widget_id(base_q)}", Select).value
+            if value is not Select.BLANK:
+                return str(value)
+        return base_q.default
+
     @on(Button.Pressed, "#wizard-form-create")
     def _on_create(self) -> None:
         """Validate every field; on success dismiss with the collected dict."""
@@ -267,6 +345,7 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
                 any_error = True
         if self._agents_override:
             values["agents"] = self._agents_override
+        values["gpus"] = self._effective_gpus()
         if not any_error:
             self.dismiss(values)
 
@@ -274,6 +353,9 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
         """Pull the current raw string out of the widget for *q*."""
         widget_id = f"#{self._widget_id(q)}"
         match q.kind:
+            case "choice" if q.dropdown:
+                value = self.query_one(widget_id, Select).value
+                return "" if value is Select.BLANK else str(value)
             case "choice":
                 rs = self.query_one(widget_id, RadioSet)
                 pressed = rs.pressed_button
