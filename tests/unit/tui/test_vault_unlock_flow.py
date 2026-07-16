@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from terok.lib.integrations.sandbox import WrongPassphraseError
+from terok.lib.integrations.sandbox import VaultState, WrongPassphraseError
 from terok.tui.app import TerokTUI
 
 
@@ -107,10 +107,9 @@ class TestStatusPillLockReason:
     def test_locked_pill_carries_reason(self) -> None:
         message = self._pill_message(
             SimpleNamespace(
-                locked=True,
+                state=VaultState.LOCKED,
                 lock_reason="no passphrase in any tier",
-                plaintext_passphrase_path=None,
-                passphrase_source=None,
+                source=None,
             )
         )
         assert "LOCKED" in message
@@ -119,10 +118,9 @@ class TestStatusPillLockReason:
     def test_locked_pill_without_reason_keeps_generic_text(self) -> None:
         message = self._pill_message(
             SimpleNamespace(
-                locked=True,
+                state=VaultState.LOCKED,
                 lock_reason=None,
-                plaintext_passphrase_path=None,
-                passphrase_source=None,
+                source=None,
             )
         )
         assert "LOCKED" in message
@@ -141,7 +139,7 @@ class TestVaultWatcher:
         # tests re-import the app module (import_app/import_fresh), so the
         # sys.modules entry can be a *different* module object than the one
         # our top-of-file ``TerokTUI`` resolves names from.
-        monkeypatch.setitem(TerokTUI._start_vault_watcher.__globals__, "SandboxConfig", lambda: cfg)
+        monkeypatch.setattr("terok.lib.core.config.make_sandbox_config", lambda: cfg)
         stub = SimpleNamespace(
             _vault_watcher=None,
             _on_vault_session_dir_changed=MagicMock(),

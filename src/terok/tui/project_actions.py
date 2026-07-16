@@ -110,6 +110,7 @@ class ProjectActionsMixin(_MixinBase):
         async def _on_vault_unlock_result(self, passphrase: str | None) -> None: ...
         # ``@work``-decorated on the App, so the real return is a Worker.
         def _run_vault_provision_flow(self) -> object: ...
+        def _run_vault_change_flow(self) -> object: ...
         # Provided by ConsoleLogMixin — both are mixed into TerokTUI.
         def dispatch_console_action(
             self,
@@ -1021,17 +1022,23 @@ class ProjectActionsMixin(_MixinBase):
         result through ``_on_vault_unlock_result`` so the write +
         re-probe + pill refresh all stay in one place.
 
-        On a fresh install (no credentials DB yet) there is nothing to
-        unlock — the modal would accept any string and silently make it
-        the future vault's key on the reboot-volatile session tier.
-        Route to the first-passphrase provisioning flow instead, the
-        same chooser + create + reveal conversation setup runs.
+        On an UNPROVISIONED vault there is nothing to unlock — the
+        modal would accept any string and silently make it the future
+        vault's key on the reboot-volatile session tier.  Route to the
+        first-passphrase provisioning flow instead, the same chooser +
+        create + reveal conversation setup runs.  The classification
+        comes from the shared snapshot, not a hand-rolled
+        ``db_path.exists()`` probe.
         """
-        from terok.lib.api import SandboxConfig
+        from terok.lib.api.vault import VaultState, load_vault_status
 
         from .screens import VaultUnlockModal
 
-        if not SandboxConfig().db_path.exists():
+        try:
+            state = load_vault_status().state
+        except Exception:  # noqa: BLE001 — fall through to the unlock prompt on a broken probe
+            state = VaultState.LOCKED
+        if state is VaultState.UNPROVISIONED:
             self._run_vault_provision_flow()
             return
         await self.push_screen(VaultUnlockModal(), self._on_vault_unlock_result)
@@ -1053,8 +1060,8 @@ class ProjectActionsMixin(_MixinBase):
             ConfirmDestructiveScreen(
                 message=(
                     "This clears EVERY stored copy of the vault passphrase — the "
-                    "session file, the OS keyring, the sealed systemd-creds "
-                    "credential, and any plaintext config.\n\n"
+                    "session file, the OS keyring, and the sealed systemd-creds "
+                    "credential.\n\n"
                     "You will need your saved passphrase to unlock again. If you "
                     "have not saved it off-host, the vault becomes unrecoverable."
                 ),
@@ -1104,6 +1111,16 @@ class ProjectActionsMixin(_MixinBase):
             refresh="vault_status",
         )
 
+    async def _action_vault_change(self) -> None:
+        """Change the vault passphrase — re-encrypt the DB, rewrite every tier.
+
+        Delegates to the app-level worker
+        ([`TerokTUI._run_vault_change_flow`][terok.tui.app.TerokTUI._run_vault_change_flow]) because the
+        conversation (current-passphrase modal when locked → create
+        modal → reveal + re-ack) needs ``push_screen_wait``.
+        """
+        self._run_vault_change_flow()
+
     async def _action_vault_reveal(self) -> None:
         """Resolve the current passphrase, display it, and offer a save ack.
 
@@ -1124,13 +1141,13 @@ class ProjectActionsMixin(_MixinBase):
         without a resolvable passphrase, and the unlock modal is the
         right next step.
         """
-        from terok.lib.api import SandboxConfig
+        from terok.lib.api import make_sandbox_config
         from terok.lib.api.shield import RecoveryStatus
         from terok.lib.api.vault import NoPassphraseError, WrongPassphraseError
 
         from .screens import VaultRevealModal
 
-        cfg = SandboxConfig()
+        cfg = make_sandbox_config()
         try:
             passphrase, source = cfg.resolve_passphrase_with_source(prompt_on_tty=False)
         except (NoPassphraseError, WrongPassphraseError) as exc:
@@ -1168,10 +1185,10 @@ class ProjectActionsMixin(_MixinBase):
         """
         if outcome is not True:
             return
-        from terok.lib.api import SandboxConfig
+        from terok.lib.api import make_sandbox_config
         from terok.lib.api.shield import RecoveryStatus
 
-        RecoveryStatus.acknowledge(SandboxConfig())
+        RecoveryStatus.acknowledge(make_sandbox_config())
         self.notify(
             "Recovery key marked as saved.",
             severity="information",
@@ -1189,10 +1206,10 @@ class ProjectActionsMixin(_MixinBase):
         vault-lock state — acknowledging a locked vault still writes
         the sidecar.
         """
-        from terok.lib.api import SandboxConfig
+        from terok.lib.api import make_sandbox_config
         from terok.lib.api.shield import RecoveryStatus
 
-        RecoveryStatus.acknowledge(SandboxConfig())
+        RecoveryStatus.acknowledge(make_sandbox_config())
         self.notify(
             "Recovery key marked as saved.",
             severity="information",

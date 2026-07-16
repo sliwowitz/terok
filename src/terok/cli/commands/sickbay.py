@@ -37,7 +37,7 @@ from terok.lib.api.setup import (
     resolve_container_state_dir,
     systemd_creds_has_tpm2,
 )
-from terok.lib.api.vault import VaultStatusSnapshot
+from terok.lib.api.vault import VaultState, load_vault_status
 
 from ...lib.core import runtime as _rt
 from ...lib.core.config import get_services_mode, global_config_path
@@ -157,26 +157,28 @@ def _passphrase_tier_label(source: str | None) -> str | None:
 
 
 def _check_vault() -> _CheckResult:
-    """Check vault store state — locked, populated, plaintext-on-disk.
+    """Check vault store state — classification, contents, warnings.
 
     Every container's supervisor embeds its own vault proxy, so the
-    host-side check reduces to DB-side facts — does the resolver chain
-    unlock the store, what's in it, and is the passphrase exposed on
-    disk?  Per-container proxy
-    health is reported by
+    host-side check reduces to the shared snapshot's facts — the state
+    classification, what's stored, and the warning catalog.
+    Per-container proxy health is reported by
     [`ContainerDoctor`][terok.lib.orchestration.container_doctor.ContainerDoctor]
     against each running task individually.
     """
     label = "Vault"
     try:
-        status = VaultStatusSnapshot.load()
+        status = load_vault_status()
     except Exception as exc:  # noqa: BLE001
         return ("warn", label, f"check failed — {exc}")
 
-    if status.db_error is not None:
+    if status.state is VaultState.ERROR:
         return ("warn", label, f"DB error — {status.db_error}")
 
-    if status.locked:
+    if status.state is VaultState.UNPROVISIONED:
+        return ("warn", label, "not set up yet — run 'terok setup' to provision a passphrase")
+
+    if status.state is VaultState.LOCKED:
         # The reason separates "no passphrase" / "wrong passphrase" /
         # "broken tier" — three different remedies behind one word.
         reason = f" ({status.lock_reason})" if status.lock_reason else ""
@@ -186,18 +188,17 @@ def _check_vault() -> _CheckResult:
             f"locked{reason} — run 'terok vault unlock' to make stored credentials available",
         )
 
-    creds = len(status.credentials_stored or ())
     parts: list[str] = []
-    tier = _passphrase_tier_label(status.passphrase_source)
+    tier = _passphrase_tier_label(status.source)
     if tier:
         parts.append(tier)
-    parts.append(f"{creds} credential(s) stored")
-    if status.plaintext_passphrase_path is not None:
-        parts.append("plaintext passphrase on disk")
+    parts.append(f"{len(status.providers or ())} credential(s) stored")
+    # Non-info warnings ride the detail line — same catalog wording the
+    # TUI pill and the CLI vault status show.
+    alerts = [w.brief for w in status.warnings if w.severity != "info"]
+    parts.extend(alerts)
     detail = ", ".join(parts)
-    if status.plaintext_passphrase_path is not None:
-        return ("warn", label, detail)
-    return ("ok", label, detail)
+    return ("warn" if alerts else "ok", label, detail)
 
 
 def _check_vault_shadow(*, fix: bool) -> list[_CheckResult]:
@@ -420,6 +421,76 @@ def _check_shield_annotations(project_name: str | None, task_id: str | None) -> 
                 results.append(result)
 
     return results
+
+
+def _check_stale_passphrase_tasks(
+    project_name: str | None, task_id: str | None
+) -> list[_CheckResult]:
+    """Flag running tasks whose container predates the last vault passphrase change.
+
+    A supervisor keeps the passphrase it resolved at spawn, so a task
+    started before ``vault passphrase change`` silently holds the OLD
+    one and fails on its next vault access.  Sandbox stamps every rekey
+    (``vault_rekey_stamp_file``, runtime-dir so it dies with the boot);
+    comparing container start times against the stamp names exactly the
+    tasks that need a restart.
+
+    Warn-only, deliberately no ``--fix``: the remedy is restarting a
+    *live agent session*, which sickbay must never do on its own.
+    """
+    from terok.lib.core.config import make_sandbox_config
+
+    try:
+        rekeyed_at = make_sandbox_config().vault_rekey_stamp_file.stat().st_mtime
+    except OSError:
+        return []  # no passphrase change since boot — nothing to flag
+
+    results: list[_CheckResult] = []
+    if project_name:
+        projects = [(project_name, load_project(project_name))]
+    else:
+        projects = [(p.name, p) for p in list_projects()]
+
+    for pid, project in projects:
+        meta_dir = tasks_meta_dir(pid)
+        if not meta_dir.is_dir():
+            continue
+        task_ids = list(iter_task_ids(meta_dir)) if task_id is None else [task_id]
+        for tid in task_ids:
+            result = _check_task_stale_passphrase(pid, tid, project, rekeyed_at=rekeyed_at)
+            if result:
+                results.append(result)
+
+    return results
+
+
+def _check_task_stale_passphrase(
+    pid: str, tid: str, project: ProjectConfig, *, rekeyed_at: float
+) -> _CheckResult | None:
+    """Check one task's container start time against the rekey stamp."""
+    if not is_valid_project_name(pid) or not is_task_id(tid):
+        return None
+    try:
+        meta = read_task_meta(tasks_meta_dir(pid), tid)
+    except Exception:  # noqa: BLE001
+        return None
+    if meta is None:
+        return None
+    mode = meta.get("mode")
+    if not mode:
+        return None
+    container = _rt.resolve_runtime(project).container(container_name(pid, mode, tid))
+    if container.state != "running":
+        return None
+    started = container.started_at
+    if started is None or started >= rekeyed_at:
+        return None
+    return (
+        "warn",
+        f"Task {pid}/{tid}",
+        "started before the last vault passphrase change — its supervisor still"
+        " holds the OLD passphrase; restart the task to pick up the new one",
+    )
 
 
 def _sanitize_id(value: str) -> str:
@@ -723,6 +794,8 @@ def _cmd_sickbay(
         for status, label, detail in _check_unfired_hooks(project_name, task_id, fix=fix):
             reporter.emit(status, label, detail)
         for status, label, detail in _check_shield_annotations(project_name, task_id):
+            reporter.emit(status, label, detail)
+        for status, label, detail in _check_stale_passphrase_tasks(project_name, task_id):
             reporter.emit(status, label, detail)
 
         _stream_containers(project_name, task_id, fix=fix, reporter=reporter)

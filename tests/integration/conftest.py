@@ -451,7 +451,20 @@ def terok_env(
     config_lines = []
     if "needs_vault" not in {m.name for m in request.node.iter_markers()}:
         config_lines.extend(["vault:", "  bypass_no_secret_protection: true"])
-    config_lines.extend(["credentials:", "  passphrase: integration-test-passphrase"])
+    # The plaintext config tier is gone; the blessed headless file recipe
+    # is a passphrase_command reading a mode-600 secret file.  Keyring is
+    # forced off so a CI host's real Secret Service can never shadow the
+    # fixture tier.
+    secret_file = config_dir / "vault-passphrase"
+    secret_file.write_text("integration-test-passphrase\n", encoding="utf-8")
+    secret_file.chmod(0o600)
+    config_lines.extend(
+        [
+            "credentials:",
+            f"  passphrase_command: cat {secret_file}",
+            "  use_keyring: false",
+        ]
+    )
     config_file.write_text("\n".join(config_lines) + "\n", encoding="utf-8")
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(config_file))
     _reset_layered_config_caches()
