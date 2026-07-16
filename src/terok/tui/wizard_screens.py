@@ -53,9 +53,12 @@ from textual.widgets import (
 
 from ..lib.api import (
     BASE_GPU_VENDOR,
+    CUSTOM_BASE,
+    CUSTOM_IMAGE_WARNING,
     QUESTIONS,
     Question,
     validate_answer,
+    validate_custom_image,
     write_project_yaml,
 )
 from .agents_screen import AgentsSelectScreen
@@ -245,6 +248,24 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
             allow_blank=False,
             id=self._widget_id(q),
         )
+        if q.key == "base":
+            yield from self._custom_image_field(visible=value == CUSTOM_BASE)
+
+    def _custom_image_field(self, *, visible: bool) -> ComposeResult:
+        """The bring-your-own-image input, shown only for the custom base."""
+        warning = Label(CUSTOM_IMAGE_WARNING, classes="wizard-help", id="wizard-custom-image-note")
+        warning.display = visible
+        yield warning
+        field = Input(
+            value=self._initial.get("custom_image", ""),
+            placeholder="e.g. rockylinux:9 or registry.example.com/org/img:tag",
+            id="wizard-field-custom-image",
+        )
+        field.display = visible
+        yield field
+        err = Label("", classes="wizard-error", id="wizard-error-custom-image")
+        err.display = visible
+        yield err
 
     @staticmethod
     def _widget_id(q: Question) -> str:
@@ -303,9 +324,17 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
 
     @on(Select.Changed, "#wizard-field-base")
     def _on_base_changed(self) -> None:
-        """Keep the GPU button's implied default in step with the base."""
+        """Track the base: GPU default and custom-image field visibility."""
         if self._gpus_override is None:
             self._refresh_gpus_button()
+        show = self._current_base_slug() == CUSTOM_BASE
+        with contextlib.suppress(NoMatches):
+            for widget_id in (
+                "#wizard-custom-image-note",
+                "#wizard-field-custom-image",
+                "#wizard-error-custom-image",
+            ):
+                self.query_one(widget_id).display = show
 
     def _refresh_gpus_button(self) -> None:
         with contextlib.suppress(NoMatches):
@@ -346,6 +375,14 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
         if self._agents_override:
             values["agents"] = self._agents_override
         values["gpus"] = self._effective_gpus()
+        if values.get("base") == CUSTOM_BASE:
+            custom = self.query_one("#wizard-field-custom-image", Input).value.strip()
+            error = validate_custom_image(custom)
+            err_label = self.query_one("#wizard-error-custom-image", Label)
+            err_label.update(error or "")
+            if error is not None:
+                any_error = True
+            values["custom_image"] = custom
         if not any_error:
             self.dismiss(values)
 

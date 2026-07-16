@@ -25,10 +25,12 @@ from terok.lib.domain.wizards.new_project import (
     detect_gpu_choices,
     generate_config,
     prompt_agent_override,
+    prompt_custom_image,
     prompt_gpu_passthrough,
     render_project_yaml,
     run_wizard,
     validate_answer,
+    validate_custom_image,
     validate_gpus,
     write_project_yaml,
 )
@@ -546,6 +548,34 @@ class TestBaseQuestion:
     def test_gpu_bases_always_selectable(self) -> None:
         for c in BASES:
             assert c.disabled_reason == ""
+
+
+class TestCustomBase:
+    """The bring-your-own-image option: prompt, validation, rendering."""
+
+    def test_prompt_retries_until_valid(self) -> None:
+        with patch("builtins.input", side_effect=["", "has space", "rockylinux:9"]):
+            assert prompt_custom_image() == "rockylinux:9"
+
+    @pytest.mark.parametrize("value", ["rockylinux:9", "registry.example.com:5000/org/img:tag"])
+    def test_validate_accepts(self, value: str) -> None:
+        assert validate_custom_image(value) is None
+
+    @pytest.mark.parametrize("value", ["", "two words"])
+    def test_validate_rejects(self, value: str) -> None:
+        assert validate_custom_image(value) is not None
+
+    def test_render_uses_custom_image_and_family_hint(self) -> None:
+        values = wizard_values(base="custom", project_name="cust")
+        values["custom_image"] = "rockylinux:9"
+        rendered = render_project_yaml(values)
+        assert 'base_image: "rockylinux:9"' in rendered
+        assert "# family: rpm" in rendered
+        assert "custom-images" in rendered
+
+    def test_bundled_bases_carry_no_family_hint(self) -> None:
+        rendered = render_project_yaml(wizard_values(project_name="plain", upstream_url=""))
+        assert "# family:" not in rendered
 
 
 class TestGpuPrompt:

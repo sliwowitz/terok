@@ -26,6 +26,11 @@ git:
 
 image:
   base_image: "{{BASE_IMAGE}}"
+{%- if BASE == "custom" %}
+  # family: rpm    # uncomment and set (deb/rpm) if terok cannot autodetect
+  #                # the package manager — see
+  #                # https://terok-ai.github.io/terok/custom-images/
+{%- endif %}
 {%- if AGENTS %}
   agents: "{{AGENTS}}"
 {%- else %}

@@ -81,6 +81,7 @@ BASES: tuple[Choice, ...] = (
     Choice("nvidia", "NVIDIA CUDA (GPU software stack)"),
     Choice("rocm", "AMD ROCm (GPU software stack)"),
     Choice("oneapi", "Intel oneAPI (GPU software stack)"),
+    Choice("custom", "Custom image…"),
 )
 BASE_IMAGES: dict[str, str] = {
     "ubuntu": "ubuntu:24.04",
@@ -91,8 +92,19 @@ BASE_IMAGES: dict[str, str] = {
     "rocm": "docker.io/rocm/dev-ubuntu-24.04:latest",
     "oneapi": "docker.io/intel/oneapi-basekit:latest",
 }
-DEFAULT_BASE = "ubuntu"
+DEFAULT_BASE = "fedora"
 """Preselected base — the dropdown's happy-path value."""
+
+CUSTOM_BASE = "custom"
+"""Slug of the bring-your-own-image option — the image name is asked
+separately and the wizard adds a ``family:`` hint to the config."""
+
+CUSTOM_IMAGE_WARNING = (
+    "terok will try to autodetect the image's package family (dnf vs apt); "
+    "unrecognized images need 'family: deb' or 'family: rpm' in project.yml, "
+    "and beyond that you are on your own.  See "
+    "https://terok-ai.github.io/terok/custom-images/"
+)
 
 #: GPU vendor implied by each GPU software-stack base.  Selecting one
 #: *defaults* the GPU passthrough field to that vendor (visible and
@@ -151,6 +163,31 @@ def detect_gpu_choices() -> tuple[GpuDeviceChoice, ...]:
             suffix = f"  ({addrs[0]})" if addrs else ""
             choices.append(GpuDeviceChoice(vendor, f"{vendor}{suffix}"))
     return tuple(choices)
+
+
+def validate_custom_image(value: str) -> str | None:
+    """Light validation for a hand-typed base image reference.
+
+    Only structural sanity — the authoritative reference validation
+    happens in terok-executor at build time; this catches the obvious
+    (empty, whitespace) before it lands in project.yml.
+    """
+    if not value:
+        return "Custom base image name is required."
+    if any(ch.isspace() for ch in value):
+        return "Image references cannot contain whitespace."
+    return None
+
+
+def prompt_custom_image() -> str:
+    """CLI prompt for the custom base image, with the on-your-own warning."""
+    print(f"\nNote: {CUSTOM_IMAGE_WARNING}")
+    while True:
+        raw = input("Base image (e.g. rockylinux:9): ").strip()
+        error = validate_custom_image(raw)
+        if error is None:
+            return raw
+        print(error, file=sys.stderr)
 
 
 def validate_gpus(value: str) -> str | None:
@@ -643,6 +680,8 @@ def collect_wizard_inputs() -> dict | None:
                     break
                 print(error, file=sys.stderr)
             if question.key == "base":
+                if values["base"] == CUSTOM_BASE:
+                    values["custom_image"] = prompt_custom_image()
                 values["gpus"] = prompt_gpu_passthrough(values["base"])
         agents = prompt_agent_override()
         if agents:
@@ -725,7 +764,7 @@ def render_project_yaml(values: dict) -> str:
         "USER_SNIPPET": values["user_snippet"],
         "SECURITY_CLASS": values["security_class"],
         "BASE": values["base"],
-        "BASE_IMAGE": BASE_IMAGES[values["base"]],
+        "BASE_IMAGE": BASE_IMAGES.get(values["base"]) or values.get("custom_image", ""),
         # Empty string suppresses the ``run.gpus`` block — GPU
         # passthrough is opt-in and any base can carry it.
         "GPUS": values.get("gpus", ""),
@@ -851,10 +890,14 @@ __all__ = [
     "AGENTS_QUESTION",
     "BASES",
     "BASE_GPU_VENDOR",
+    "CUSTOM_BASE",
+    "CUSTOM_IMAGE_WARNING",
     "Choice",
     "GpuDeviceChoice",
     "detect_gpu_choices",
+    "prompt_custom_image",
     "prompt_gpu_passthrough",
+    "validate_custom_image",
     "validate_gpus",
     "QUESTIONS",
     "Question",

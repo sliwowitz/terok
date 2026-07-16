@@ -2462,8 +2462,8 @@ requires-dist = [
 
 [[package]]
 name = "terok-executor"
-version = "0.4.0a10.dev428+gefc6637f1"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Fgpu-device-grants#efc6637f1de11c4fa0b1a511223f077e048e4749" }
+version = "0.4.0a10.dev429+g51a8a0fc6"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Fgpu-device-grants#51a8a0fc637e3864a072cd7dea0429a7e4440b9a" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },

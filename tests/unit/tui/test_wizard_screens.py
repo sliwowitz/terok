@@ -104,7 +104,7 @@ async def test_wizard_form_submit_returns_collected_dict() -> None:
     # First radio button is pre-selected on each choice; confirm it mapped
     # through to the slug, not the label.
     assert app.result["security_class"] == _question("security_class").resolve_choices()[0].slug
-    assert app.result["base"] == _question("base").resolve_choices()[0].slug
+    assert app.result["base"] == _question("base").default
     # Optional fields default to empty strings.
     assert app.result["upstream_url"] == ""
     assert app.result["default_branch"] == ""
@@ -210,13 +210,40 @@ async def test_base_dropdown_defaults_and_submits() -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         base_select = app.screen.query_one("#wizard-field-base", Select)
-        assert base_select.value == "ubuntu"
+        assert base_select.value == "fedora"
+        # The custom-image field exists but is hidden on the happy path.
+        assert app.screen.query_one("#wizard-field-custom-image", Input).display is False
         app.screen.query_one("#wizard-field-project_name", Input).value = "p1"
         await pilot.click("#wizard-form-create")
         await pilot.pause()
     assert isinstance(app.result, dict)
-    assert app.result["base"] == "ubuntu"
+    assert app.result["base"] == "fedora"
     assert app.result["gpus"] == ""
+
+
+@pytest.mark.asyncio
+async def test_custom_base_reveals_input_and_requires_image() -> None:
+    """Custom base shows the image input; empty image blocks, value submits."""
+    from textual.widgets import Select
+
+    app = _WizardHost(WizardFormScreen())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one("#wizard-field-base", Select).value = "custom"
+        await pilot.pause()
+        image_input = app.screen.query_one("#wizard-field-custom-image", Input)
+        assert image_input.display is True
+        app.screen.query_one("#wizard-field-project_name", Input).value = "p1"
+        await pilot.click("#wizard-form-create")
+        await pilot.pause()
+        error = str(app.screen.query_one("#wizard-error-custom-image", Label).render())
+        assert "required" in error
+        image_input.value = "rockylinux:9"
+        await pilot.pause(0.4)
+        await pilot.click("#wizard-form-create")
+        await pilot.pause()
+    assert isinstance(app.result, dict)
+    assert app.result["custom_image"] == "rockylinux:9"
 
 
 @pytest.mark.asyncio
