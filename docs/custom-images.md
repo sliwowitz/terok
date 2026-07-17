@@ -99,6 +99,30 @@ userlands — the wizard offers the common ones directly, and all three
 vendors' images are on the autodetection allowlist above.  See
 [GPU Passthrough](usage.md#gpu-passthrough) for granting the hardware.
 
+### Building on old podman hosts (seccomp)
+
+Old podman releases (Ubuntu 22.04's 3.4 era) ship a seccomp profile
+that returns `EPERM` — instead of `ENOSYS` — for syscalls newer than
+the profile.  glibc falls back gracefully on `ENOSYS` but treats
+`EPERM` as a real denial, so modern userlands inside the container can
+fail in surprising, often root-only ways (observed: NVIDIA's `.run`
+extractor dying in its permission sweep because root paths call
+`fchmodat2`).  Per-user fix on such hosts: drop a current
+[containers seccomp.json](https://github.com/containers/common/blob/main/pkg/seccomp/seccomp.json)
+somewhere stable and point at it in
+`~/.config/containers/containers.conf`:
+
+```toml
+[containers]
+seccomp_profile = "/home/<you>/.config/containers/seccomp.json"
+```
+
+The profile is read at container *creation* — recreate containers (and
+rerun builds) after changing it; restarts keep the old profile.
+Workarounds when you cannot touch the host config: run the failing
+build step as a non-root user (`su dev -c '…'`), whose code paths often
+avoid the new syscalls.
+
 ### Private registries
 
 Registry hosts and ports are handled (`localhost:5000/fedora:44`
