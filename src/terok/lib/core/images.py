@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from terok.lib.integrations.executor import AGENTS_LABEL
@@ -51,15 +50,15 @@ def project_dev_image(project_name: str) -> str:
     return f"{project_name}:l2-dev"
 
 
-@lru_cache(maxsize=64)
 def installed_agents(image_tag: str) -> frozenset[str]:
     """Return the set of agent names baked into *image_tag*.
 
     Reads the ``ai.terok.agents`` OCI label written by terok-executor's L1
     build (a sorted comma-separated list).  Derived images inherit the
-    label, so an L2 tag answers for the L1 it was built on.  Result is
-    cached per image tag, since the label is fixed for the life of an
-    image.
+    label, so an L2 tag answers for the L1 it was built on.  The label
+    is read fresh on every call — tags are repointed by rebuilds (from
+    this process or another terminal), so caching by tag would leave
+    long-running TUIs showing a previous agent set.
 
     When the image is not present locally, or the label is missing
     (e.g. a legacy image built before selectable agents), returns an

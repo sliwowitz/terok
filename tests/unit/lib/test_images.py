@@ -137,12 +137,6 @@ def test_base_image_functions_reuse_the_same_long_tag() -> None:
 # ── installed_agents / installed_agents_for_project ──────────────────
 
 
-@pytest.fixture(autouse=True)
-def _clear_installed_agents_cache() -> None:
-    """Drop the lru_cache between tests so each test sees a fresh inspect."""
-    images.installed_agents.cache_clear()
-
-
 def _patch_labels(mock_runtime, labels: dict[str, str]) -> None:
     """Configure the autouse ``mock_runtime`` so ``Image.labels()`` returns *labels*.
 
@@ -150,15 +144,11 @@ def _patch_labels(mock_runtime, labels: dict[str, str]) -> None:
     unlabeled images — the distinction doesn't matter for the callers
     under test here.
     """
-    # ``installed_agents`` is ``@lru_cache``-d — clear the cache so each
-    # test sees the patched labels regardless of call order.
-    images.installed_agents.cache_clear()
     mock_runtime.image.return_value.labels.return_value = labels
 
 
 def _patch_labels_by_tag(mock_runtime, labels_by_tag: dict[str, dict[str, str]]) -> None:
     """Configure ``mock_runtime`` so each image tag answers with its own labels."""
-    images.installed_agents.cache_clear()
 
     def _image(tag: str):
         image = MagicMock(name=f"image[{tag}]")
@@ -261,15 +251,17 @@ def test_require_agent_installed_rejects_agent_missing_from_l2_label(mock_runtim
             "my-project:l2-cli": {"ai.terok.agents": "claude"},
         },
     )
+    project = _project()
     with pytest.raises(SystemExit, match="not available in the image"):
-        images.require_agent_installed(_project(), "vibe")
+        images.require_agent_installed(project, "vibe")
 
 
 def test_require_agent_installed_uses_project_selection_when_unlabeled(mock_runtime) -> None:
     _patch_labels(mock_runtime, {})
-    images.require_agent_installed(_project("claude"), "claude")
+    project = _project("claude")
+    images.require_agent_installed(project, "claude")
     with pytest.raises(SystemExit, match="not available in the image"):
-        images.require_agent_installed(_project("claude"), "codex")
+        images.require_agent_installed(project, "codex")
 
 
 def test_require_agent_installed_treats_unknown_set_as_unrestricted(mock_runtime) -> None:
