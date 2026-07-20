@@ -41,6 +41,8 @@ class ProjectConfig(BaseModel):
     tasks_root: Path  # workspace dirs
     gate_path: Path  # git gate (mirror) path
     gate_enabled: bool = True  # host-side gate mirror on/off (project.yml gate.enabled)
+    gate_backups_enabled: bool = True  # back up tips before destructive gate ops
+    gate_backup_retention_days: int = 30  # 0 = keep gate backups forever
     staging_root: Path | None  # gatekeeping only
 
     ssh_use_personal: bool = False

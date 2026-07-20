@@ -412,16 +412,49 @@ def test_gate_path_prints_project_gate_file_url(capsys: pytest.CaptureFixture[st
 # ---------------------------------------------------------------------------
 
 
-def test_gate_sync_success_prints_summary(capsys: pytest.CaptureFixture[str]) -> None:
-    """Successful sync prints the resulting gate path and upstream."""
-    fake_gate = MagicMock()
-    fake_gate.sync.return_value = {
+def _sync_result(**overrides: object) -> dict:
+    """A complete GateSyncResult with quiet defaults, selectively overridden."""
+    result: dict = {
         "success": True,
         "path": "/gate/p1",
         "upstream_url": "https://github.com/org/repo.git",
         "created": False,
+        "migrated": False,
+        "errors": [],
+        "notes": [],
+        "applied": [],
+        "pending": [],
+        "gate_only_branches": [],
         "cache_refreshed": True,
+        "cache_error": None,
     }
+    result.update(overrides)
+    return result
+
+
+def _pending_delete(branch: str = "feat/x") -> dict:
+    """One lossless pending-delete op as sync would report it."""
+    return {
+        "branch": branch,
+        "kind": "delete",
+        "reason": "upstream_delete",
+        "gate_sha": "a" * 40,
+        "upstream_sha": None,
+        "old_snapshot_sha": "a" * 40,
+        "lossless": True,
+        "gate_only_commits": 0,
+    }
+
+
+def test_gate_sync_success_prints_summary(capsys: pytest.CaptureFixture[str]) -> None:
+    """Successful sync prints the gate path plus the per-branch report."""
+    fake_gate = MagicMock()
+    fake_gate.sync.return_value = _sync_result(
+        applied=[
+            {"branch": "master", "kind": "fast_forward", "old_sha": "b" * 40, "new_sha": "c" * 40}
+        ],
+        gate_only_branches=["feat/agent-wip"],
+    )
     args = argparse.Namespace(project_name="p1", force_reinit=False)
     with (
         patch(
@@ -435,18 +468,68 @@ def test_gate_sync_success_prints_summary(capsys: pytest.CaptureFixture[str]) ->
     out = capsys.readouterr().out
     assert "Gate ready at /gate/p1" in out
     assert "clone cache refreshed" in out
+    assert "fast-forwarded:" in out
+    assert "master -> " + "c" * 12 in out
+    assert "feat/agent-wip" in out
+
+
+def test_gate_sync_pending_without_tty_prints_hint(capsys: pytest.CaptureFixture[str]) -> None:
+    """Pending ops on a non-TTY exit 0 with the --destructive hint, applying nothing."""
+    fake_gate = MagicMock()
+    fake_gate.sync.return_value = _sync_result(pending=[_pending_delete()])
+    args = argparse.Namespace(project_name="p1", force_reinit=False, destructive=False)
+    with (
+        patch(
+            "terok.cli.commands.project.load_project",
+            return_value=MagicMock(gate_enabled=True),
+        ),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+        patch("sys.stdin") as fake_stdin,
+    ):
+        fake_stdin.isatty.return_value = False
+        _cmd_gate_sync(args)
+
+    out = capsys.readouterr().out
+    assert "delete feat/x" in out and "no gate-local commits" in out
+    assert "--destructive" in out
+    fake_gate.apply_pending_ops.assert_not_called()
+
+
+def test_gate_sync_destructive_flag_applies_pending(capsys: pytest.CaptureFixture[str]) -> None:
+    """--destructive applies the pending ops and reports the backup refs."""
+    op = _pending_delete()
+    fake_gate = MagicMock()
+    fake_gate.sync.return_value = _sync_result(pending=[op])
+    fake_gate.apply_pending_ops.return_value = {
+        "success": True,
+        "applied": [
+            {"branch": "feat/x", "kind": "delete", "old_sha": op["gate_sha"], "new_sha": None}
+        ],
+        "backups": {"feat/x": "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"},
+        "errors": [],
+    }
+    args = argparse.Namespace(project_name="p1", force_reinit=False, destructive=True)
+    with (
+        patch(
+            "terok.cli.commands.project.load_project",
+            return_value=MagicMock(gate_enabled=True),
+        ),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+    ):
+        _cmd_gate_sync(args)
+
+    fake_gate.apply_pending_ops.assert_called_once_with([op])
+    out = capsys.readouterr().out
+    assert "applied: delete feat/x" in out
+    assert "refs/terok/backup/feat/x" in out
 
 
 def test_gate_sync_renders_remoteless_upstream_label(capsys: pytest.CaptureFixture[str]) -> None:
     """A remoteless (upstream_url=None) gate renders a human hint, not ``None``."""
     fake_gate = MagicMock()
-    fake_gate.sync.return_value = {
-        "success": True,
-        "path": "/gate/scratch",
-        "upstream_url": None,
-        "created": True,
-        "cache_refreshed": False,
-    }
+    fake_gate.sync.return_value = _sync_result(
+        path="/gate/scratch", upstream_url=None, created=True, cache_refreshed=False
+    )
     args = argparse.Namespace(project_name="scratch", force_reinit=False)
     with (
         patch(

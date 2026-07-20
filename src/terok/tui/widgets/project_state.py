@@ -138,6 +138,12 @@ def render_project_details(
         else:
             gate_value = "old"
     gate_s = _status_text(gate_value)
+    # Pending destructive ops badge — persists until the operator resolves
+    # them (press g), so a declined-or-unseen proposal can't just vanish.
+    if pending_ops := state.get("gate_pending_ops"):
+        gate_s = Text.assemble(
+            gate_s, "  ", (f"{pending_ops} pending!", Style(color=error_color, bold=True))
+        )
 
     tasks_line = (
         Text("Tasks:     unknown") if task_count is None else Text(f"Tasks:     {task_count}")

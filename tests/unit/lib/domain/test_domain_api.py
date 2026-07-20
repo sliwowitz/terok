@@ -611,7 +611,9 @@ class TestProjectState:
             return_value={"gate": True},
         ) as fn:
             result = Project(cfg).state()
-        fn.assert_called_once_with("myproj", gate_commit_provider=None, project=cfg)
+        fn.assert_called_once_with(
+            "myproj", gate_commit_provider=None, gate_pending_provider=None, project=cfg
+        )
         assert result == {"gate": True}
 
     def test_threads_gate_commit_provider(self) -> None:
@@ -625,7 +627,9 @@ class TestProjectState:
             return_value={"gate": True},
         ) as fn:
             Project(cfg).state(gate_commit_provider=provider)
-        fn.assert_called_once_with("myproj", gate_commit_provider=provider, project=cfg)
+        fn.assert_called_once_with(
+            "myproj", gate_commit_provider=provider, gate_pending_provider=None, project=cfg
+        )
 
 
 class TestProjectStorageDetail:

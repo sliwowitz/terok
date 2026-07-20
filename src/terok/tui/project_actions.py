@@ -609,15 +609,76 @@ class ProjectActionsMixin(_MixinBase):
         await self._action_sync_gate()
 
     async def _action_sync_gate(self) -> None:
-        """Sync gate (init if doesn't exist, sync if exists)."""
+        """Sync gate (init if doesn't exist, sync if exists).
+
+        The sync worker only ever applies safe changes; once it finishes,
+        any destructive changes it left pending are offered for explicit
+        confirmation in a modal — that is the *only* path that deletes or
+        force-moves gate branches.
+        """
         if not self.current_project_name:
             self.notify("No project selected.")
             return
         pid = self.current_project_name
+
+        def _offer_pending_review() -> None:
+            self.run_worker(self._review_pending_gate_ops(pid))
+
         self._run_console_action(
             "terok.tui.worker_actions:sync_gate",
             pid,
             title=f"Syncing gate for {pid}",
+            on_complete=_offer_pending_review,
+        )
+
+    async def _review_pending_gate_ops(self, pid: str) -> None:
+        """Offer the confirmation modal for the gate's pending destructive ops.
+
+        Reads the pending set fresh from the gate (offline — no fetch, no
+        SSH) rather than trusting anything cached: the ops shown are the
+        ops applied, and their compare-and-swap guards still protect
+        against agent pushes racing the modal.
+        """
+        from ..lib.api import load_project, make_git_gate
+        from ..lib.api.gate import describe_pending_op
+
+        try:
+            pending = await asyncio.to_thread(
+                lambda: make_git_gate(load_project(pid)).pending_ops()
+            )
+        except (Exception, SystemExit):  # noqa: BLE001 — sync already reported errors
+            return
+        if not pending or pid != self.current_project_name:
+            return
+
+        lines = [
+            "Upstream wants branch changes the sync would not apply on its own:",
+            "",
+            *(f"  • {describe_pending_op(op)}" for op in pending),
+            "",
+            "Old tips are saved as backup refs before anything is changed",
+            "(recoverable via `terok project gate-backups`).",
+        ]
+
+        def _on_confirm(confirmed: bool | None) -> None:
+            if not confirmed:
+                return
+            self._run_console_action(
+                "terok.tui.worker_actions:apply_gate_ops",
+                pid,
+                [dict(op) for op in pending],
+                title=f"Applying gate changes for {pid}",
+            )
+
+        from .screens import ConfirmDestructiveScreen
+
+        await self.push_screen(
+            ConfirmDestructiveScreen(
+                message="\n".join(lines),
+                title=f"Pending gate changes: {pid}",
+                confirm_label="Apply",
+            ),
+            _on_confirm,
         )
 
     # ---------- Instructions editing ----------

@@ -276,6 +276,31 @@ class TestProject:
             project = load_project("p")
         assert project.gate_enabled is True
 
+    def test_gate_backups_default_on_with_30_day_retention(self) -> None:
+        """Backups guard destructive gate ops by default; retention bounds growth."""
+        yaml = "project:\n  id: p\ngit:\n  upstream_url: https://example.com/r.git\n"
+        with project_env(yaml, project_name="p"):
+            project = load_project("p")
+        assert project.gate_backups_enabled is True
+        assert project.gate_backup_retention_days == 30
+
+    def test_gate_backups_configurable(self) -> None:
+        """gate.backups.{enabled,retention_days} flow through to the config."""
+        yaml = (
+            "project:\n"
+            "  id: p\n"
+            "git:\n"
+            "  upstream_url: https://example.com/r.git\n"
+            "gate:\n"
+            "  backups:\n"
+            "    enabled: false\n"
+            "    retention_days: 0\n"
+        )
+        with project_env(yaml, project_name="p"):
+            project = load_project("p")
+        assert project.gate_backups_enabled is False
+        assert project.gate_backup_retention_days == 0
+
     def test_gate_disabled_loads_in_online_mode(self) -> None:
         """online + gate.enabled: false is the supported disabled-gate shape."""
         yaml = (
@@ -718,6 +743,7 @@ class TestProject:
             "ssh": True,
             "gate": True,
             "gate_last_commit": None,
+            "gate_pending_ops": None,
         }
 
 

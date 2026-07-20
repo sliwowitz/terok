@@ -1547,7 +1547,13 @@ if _HAS_TEXTUAL:
                     info = gate.last_commit()
                     return dict(info) if info is not None else None
 
-                state = Project(project).state(gate_commit_provider=_gate_commit_provider)
+                def _gate_pending_provider(_pid: str) -> int | None:
+                    return len(gate.pending_ops())
+
+                state = Project(project).state(
+                    gate_commit_provider=_gate_commit_provider,
+                    gate_pending_provider=_gate_pending_provider,
+                )
                 staleness = None
                 if state.get("gate") and project.upstream_url:
                     try:

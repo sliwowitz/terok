@@ -64,16 +64,81 @@ def test_init_ssh_provisions_and_summarizes() -> None:
 # ── Gate sync ─────────────────────────────────────────────────────────
 
 
+def _gate_sync_result(**overrides: object) -> dict:
+    """A complete, quiet GateSyncResult for worker-action tests."""
+    result: dict = {
+        "success": True,
+        "path": "/tmp/terok-testing/gate/proj.git",
+        "upstream_url": "https://example.com/repo.git",
+        "created": False,
+        "migrated": False,
+        "errors": [],
+        "notes": [],
+        "applied": [],
+        "pending": [],
+        "gate_only_branches": [],
+        "cache_refreshed": False,
+        "cache_error": None,
+    }
+    result.update(overrides)
+    return result
+
+
 def test_sync_gate_success_does_not_raise() -> None:
     """A successful sync prints its status and returns cleanly."""
     fake_gate = mock.Mock()
-    fake_gate.sync.return_value = {"success": True, "created": True, "errors": []}
+    fake_gate.sync.return_value = _gate_sync_result(created=True)
     with (
         mock.patch("terok.lib.api.load_project"),
         mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
     ):
         worker_actions.sync_gate("proj")
     fake_gate.sync.assert_called_once()
+
+
+def test_sync_gate_prints_pending_ops(capsys: pytest.CaptureFixture[str]) -> None:
+    """Pending destructive ops appear in the worker log, clearly not applied."""
+    fake_gate = mock.Mock()
+    fake_gate.sync.return_value = _gate_sync_result(
+        pending=[
+            {
+                "branch": "feat/x",
+                "kind": "delete",
+                "reason": "upstream_delete",
+                "gate_sha": "a" * 40,
+                "upstream_sha": None,
+                "old_snapshot_sha": "a" * 40,
+                "lossless": True,
+                "gate_only_commits": 0,
+            }
+        ]
+    )
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+    ):
+        worker_actions.sync_gate("proj")
+    out = capsys.readouterr().out
+    assert "pending destructive change(s)" in out
+    assert "delete feat/x" in out and "no gate-local commits" in out
+
+
+def test_apply_gate_ops_reports_backups_and_failures() -> None:
+    """apply_gate_ops prints applied ops with backups; failures raise SystemExit."""
+    fake_gate = mock.Mock()
+    fake_gate.apply_pending_ops.return_value = {
+        "success": False,
+        "applied": [{"branch": "feat/x", "kind": "delete", "old_sha": "a" * 40, "new_sha": None}],
+        "backups": {"feat/x": "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"},
+        "errors": ["feat/y: branch moved since the op was proposed — not applied"],
+    }
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        pytest.raises(SystemExit),
+    ):
+        worker_actions.apply_gate_ops("proj", [{"branch": "feat/x"}, {"branch": "feat/y"}])
+    fake_gate.apply_pending_ops.assert_called_once()
 
 
 def test_sync_gate_reports_cache_refresh_failure(capsys: pytest.CaptureFixture[str]) -> None:
@@ -84,12 +149,7 @@ def test_sync_gate_reports_cache_refresh_failure(capsys: pytest.CaptureFixture[s
     failed.
     """
     fake_gate = mock.Mock()
-    fake_gate.sync.return_value = {
-        "success": True,
-        "created": False,
-        "errors": [],
-        "cache_error": "exit status 128: fatal: bad ref",
-    }
+    fake_gate.sync.return_value = _gate_sync_result(cache_error="exit status 128: fatal: bad ref")
     with (
         mock.patch("terok.lib.api.load_project"),
         mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),

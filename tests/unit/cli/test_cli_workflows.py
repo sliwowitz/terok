@@ -51,11 +51,26 @@ def _make_init_project_mock(
     project = unittest.mock.Mock()
     project.config.gate_enabled = gate_enabled
     project.provision_ssh_key.return_value = _FAKE_SSH_INIT_RESULT
-    project.gate.sync.return_value = sync_result or {
+    project.gate.sync.return_value = sync_result or _quiet_sync_result()
+    return project
+
+
+def _quiet_sync_result() -> dict:
+    """A successful GateSyncResult that applied nothing and pends nothing."""
+    return {
         "success": True,
         "path": str(FAKE_GATE_DIR),
+        "upstream_url": None,
+        "created": False,
+        "migrated": False,
+        "errors": [],
+        "notes": [],
+        "applied": [],
+        "pending": [],
+        "gate_only_branches": [],
+        "cache_refreshed": False,
+        "cache_error": None,
     }
-    return project
 
 
 def run_main(argv: list[str]) -> None:
@@ -123,7 +138,7 @@ class TestProjectInit:
         mock_build.side_effect = lambda *a, **kw: call_order.append("build")
         project.gate.sync.side_effect = lambda **kw: (
             call_order.append("gate"),
-            {"success": True, "path": str(FAKE_GATE_DIR)},
+            _quiet_sync_result(),
         )[-1]
 
         from terok.cli.commands.setup import cmd_project_init

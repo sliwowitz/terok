@@ -39,6 +39,7 @@ from ...lib.api import (
     get_project,
     summarize_ssh_init,
 )
+from ...lib.api.gate import summarize_gate_sync
 from ...lib.core.projects import require_project_exists
 
 # ── CLI wiring ─────────────────────────────────────────────────────────
@@ -392,3 +393,9 @@ def cmd_project_init(project_name: str) -> None:
             "mirror entirely."
         )
     print(f"Gate ready at {res['path']}")
+    for line in summarize_gate_sync(res):
+        print(line)
+    if res["pending"]:
+        # Setup is not the place to confirm destructive changes — leave
+        # them pending and point at the command that gates them properly.
+        print(f"Review them with: terok project gate-sync {project_name}")

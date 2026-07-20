@@ -1435,6 +1435,7 @@ class TestGateSyncAction:
             "terok.tui.worker_actions:sync_gate",
             "proj1",
             title="Syncing gate for proj1",
+            on_complete=mock.ANY,
         )
 
     def test_action_sync_gate_without_selection_skips(self) -> None:

@@ -27,24 +27,48 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from terok.lib.domain.project import (
+        describe_pending_op as describe_pending_op,
         make_git_gate as make_git_gate,
+        summarize_gate_sync as summarize_gate_sync,
     )
     from terok.lib.integrations.sandbox import (
+        AppliedOp as AppliedOp,
+        ApplyPendingResult as ApplyPendingResult,
+        BackupRef as BackupRef,
         GateAuthNotConfigured as GateAuthNotConfigured,
         GateStalenessInfo as GateStalenessInfo,
+        GateSyncResult as GateSyncResult,
+        GitGate as GitGate,
+        PendingOp as PendingOp,
     )
 
 #: Public name -> defining module (PEP 562 lazy resolution).
 _LAZY: dict[str, str] = {
+    "AppliedOp": "terok.lib.integrations.sandbox",
+    "ApplyPendingResult": "terok.lib.integrations.sandbox",
+    "BackupRef": "terok.lib.integrations.sandbox",
     "GateAuthNotConfigured": "terok.lib.integrations.sandbox",
     "GateStalenessInfo": "terok.lib.integrations.sandbox",
+    "GateSyncResult": "terok.lib.integrations.sandbox",
+    "GitGate": "terok.lib.integrations.sandbox",
+    "PendingOp": "terok.lib.integrations.sandbox",
+    "describe_pending_op": "terok.lib.domain.project",
     "make_git_gate": "terok.lib.domain.project",
+    "summarize_gate_sync": "terok.lib.domain.project",
 }
 
 __all__ = [
+    "AppliedOp",
+    "ApplyPendingResult",
+    "BackupRef",
     "GateAuthNotConfigured",
     "GateStalenessInfo",
+    "GateSyncResult",
+    "GitGate",
+    "PendingOp",
+    "describe_pending_op",
     "make_git_gate",
+    "summarize_gate_sync",
 ]
 
 
