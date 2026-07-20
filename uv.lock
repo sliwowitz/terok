@@ -2478,8 +2478,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a12.dev418+gf231b0370"
-source = { git = "https://github.com/sliwowitz/terok-sandbox.git?rev=feat%2Fgate-sync-safety#f231b0370f2f03591554b07b4ec281dd3eafdb8c" }
+version = "0.5.0a12.dev419+g24a96543b"
+source = { git = "https://github.com/sliwowitz/terok-sandbox.git?rev=feat%2Fgate-sync-safety#24a96543ba8d0cd8b4c79990f921058248c11c30" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },

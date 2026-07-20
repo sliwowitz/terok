@@ -409,8 +409,6 @@ def _cmd_gate_sync(args: argparse.Namespace) -> None:
     — pending work is a normal outcome, not a failure, so the command
     still exits 0 when the operator declines.
     """
-    import sys
-
     from terok.lib.api.gate import GateAuthNotConfigured, summarize_gate_sync
 
     project = load_project(args.project_name)
@@ -449,16 +447,25 @@ def _cmd_gate_sync(args: argparse.Namespace) -> None:
         print("New tasks fall back to a full clone until the next successful sync.")
 
     if pending := res["pending"]:
-        if getattr(args, "destructive", False):
+        _confirm_pending_gate_ops(gate, pending, pre_approved=getattr(args, "destructive", False))
+
+
+def _confirm_pending_gate_ops(
+    gate: GitGate, pending: list[PendingOp], *, pre_approved: bool
+) -> None:
+    """Gate the destructive ops behind a TTY prompt (or the --destructive flag)."""
+    import sys
+
+    if pre_approved:
+        _apply_pending_gate_ops(gate, pending)
+    elif sys.stdin.isatty():
+        answer = input(f"Apply {len(pending)} destructive change(s)? [y/N] ")
+        if answer.strip().lower() in ("y", "yes"):
             _apply_pending_gate_ops(gate, pending)
-        elif sys.stdin.isatty():
-            answer = input(f"Apply {len(pending)} destructive change(s)? [y/N] ")
-            if answer.strip().lower() in ("y", "yes"):
-                _apply_pending_gate_ops(gate, pending)
-            else:
-                print("Left as-is.  Re-run gate-sync any time to review again.")
         else:
-            print("Re-run with --destructive to apply them (old tips get backup refs).")
+            print("Left as-is.  Re-run gate-sync any time to review again.")
+    else:
+        print("Re-run with --destructive to apply them (old tips get backup refs).")
 
 
 def _apply_pending_gate_ops(gate: GitGate, pending: list[PendingOp]) -> None:
