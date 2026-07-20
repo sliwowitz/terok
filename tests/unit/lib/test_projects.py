@@ -746,6 +746,34 @@ class TestProject:
             "gate_pending_ops": None,
         }
 
+    def test_get_project_state_threads_pending_provider(self, mock_runtime) -> None:
+        """The pending-op count flows through; a failing provider degrades to None."""
+        project_name = "proj3"
+        with project_env(
+            project_yaml(project_name), project_name=project_name, with_config_file=True
+        ):
+            gate_dir = make_sandbox_config().gate_base_path / f"{project_name}.git"
+            gate_dir.mkdir(parents=True, exist_ok=True)
+            mock_runtime.image.return_value.exists.return_value = False
+
+            def _boom(_pid: str) -> int:
+                raise RuntimeError("gate exploded")
+
+            with (
+                unittest.mock.patch(
+                    "terok.lib.core.projects._get_global_git_config", return_value=None
+                ),
+                unittest.mock.patch(
+                    "terok.lib.domain.project_state._scope_has_vault_key",
+                    return_value=False,
+                ),
+            ):
+                counted = get_project_state(project_name, gate_pending_provider=lambda _pid: 2)
+                degraded = get_project_state(project_name, gate_pending_provider=_boom)
+
+        assert counted["gate_pending_ops"] == 2
+        assert degraded["gate_pending_ops"] is None
+
 
 class TestShareSshKeyAssignments:
     """Source's vault key assignments are shared with the derived scope."""

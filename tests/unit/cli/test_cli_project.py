@@ -524,6 +524,83 @@ def test_gate_sync_destructive_flag_applies_pending(capsys: pytest.CaptureFixtur
     assert "refs/terok/backup/feat/x" in out
 
 
+@pytest.mark.parametrize(("answer", "applies"), [("y", True), ("", False)])
+def test_gate_sync_tty_prompt_gates_the_apply(
+    capsys: pytest.CaptureFixture[str], answer: str, applies: bool
+) -> None:
+    """On a TTY, pending ops apply only after an explicit yes."""
+    op = _pending_delete()
+    fake_gate = MagicMock()
+    fake_gate.sync.return_value = _sync_result(pending=[op])
+    fake_gate.apply_pending_ops.return_value = {
+        "success": True,
+        "applied": [
+            {"branch": "feat/x", "kind": "delete", "old_sha": op["gate_sha"], "new_sha": None}
+        ],
+        "backups": {},
+        "errors": [],
+    }
+    args = argparse.Namespace(project_name="p1", force_reinit=False, destructive=False)
+    with (
+        patch(
+            "terok.cli.commands.project.load_project",
+            return_value=MagicMock(gate_enabled=True),
+        ),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+        patch("sys.stdin") as fake_stdin,
+        patch("builtins.input", return_value=answer),
+    ):
+        fake_stdin.isatty.return_value = True
+        _cmd_gate_sync(args)
+
+    if applies:
+        fake_gate.apply_pending_ops.assert_called_once_with([op])
+    else:
+        fake_gate.apply_pending_ops.assert_not_called()
+        assert "Left as-is" in capsys.readouterr().out
+
+
+def test_gate_backups_lists_entries(capsys: pytest.CaptureFixture[str]) -> None:
+    """gate-backups renders one line per saved tip."""
+    fake_gate = MagicMock()
+    fake_gate.list_backups.return_value = [
+        {
+            "ref": "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa",
+            "branch": "feat/x",
+            "saved_at": "2026-07-20T00:00:00+00:00",
+            "sha": "a" * 40,
+        }
+    ]
+    args = argparse.Namespace(project_name="p1", prune=False)
+    with (
+        patch("terok.cli.commands.project.load_project"),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+    ):
+        from terok.cli.commands.project import _cmd_gate_backups
+
+        _cmd_gate_backups(args)
+
+    out = capsys.readouterr().out
+    assert "feat/x" in out and "a" * 12 in out
+
+
+def test_gate_backups_prune_reports_expired(capsys: pytest.CaptureFixture[str]) -> None:
+    """gate-backups --prune passes the override through and prints the removals."""
+    fake_gate = MagicMock()
+    fake_gate.prune_backups.return_value = ["refs/terok/backup/feat/x/20260101T000000Z-aaaa"]
+    args = argparse.Namespace(project_name="p1", prune=True, older_than=7)
+    with (
+        patch("terok.cli.commands.project.load_project"),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+    ):
+        from terok.cli.commands.project import _cmd_gate_backups
+
+        _cmd_gate_backups(args)
+
+    fake_gate.prune_backups.assert_called_once_with(older_than_days=7)
+    assert "Pruned 1 backup ref(s)." in capsys.readouterr().out
+
+
 def test_gate_sync_renders_remoteless_upstream_label(capsys: pytest.CaptureFixture[str]) -> None:
     """A remoteless (upstream_url=None) gate renders a human hint, not ``None``."""
     fake_gate = MagicMock()

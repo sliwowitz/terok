@@ -246,3 +246,71 @@ def test_gate_staleness_info_states(
     assert info.commits_behind == expected_behind
     assert info.commits_ahead == expected_ahead
     assert (info.error is not None) is expects_error
+
+
+class TestSyncWorkerPendingBackoff:
+    """_sync_worker reports pending ops and stops the staleness re-sync loop."""
+
+    @staticmethod
+    def _fake_app() -> object:
+        from unittest import mock
+
+        app = mock.Mock()
+        app.current_project_name = "proj1"
+        app._auto_sync_cooldown = {}
+        app._staleness_info = None
+        app._last_notified_stale = True
+        return app
+
+    async def test_pending_only_sync_backs_off_and_notifies(self) -> None:
+        from unittest import mock
+
+        from terok.tui.polling import _PENDING_OPS_BACKOFF_SECONDS, PollingMixin
+
+        app = self._fake_app()
+        fake_gate = mock.Mock()
+        fake_gate.sync.return_value = {
+            "success": True,
+            "errors": [],
+            "applied": [],
+            "pending": [{"branch": "dev", "kind": "force_update"}],
+        }
+        fake_gate.compare_vs_upstream.return_value = make_staleness_info()
+
+        before = time.time()
+        with (
+            mock.patch("terok.lib.api.load_project"),
+            mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        ):
+            await PollingMixin._sync_worker(app, "proj1", None, is_auto=True)
+
+        message = app.notify.call_args.args[0]
+        assert "1 destructive change(s) pending" in message
+        assert app._auto_sync_cooldown["proj1"] >= before + _PENDING_OPS_BACKOFF_SECONDS - 1
+
+    async def test_applied_sync_keeps_normal_cadence(self) -> None:
+        from unittest import mock
+
+        from terok.tui.polling import PollingMixin
+
+        app = self._fake_app()
+        fake_gate = mock.Mock()
+        fake_gate.sync.return_value = {
+            "success": True,
+            "errors": [],
+            "applied": [{"branch": "master", "kind": "fast_forward"}],
+            "pending": [],
+        }
+        fake_gate.compare_vs_upstream.return_value = make_staleness_info(
+            is_stale=False, commits_behind=0
+        )
+
+        with (
+            mock.patch("terok.lib.api.load_project"),
+            mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        ):
+            await PollingMixin._sync_worker(app, "proj1", None, is_auto=True)
+
+        assert app._auto_sync_cooldown == {}
+        assert app._last_notified_stale is False
+        app._refresh_project_state.assert_called_once()

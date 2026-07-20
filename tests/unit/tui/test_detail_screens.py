@@ -1448,6 +1448,80 @@ class TestGateSyncAction:
         instance._run_console_action.assert_not_called()
         instance.notify.assert_called_once()
 
+    def _pending_op(self) -> dict:
+        return {
+            "branch": "feat/x",
+            "kind": "delete",
+            "reason": "upstream_delete",
+            "gate_sha": "a" * 40,
+            "upstream_sha": None,
+            "old_snapshot_sha": "a" * 40,
+            "lossless": True,
+            "gate_only_commits": 0,
+        }
+
+    def test_review_pending_ops_offers_modal_and_dispatches_apply(self) -> None:
+        """Pending ops raise the confirmation modal; confirming applies them."""
+        mixin = self._get_mixin()
+        instance = mock.Mock(spec=mixin)
+        instance.current_project_name = "proj1"
+        instance.push_screen = mock.AsyncMock()
+        op = self._pending_op()
+        fake_gate = mock.Mock()
+        fake_gate.pending_ops.return_value = [op]
+
+        with (
+            mock.patch("terok.lib.api.load_project"),
+            mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        ):
+            run(mixin._review_pending_gate_ops(instance, "proj1"))
+
+        screen_obj, on_confirm = instance.push_screen.await_args.args
+        assert "delete feat/x" in screen_obj._message
+        assert "no gate-local commits" in screen_obj._message
+
+        on_confirm(True)
+        instance._run_console_action.assert_called_once_with(
+            "terok.tui.worker_actions:apply_gate_ops",
+            "proj1",
+            [op],
+            title="Applying gate changes for proj1",
+        )
+
+    def test_review_pending_ops_decline_applies_nothing(self) -> None:
+        mixin = self._get_mixin()
+        instance = mock.Mock(spec=mixin)
+        instance.current_project_name = "proj1"
+        instance.push_screen = mock.AsyncMock()
+        fake_gate = mock.Mock()
+        fake_gate.pending_ops.return_value = [self._pending_op()]
+
+        with (
+            mock.patch("terok.lib.api.load_project"),
+            mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        ):
+            run(mixin._review_pending_gate_ops(instance, "proj1"))
+
+        _, on_confirm = instance.push_screen.await_args.args
+        on_confirm(False)
+        instance._run_console_action.assert_not_called()
+
+    def test_review_pending_ops_quiet_when_nothing_pending(self) -> None:
+        mixin = self._get_mixin()
+        instance = mock.Mock(spec=mixin)
+        instance.current_project_name = "proj1"
+        instance.push_screen = mock.AsyncMock()
+        fake_gate = mock.Mock()
+        fake_gate.pending_ops.return_value = []
+
+        with (
+            mock.patch("terok.lib.api.load_project"),
+            mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        ):
+            run(mixin._review_pending_gate_ops(instance, "proj1"))
+
+        instance.push_screen.assert_not_awaited()
+
 
 class TestProjectScreenNoneState:
     """Tests that ProjectDetailsScreen handles None state correctly."""

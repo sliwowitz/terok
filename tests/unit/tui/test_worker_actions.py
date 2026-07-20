@@ -123,6 +123,25 @@ def test_sync_gate_prints_pending_ops(capsys: pytest.CaptureFixture[str]) -> Non
     assert "delete feat/x" in out and "no gate-local commits" in out
 
 
+def test_apply_gate_ops_success_prints_backups(capsys: pytest.CaptureFixture[str]) -> None:
+    """A clean apply prints each op with its backup ref and returns quietly."""
+    fake_gate = mock.Mock()
+    fake_gate.apply_pending_ops.return_value = {
+        "success": True,
+        "applied": [{"branch": "feat/x", "kind": "delete", "old_sha": "a" * 40, "new_sha": None}],
+        "backups": {"feat/x": "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"},
+        "errors": [],
+    }
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+    ):
+        worker_actions.apply_gate_ops("proj", [{"branch": "feat/x"}])
+    out = capsys.readouterr().out
+    assert "applied: delete feat/x" in out
+    assert "refs/terok/backup/feat/x" in out
+
+
 def test_apply_gate_ops_reports_backups_and_failures() -> None:
     """apply_gate_ops prints applied ops with backups; failures raise SystemExit."""
     fake_gate = mock.Mock()
