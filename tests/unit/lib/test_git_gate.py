@@ -98,29 +98,26 @@ def test_sync_project_gate_https_clone() -> None:
             if cmd[:3] == ["git", "clone", "--mirror"]:
                 gate_dir.mkdir(parents=True, exist_ok=True)
                 return git_result()
-            if cmd[:4] == ["git", "-C", str(gate_dir), "remote"]:
-                return git_result(stdout="Fetching origin\n")
             if cmd[:4] == ["git", "-C", str(gate_dir), "symbolic-ref"]:
                 return git_result(stdout="refs/heads/main\n")
-            if cmd[:4] == ["git", "-C", str(gate_dir), "show-ref"]:
-                return git_result()
-            return git_result(returncode=1)
+            # Everything else (fetch, for-each-ref, update-ref, config…)
+            # succeeds with empty output: an empty upstream is a healthy
+            # no-op sync under the conservative model, so the clone path
+            # and env wiring stay the subject of this test.
+            return git_result()
 
         with patch(
             "terok_sandbox.gate.mirror.subprocess.run", side_effect=run_side_effect
         ) as run_mock:
             result = make_git_gate(load_project(project_name)).sync()
 
-    assert result == {
-        "path": str(gate_dir),
-        "upstream_url": TEST_UPSTREAM_URL,
-        "created": True,
-        "success": True,
-        "updated_branches": ["all"],
-        "errors": [],
-        "cache_refreshed": True,
-        "cache_error": None,
-    }
+    assert result["path"] == str(gate_dir)
+    assert result["upstream_url"] == TEST_UPSTREAM_URL
+    assert result["created"] is True
+    assert result["success"] is True
+    assert result["errors"] == []
+    assert result["applied"] == []
+    assert result["pending"] == []
     clone_call = next(
         call for call in run_mock.call_args_list if call.args[0][:3] == ["git", "clone", "--mirror"]
     )
@@ -417,70 +414,67 @@ def test_compare_gate_vs_upstream(
 
 
 @pytest.mark.parametrize(
-    ("with_gate", "run_behavior", "branches", "expected"),
+    ("run_behavior", "branches", "expected_success", "expected_error_fragment"),
     [
         pytest.param(
-            True,
-            {"return_value": git_result(stdout="Fetching origin\n")},
+            {"return_value": git_result()},
             None,
-            {"success": True, "updated_branches": ["all"], "errors": []},
+            True,
+            None,
             id="success",
         ),
         pytest.param(
-            False,
-            None,
-            None,
-            {"success": False, "updated_branches": [], "errors": ["Gate not initialized"]},
-            id="gate-not-initialized",
-        ),
-        pytest.param(
-            True,
             {"return_value": git_result(returncode=1, stderr="fatal: could not fetch origin")},
             None,
-            {
-                "success": False,
-                "updated_branches": [],
-                "errors": ["remote update failed: fatal: could not fetch origin"],
-            },
+            False,
+            "could not fetch origin",
             id="network-failure",
         ),
         pytest.param(
-            True,
             {"side_effect": subprocess.TimeoutExpired("git", 120)},
             None,
-            {"success": False, "updated_branches": [], "errors": ["Sync timed out"]},
+            False,
+            "timed out",
             id="timeout",
         ),
         pytest.param(
-            True,
-            {"return_value": git_result(stdout="Fetching origin\n")},
+            {"return_value": git_result()},
             ["main", "develop"],
-            {"success": True, "updated_branches": ["main", "develop"], "errors": []},
-            id="specific-branches",
+            True,
+            None,
+            id="selective-branches",
         ),
     ],
 )
-def test_sync_branches(
-    with_gate: bool,
-    run_behavior: dict[str, object] | None,
+def test_sync_reports_success_and_failures(
+    run_behavior: dict[str, object],
     branches: list[str] | None,
-    expected: dict[str, object],
+    expected_success: bool,
+    expected_error_fragment: str | None,
 ) -> None:
-    """Branch sync reports success, initialization problems, and fetch failures."""
+    """`sync(branches=...)` surfaces success/errors through the terok wiring.
+
+    Wiring-level checks only: the conservative-sync semantics (CAS ref
+    updates, pending destructive ops, snapshot namespace) are sandbox's
+    contract, covered by its own real-git suite.  Selective sync replaces
+    the removed ``sync_branches`` — the ``branches`` allowlist rides the
+    same call.
+    """
     project_name = "proj-sync-branches"
-    with project_env(
-        git_project_yaml(project_name), project_name=project_name, with_gate=with_gate
-    ):
+    with project_env(git_project_yaml(project_name), project_name=project_name, with_gate=True):
         gate = make_git_gate(load_project(project_name))
-        if run_behavior is None:
-            assert gate.sync_branches(branches) == expected
-        else:
-            with patch("terok_sandbox.gate.mirror.subprocess.run", **run_behavior):
-                assert gate.sync_branches(branches) == expected
+        with patch("terok_sandbox.gate.mirror.subprocess.run", **run_behavior):
+            result = gate.sync(branches=branches)
+
+    assert result["success"] is expected_success
+    if expected_error_fragment is None:
+        assert result["errors"] == []
+    else:
+        assert any(expected_error_fragment in e for e in result["errors"])
 
 
-def test_sync_branches_rejects_mismatched_upstream() -> None:
-    """Branch sync refuses a shared gate that points at a different upstream URL."""
+def test_sync_rejects_mismatched_upstream() -> None:
+    """Sync refuses a shared gate that points at a different upstream URL."""
     with project_env(
         git_project_yaml(
             "existing-proj",
@@ -504,7 +498,7 @@ def test_sync_branches_rejects_mismatched_upstream() -> None:
         )
 
         with pytest.raises(SystemExit, match="Gate path conflict"):
-            make_git_gate(load_project("new-proj")).sync_branches()
+            make_git_gate(load_project("new-proj")).sync()
 
 
 def test_find_projects_sharing_gate() -> None:

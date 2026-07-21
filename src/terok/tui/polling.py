@@ -460,7 +460,7 @@ class PollingMixin(_MixinBase):
         try:
             # Run blocking sync in thread pool
             result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: make_git_gate(load_project(project_name)).sync_branches(branches)
+                None, lambda: make_git_gate(load_project(project_name)).sync(branches=branches)
             )
 
             # Validate project hasn't changed
@@ -469,7 +469,14 @@ class PollingMixin(_MixinBase):
 
             if result["success"]:
                 label = "Auto-synced" if is_auto else "Synced"
-                self.notify(f"{label} gate from upstream")
+                msg = f"{label} gate from upstream"
+                # The conservative sync model holds deletes and non-FF
+                # moves as pending ops instead of applying them; until a
+                # confirmation flow exists, at least say they're waiting
+                # so held-back changes never look like a clean no-op.
+                if result["pending"]:
+                    msg += f" — {len(result['pending'])} destructive change(s) held back"
+                self.notify(msg)
 
                 # Re-check staleness after sync
                 staleness = await asyncio.get_event_loop().run_in_executor(
