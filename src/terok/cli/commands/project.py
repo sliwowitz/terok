@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import argparse
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...lib.api.gate import GitGate, PendingOp
 
 from ...lib.api import (
     build_images,
@@ -177,6 +180,39 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         action="store_true",
         help="Fall through to the user's ~/.ssh keys instead of the vault",
     )
+    p_gate.add_argument(
+        "--destructive",
+        dest="destructive",
+        action="store_true",
+        help=(
+            "Apply the pending destructive branch changes (deletes, force-updates) "
+            "without the interactive prompt — old tips are saved as backup refs first"
+        ),
+    )
+
+    # gate-backups
+    p_backups = sub.add_parser(
+        "gate-backups",
+        help=(
+            "List the gate's backup refs (old branch tips saved before destructive "
+            "sync ops); --prune expires them"
+        ),
+    )
+    _add_project_arg(p_backups)
+    p_backups.add_argument(
+        "--prune",
+        dest="prune",
+        action="store_true",
+        help="Delete backups older than the retention window instead of listing",
+    )
+    p_backups.add_argument(
+        "--older-than",
+        dest="older_than",
+        type=int,
+        metavar="DAYS",
+        default=None,
+        help="Override the project's retention window for this prune",
+    )
 
     # agents — subgroup mirroring `terok agents` but scoped per-project
     p_agents = sub.add_parser(
@@ -239,6 +275,8 @@ def dispatch(args: argparse.Namespace) -> bool:
             _cmd_gate_path(args.project_name)
         case "gate-sync":
             _cmd_gate_sync(args)
+        case "gate-backups":
+            _cmd_gate_backups(args)
         case "agents":
             if args.agents_cmd == "set":
                 _cmd_agents_set(args.project_name, getattr(args, "selection", None))
@@ -363,8 +401,15 @@ def _cmd_gate_path(project_name: str) -> None:
 
 
 def _cmd_gate_sync(args: argparse.Namespace) -> None:
-    """Sync the host-side git gate for a project."""
-    from terok.lib.api.gate import GateAuthNotConfigured
+    """Sync the host-side git gate for a project.
+
+    Sync itself only ever creates and fast-forwards branches; anything
+    destructive comes back as pending ops.  Those are applied only after
+    the interactive confirmation here (or ``--destructive`` for scripts)
+    — pending work is a normal outcome, not a failure, so the command
+    still exits 0 when the operator declines.
+    """
+    from terok.lib.api.gate import GateAuthNotConfigured, summarize_gate_sync
 
     project = load_project(args.project_name)
     if not project.gate_enabled:
@@ -376,10 +421,9 @@ def _cmd_gate_sync(args: argparse.Namespace) -> None:
         )
 
     use_personal = bool(getattr(args, "use_personal_ssh", False)) or None
+    gate = make_git_gate(project, use_personal_ssh=use_personal)
     try:
-        res = make_git_gate(project, use_personal_ssh=use_personal).sync(
-            force_reinit=getattr(args, "force_reinit", False)
-        )
+        res = gate.sync(force_reinit=getattr(args, "force_reinit", False))
     except GateAuthNotConfigured as exc:
         raise SystemExit(
             f"{exc}\n\nEither:\n"
@@ -389,15 +433,69 @@ def _cmd_gate_sync(args: argparse.Namespace) -> None:
         ) from exc
     if not res["success"]:
         raise SystemExit(f"Gate sync failed: {', '.join(res['errors'])}")
+
     cache_note = " (clone cache refreshed)" if res.get("cache_refreshed") else ""
     upstream_label = res["upstream_url"] or "(none — local-only bare repo)"
     print(
         f"Gate ready at {res['path']} "
         f"(upstream: {upstream_label}; created: {res['created']}){cache_note}"
     )
+    for line in summarize_gate_sync(res):
+        print(line)
     if res.get("cache_error"):
         print(f"Warning: clone cache refresh failed: {res['cache_error']}")
         print("New tasks fall back to a full clone until the next successful sync.")
+
+    if pending := res["pending"]:
+        _confirm_pending_gate_ops(gate, pending, pre_approved=getattr(args, "destructive", False))
+
+
+def _confirm_pending_gate_ops(
+    gate: GitGate, pending: list[PendingOp], *, pre_approved: bool
+) -> None:
+    """Gate the destructive ops behind a TTY prompt (or the --destructive flag)."""
+    import sys
+
+    if pre_approved:
+        _apply_pending_gate_ops(gate, pending)
+    elif sys.stdin.isatty():
+        answer = input(f"Apply {len(pending)} destructive change(s)? [y/N] ")
+        if answer.strip().lower() in ("y", "yes"):
+            _apply_pending_gate_ops(gate, pending)
+        else:
+            print("Left as-is.  Re-run gate-sync any time to review again.")
+    else:
+        print("Re-run with --destructive to apply them (old tips get backup refs).")
+
+
+def _apply_pending_gate_ops(gate: GitGate, pending: list[PendingOp]) -> None:
+    """Apply confirmed destructive gate ops and report backups/refusals."""
+    result = gate.apply_pending_ops(pending)
+    for op in result["applied"]:
+        backup = result["backups"].get(op["branch"])
+        backup_note = f"  (old tip saved as {backup})" if backup else ""
+        print(f"applied: {op['kind']} {op['branch']}{backup_note}")
+    for error in result["errors"]:
+        print(f"skipped: {error}")
+    if result["errors"]:
+        raise SystemExit(1)
+
+
+def _cmd_gate_backups(args: argparse.Namespace) -> None:
+    """List or prune the gate's backup refs for a project."""
+    gate = make_git_gate(load_project(args.project_name))
+    if getattr(args, "prune", False):
+        expired = gate.prune_backups(older_than_days=getattr(args, "older_than", None))
+        print(f"Pruned {len(expired)} backup ref(s).")
+        for ref in expired:
+            print(f"  {ref}")
+        return
+    backups = gate.list_backups()
+    if not backups:
+        print("No gate backups.")
+        return
+    for entry in backups:
+        print(f"{entry['saved_at']}  {entry['branch']}  {entry['sha'][:12]}  ({entry['ref']})")
 
 
 def _cmd_agents_set(project_name: str, selection: str | None) -> None:

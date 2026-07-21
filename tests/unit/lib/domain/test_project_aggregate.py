@@ -168,7 +168,9 @@ class TestInfrastructureManagers:
             "terok.lib.domain.project_state.get_project_state", return_value={"ok": True}
         ) as gs:
             assert p.state() == {"ok": True}
-        assert gs.call_args == mock.call(_PROJ, gate_commit_provider=None, project=p._config)
+        assert gs.call_args == mock.call(
+            _PROJ, gate_commit_provider=None, gate_pending_provider=None, project=p._config
+        )
 
     def test_gate_is_lazy_and_cached(self) -> None:
         p = _project()

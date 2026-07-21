@@ -111,8 +111,15 @@ def _print_sync_gate_ssh_help(project_name: str) -> None:
 
 
 def sync_gate(project_name: str) -> None:
-    """Sync (creating if absent) the git gate for *project_name* from upstream."""
+    """Sync (creating if absent) the git gate for *project_name* from upstream.
+
+    Prints the abridged per-branch report into the worker log — the sync
+    itself is safe by construction (creates and fast-forwards only), and
+    any pending destructive ops it lists are confirmed separately through
+    the TUI modal that the sync action opens afterwards.
+    """
     from terok.lib.api import load_project, make_git_gate
+    from terok.lib.api.gate import summarize_gate_sync
 
     print(f"Syncing gate for {project_name}...")
     try:
@@ -126,12 +133,39 @@ def sync_gate(project_name: str) -> None:
             if result["created"]
             else "Gate synced from upstream."
         )
+        for line in summarize_gate_sync(result):
+            print(line)
         if result.get("cache_error"):
             print(f"Warning: clone cache refresh failed: {result['cache_error']}")
             print("New tasks fall back to a full clone until the next successful sync.")
         return
     _print_sync_gate_ssh_help(project_name)
     raise SystemExit(f"Gate sync failed: {', '.join(result['errors'])}")
+
+
+def apply_gate_ops(project_name: str, ops: list[dict]) -> None:
+    """Apply operator-confirmed destructive gate ops for *project_name*.
+
+    *ops* is the JSON round-trip of the ``PendingOp`` dicts the operator
+    saw in the confirmation modal.  Each op is compare-and-swap guarded
+    inside the gate, so an agent push that happened since the modal was
+    shown fails that op with a visible message instead of losing the push.
+    """
+    from typing import cast
+
+    from terok.lib.api import load_project, make_git_gate
+    from terok.lib.api.gate import PendingOp
+
+    gate = make_git_gate(load_project(project_name))
+    result = gate.apply_pending_ops(cast("list[PendingOp]", ops))
+    for op in result["applied"]:
+        backup = result["backups"].get(op["branch"])
+        backup_note = f"  (old tip saved as {backup})" if backup else ""
+        print(f"applied: {op['kind']} {op['branch']}{backup_note}")
+    for error in result["errors"]:
+        print(f"skipped: {error}")
+    if not result["success"]:
+        raise SystemExit("Some gate changes were not applied — see above.")
 
 
 # ── Shield ────────────────────────────────────────────────────────────

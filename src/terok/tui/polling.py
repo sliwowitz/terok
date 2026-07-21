@@ -42,6 +42,11 @@ else:
 # start+health pair) into one reconcile rather than firing per event.
 _WATCH_DEBOUNCE_S = 0.2
 
+# An auto-sync that only found pending destructive ops changed nothing and
+# will change nothing until the operator confirms — back off for an hour
+# instead of hammering upstream every staleness poll.
+_PENDING_OPS_BACKOFF_SECONDS = 3600
+
 
 class PollingMixin(_MixinBase):
     """Mixin providing upstream and container status polling for the TUI app."""
@@ -460,7 +465,7 @@ class PollingMixin(_MixinBase):
         try:
             # Run blocking sync in thread pool
             result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: make_git_gate(load_project(project_name)).sync_branches(branches)
+                None, lambda: make_git_gate(load_project(project_name)).sync(branches)
             )
 
             # Validate project hasn't changed
@@ -469,7 +474,23 @@ class PollingMixin(_MixinBase):
 
             if result["success"]:
                 label = "Auto-synced" if is_auto else "Synced"
-                self.notify(f"{label} gate from upstream")
+                message = f"{label} gate from upstream ({len(result['applied'])} branch(es))"
+                if pending := result["pending"]:
+                    message += (
+                        f" · {len(pending)} destructive change(s) pending — press g to review"
+                    )
+                self.notify(message)
+
+                # Sync applies only safe ops, so a branch stuck behind a
+                # pending op stays "stale" forever — re-syncing every
+                # cooldown window would loop without ever changing
+                # anything.  Back off hard until the operator acts.
+                if is_auto and pending and not result["applied"]:
+                    import time
+
+                    self._auto_sync_cooldown[project_name] = (
+                        time.time() + _PENDING_OPS_BACKOFF_SECONDS
+                    )
 
                 # Re-check staleness after sync
                 staleness = await asyncio.get_event_loop().run_in_executor(

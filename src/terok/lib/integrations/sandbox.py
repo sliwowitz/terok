@@ -31,6 +31,9 @@ if TYPE_CHECKING:
         DEFAULT_GUEST_SSHD_PORT as DEFAULT_GUEST_SSHD_PORT,
         DEFAULT_SSH_HOST as DEFAULT_SSH_HOST,
         SERVICES_TCP_OPTOUT_YAML as SERVICES_TCP_OPTOUT_YAML,
+        AppliedOp as AppliedOp,
+        ApplyPendingResult as ApplyPendingResult,
+        BackupRef as BackupRef,
         CheckVerdict as CheckVerdict,
         ContainerRuntime as ContainerRuntime,
         CredentialDB as CredentialDB,
@@ -39,6 +42,7 @@ if TYPE_CHECKING:
         ExecResult as ExecResult,
         GateAuthNotConfigured as GateAuthNotConfigured,
         GateStalenessInfo as GateStalenessInfo,
+        GateSyncResult as GateSyncResult,
         GitGate as GitGate,
         Image as Image,
         KrunRuntime as KrunRuntime,
@@ -47,6 +51,7 @@ if TYPE_CHECKING:
         NullRuntime as NullRuntime,
         PassphraseChangeResult as PassphraseChangeResult,
         PassphraseTier as PassphraseTier,
+        PendingOp as PendingOp,
         PodmanRuntime as PodmanRuntime,
         ProvisioningPlan as ProvisioningPlan,
         RawRunSection as RawRunSection,
@@ -122,6 +127,9 @@ if TYPE_CHECKING:
 
 #: Public name -> defining module (PEP 562 lazy resolution).
 _LAZY: dict[str, str] = {
+    "AppliedOp": "terok_sandbox",
+    "ApplyPendingResult": "terok_sandbox",
+    "BackupRef": "terok_sandbox",
     "CheckVerdict": "terok_sandbox",
     "ContainerRuntime": "terok_sandbox",
     "CredentialDB": "terok_sandbox",
@@ -132,7 +140,9 @@ _LAZY: dict[str, str] = {
     "ExecResult": "terok_sandbox",
     "GateAuthNotConfigured": "terok_sandbox",
     "GateStalenessInfo": "terok_sandbox",
+    "GateSyncResult": "terok_sandbox",
     "GitGate": "terok_sandbox",
+    "PendingOp": "terok_sandbox",
     "Image": "terok_sandbox",
     "KrunRuntime": "terok_sandbox",
     "LifecycleHooks": "terok_sandbox",
@@ -213,6 +223,9 @@ _LAZY: dict[str, str] = {
 }
 
 __all__ = [
+    "AppliedOp",
+    "ApplyPendingResult",
+    "BackupRef",
     "CheckVerdict",
     "ContainerRuntime",
     "CredentialDB",
@@ -223,8 +236,10 @@ __all__ = [
     "ExecResult",
     "GateAuthNotConfigured",
     "GateStalenessInfo",
+    "GateSyncResult",
     "GitGate",
     "Image",
+    "PendingOp",
     "KrunRuntime",
     "LifecycleHooks",
     "NoPassphraseError",

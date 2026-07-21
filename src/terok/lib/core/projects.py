@@ -235,6 +235,8 @@ def _build_project_config(
         tasks_root=tasks_root,
         gate_path=gate_path,
         gate_enabled=raw.gate.enabled,
+        gate_backups_enabled=raw.gate.backups.enabled,
+        gate_backup_retention_days=raw.gate.backups.retention_days,
         staging_root=staging_root,
         # ssh.use_personal resolves through three tiers:
         #

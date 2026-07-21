@@ -218,6 +218,50 @@ beyond the gate.  Both values are accepted; they behave identically.
 gatekeeping *is* the gate-enforced mode, so disabling the gate in that
 mode is incoherent.
 
+### Gate sync semantics
+
+`terok project gate-sync <project>` (and the TUI's `g` action, and the
+auto-sync poller) updates the gate from upstream, but only ever applies
+*safe* branch changes on its own: creating branches that appeared
+upstream and fast-forwarding existing ones.  Everything destructive — a
+branch deleted upstream (the usual squash-merge cleanup), or a
+force-pushed rewrite — is reported as a **pending change** and applied
+only after you confirm it (interactive prompt in the CLI, modal in the
+TUI, `--destructive` for scripts).  Agent branches that exist only on
+the gate are never touched, no matter how many syncs run.
+
+Each pending change is labelled honestly: *no gate-local commits* means
+the gate copy is exactly what upstream last advertised (nothing can be
+lost), while *would discard N gate-local commit(s)* means agent work
+sits on that branch — confirm those only when you know the work is
+merged or obsolete.
+
+Before any confirmed change is applied, the old branch tip is saved as a
+backup ref inside the gate.  Inspect and recover with:
+
+```bash
+terok project gate-backups myproj            # list saved tips
+git -C "$(terok project gate-path myproj | sed s,file://,,)" \
+    update-ref refs/heads/lost-branch <sha>  # resurrect one
+terok project gate-backups myproj --prune    # expire old backups now
+```
+
+Backups expire automatically after 30 days (checked during sync).
+Configure per project:
+
+```yaml
+gate:
+  backups:
+    enabled: true        # false: rely on the gate's reflog only
+    retention_days: 30   # 0: keep forever
+```
+
+A possible convention for teams that want one branch to always track
+upstream: treat the project's default branch as upstream-owned — agents
+branch off it but never commit to it directly, so its fast-forwards
+always apply cleanly and it never goes pending.  terok does not enforce
+this; it falls out of the safe-sync rules naturally.
+
 ```yaml
 # Host blocks outbound SSH to github, but the container's network
 # allowlist reaches github via its own rules.

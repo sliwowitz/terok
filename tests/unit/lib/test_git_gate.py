@@ -97,14 +97,7 @@ def test_sync_project_gate_https_clone() -> None:
         def run_side_effect(cmd: list[str], **kwargs: object) -> MagicMock:
             if cmd[:3] == ["git", "clone", "--mirror"]:
                 gate_dir.mkdir(parents=True, exist_ok=True)
-                return git_result()
-            if cmd[:4] == ["git", "-C", str(gate_dir), "remote"]:
-                return git_result(stdout="Fetching origin\n")
-            if cmd[:4] == ["git", "-C", str(gate_dir), "symbolic-ref"]:
-                return git_result(stdout="refs/heads/main\n")
-            if cmd[:4] == ["git", "-C", str(gate_dir), "show-ref"]:
-                return git_result()
-            return git_result(returncode=1)
+            return git_result()
 
         with patch(
             "terok_sandbox.gate.mirror.subprocess.run", side_effect=run_side_effect
@@ -115,9 +108,13 @@ def test_sync_project_gate_https_clone() -> None:
         "path": str(gate_dir),
         "upstream_url": TEST_UPSTREAM_URL,
         "created": True,
+        "migrated": False,
         "success": True,
-        "updated_branches": ["all"],
         "errors": [],
+        "notes": [],
+        "applied": [],
+        "pending": [],
+        "gate_only_branches": [],
         "cache_refreshed": True,
         "cache_error": None,
     }
@@ -417,70 +414,56 @@ def test_compare_gate_vs_upstream(
 
 
 @pytest.mark.parametrize(
-    ("with_gate", "run_behavior", "branches", "expected"),
+    ("run_behavior", "branches", "success", "expected_errors"),
     [
         pytest.param(
-            True,
-            {"return_value": git_result(stdout="Fetching origin\n")},
+            {"return_value": git_result()},
             None,
-            {"success": True, "updated_branches": ["all"], "errors": []},
+            True,
+            [],
             id="success",
         ),
         pytest.param(
-            False,
-            None,
-            None,
-            {"success": False, "updated_branches": [], "errors": ["Gate not initialized"]},
-            id="gate-not-initialized",
-        ),
-        pytest.param(
-            True,
             {"return_value": git_result(returncode=1, stderr="fatal: could not fetch origin")},
             None,
-            {
-                "success": False,
-                "updated_branches": [],
-                "errors": ["remote update failed: fatal: could not fetch origin"],
-            },
+            False,
+            ["fetch failed: fatal: could not fetch origin"],
             id="network-failure",
         ),
         pytest.param(
-            True,
             {"side_effect": subprocess.TimeoutExpired("git", 120)},
             None,
-            {"success": False, "updated_branches": [], "errors": ["Sync timed out"]},
+            False,
+            ["Sync timed out"],
             id="timeout",
         ),
         pytest.param(
-            True,
-            {"return_value": git_result(stdout="Fetching origin\n")},
+            {"return_value": git_result()},
             ["main", "develop"],
-            {"success": True, "updated_branches": ["main", "develop"], "errors": []},
+            True,
+            [],
             id="specific-branches",
         ),
     ],
 )
-def test_sync_branches(
-    with_gate: bool,
-    run_behavior: dict[str, object] | None,
+def test_sync_error_surface(
+    run_behavior: dict[str, object],
     branches: list[str] | None,
-    expected: dict[str, object],
+    success: bool,
+    expected_errors: list[str],
 ) -> None:
-    """Branch sync reports success, initialization problems, and fetch failures."""
+    """Sync reports success or degrades fetch failures into errors, never raises."""
     project_name = "proj-sync-branches"
-    with project_env(
-        git_project_yaml(project_name), project_name=project_name, with_gate=with_gate
-    ):
+    with project_env(git_project_yaml(project_name), project_name=project_name, with_gate=True):
         gate = make_git_gate(load_project(project_name))
-        if run_behavior is None:
-            assert gate.sync_branches(branches) == expected
-        else:
-            with patch("terok_sandbox.gate.mirror.subprocess.run", **run_behavior):
-                assert gate.sync_branches(branches) == expected
+        with patch("terok_sandbox.gate.mirror.subprocess.run", **run_behavior):
+            result = gate.sync(branches)
+        assert result["success"] is success
+        assert result["errors"] == expected_errors
 
 
-def test_sync_branches_rejects_mismatched_upstream() -> None:
-    """Branch sync refuses a shared gate that points at a different upstream URL."""
+def test_sync_rejects_mismatched_upstream() -> None:
+    """Sync refuses a shared gate that points at a different upstream URL."""
     with project_env(
         git_project_yaml(
             "existing-proj",
@@ -504,7 +487,7 @@ def test_sync_branches_rejects_mismatched_upstream() -> None:
         )
 
         with pytest.raises(SystemExit, match="Gate path conflict"):
-            make_git_gate(load_project("new-proj")).sync_branches()
+            make_git_gate(load_project("new-proj")).sync()
 
 
 def test_find_projects_sharing_gate() -> None:

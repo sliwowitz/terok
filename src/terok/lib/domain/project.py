@@ -56,7 +56,13 @@ from terok.lib.integrations.executor import (
     get_agent,
     resolve_instructions,
 )
-from terok.lib.integrations.sandbox import GitGate, SSHManager
+from terok.lib.integrations.sandbox import (
+    AppliedOp,
+    GateSyncResult,
+    GitGate,
+    PendingOp,
+    SSHManager,
+)
 
 from ..core.config import (
     archive_dir,
@@ -209,7 +215,72 @@ def make_git_gate(config: ProjectConfig, *, use_personal_ssh: bool | None = None
         use_personal_ssh=effective,
         validate_gate_fn=validate_gate_upstream_match,
         clone_cache_base=make_sandbox_config().clone_cache_base_path,
+        backups_enabled=config.gate_backups_enabled,
+        backup_retention_days=config.gate_backup_retention_days,
     )
+
+
+def describe_pending_op(op: PendingOp) -> str:
+    """Render one pending destructive gate op as a single decision-ready line.
+
+    The operator confirms these sight-unseen otherwise — the line must
+    carry the branch, what would happen, why, and above all whether any
+    gate-local (agent) commits would be discarded.
+    """
+    verb = "delete" if op["kind"] == "delete" else "force-update"
+    reasons = {
+        "upstream_delete": "deleted upstream",
+        "upstream_rewrite": "upstream rewrote history",
+        "unknown_provenance": "not on upstream; pre-dates sync tracking",
+    }
+    if op["lossless"]:
+        impact = "no gate-local commits"
+    elif op["gate_only_commits"] is not None:
+        impact = f"would discard {op['gate_only_commits']} gate-local commit(s)"
+    else:
+        impact = "gate-local work cannot be ruled out"
+    return f"{verb} {op['branch']} ({reasons[op['reason']]}; {impact})"
+
+
+def summarize_gate_sync(result: GateSyncResult) -> list[str]:
+    """Turn a gate sync report into the abridged lines the CLI/TUI print.
+
+    Shows what actually happened branch by branch — the whole point of
+    the structured report — while capping each category so a first sync
+    of a thousand-branch repo doesn't scroll the terminal into oblivion.
+    """
+    max_lines = 10
+    lines: list[str] = []
+
+    def _capped(items: list[str]) -> list[str]:
+        if len(items) > max_lines:
+            return items[:max_lines] + [f"  … and {len(items) - max_lines} more"]
+        return items
+
+    if result["migrated"]:
+        lines.append("Gate migrated to the safe sync model (one-time normalisation).")
+
+    by_kind: dict[str, list[AppliedOp]] = {}
+    for op in result["applied"]:
+        by_kind.setdefault(op["kind"], []).append(op)
+    labels = {"create": "created", "fast_forward": "fast-forwarded"}
+    for kind, label in labels.items():
+        if ops := by_kind.get(kind):
+            lines.append(f"{label}:")
+            lines += _capped([f"  {o['branch']} -> {(o['new_sha'] or '')[:12]}" for o in ops])
+
+    if gate_only := result["gate_only_branches"]:
+        lines.append(f"kept (gate-only, not on upstream): {len(gate_only)}")
+        lines += _capped([f"  {branch}" for branch in gate_only])
+
+    if pending := result["pending"]:
+        lines.append("pending destructive change(s) — nothing applied without confirmation:")
+        lines += _capped([f"  {describe_pending_op(op)}" for op in pending])
+
+    lines += [f"note: {note}" for note in result["notes"]]
+    if not result["applied"] and not result["pending"]:
+        lines.append("gate is up to date with upstream")
+    return lines
 
 
 def make_ssh_manager(config: ProjectConfig) -> SSHManager:
@@ -797,18 +868,28 @@ class Project:
             full_rebuild=full,
         )
 
-    def state(self, *, gate_commit_provider: Callable[[str], dict | None] | None = None) -> dict:
+    def state(
+        self,
+        *,
+        gate_commit_provider: Callable[[str], dict | None] | None = None,
+        gate_pending_provider: Callable[[str], int | None] | None = None,
+    ) -> dict:
         """Return the project's infrastructure state snapshot.
 
         *gate_commit_provider* is an optional callable that, given a
         project name, returns the last gate commit dict (or ``None``).
         Used by the TUI to inject the live gate manager's ``last_commit``
         lookup without reaching for it from inside the helper.
+        *gate_pending_provider* does the same for the count of pending
+        destructive gate ops (the TUI's ``pending!`` badge).
         """
         from .project_state import get_project_state
 
         return get_project_state(
-            self._config.name, gate_commit_provider=gate_commit_provider, project=self._config
+            self._config.name,
+            gate_commit_provider=gate_commit_provider,
+            gate_pending_provider=gate_pending_provider,
+            project=self._config,
         )
 
     def storage_detail(self) -> ProjectDetail:

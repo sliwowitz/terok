@@ -196,6 +196,25 @@ class RawTasksSection(BaseModel):
     )
 
 
+class RawGateBackups(BaseModel):
+    """Nested ``gate.backups`` settings — safety net for destructive gate ops.
+
+    Every confirmed destructive branch change (delete, force-update) first
+    saves the old tip under a hidden backup ref in the gate.  ``enabled``
+    opts a project out entirely; ``retention_days`` bounds how long the
+    backups accumulate (``0`` keeps them forever).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=True, description="Back up branch tips before destructive gate ops"
+    )
+    retention_days: int = Field(
+        default=30, description="Days before backups expire (0 = keep forever)"
+    )
+
+
 class RawGateSection(BaseModel):
     """The ``gate:`` section of project.yml.
 
@@ -225,6 +244,15 @@ class RawGateSection(BaseModel):
         description="Enable the host-side git gate mirror for this project",
     )
     path: str | None = Field(default=None, description="Override git gate (mirror) path")
+    backups: RawGateBackups = Field(default_factory=lambda: RawGateBackups())
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_none_backups(cls, data: Any) -> Any:
+        """Coerce a bare ``backups:`` key (YAML None) to an empty dict."""
+        if isinstance(data, dict) and data.get("backups") is None:
+            data["backups"] = {}
+        return data
 
 
 class RawUpstreamPolling(BaseModel):

@@ -44,6 +44,7 @@ def get_project_state(
     project_name: str,
     gate_commit_provider: Callable[[str], dict | None] | None = None,
     *,
+    gate_pending_provider: Callable[[str], int | None] | None = None,
     project: "ProjectConfig | None" = None,
 ) -> dict:
     """Return a summary of per-project infrastructure state.
@@ -58,10 +59,14 @@ def get_project_state(
       a ``config`` file.
     - ``gate`` - True if the project's git gate directory exists.
     - ``gate_last_commit`` - Dict with commit info if gate exists, None otherwise.
+    - ``gate_pending_ops`` - Count of destructive gate changes awaiting operator
+      confirmation (None when unknown or no provider given).
 
     Args:
         project_name: The project to inspect.
         gate_commit_provider: Optional callback to retrieve the last gate commit.
+        gate_pending_provider: Optional callback counting the gate's pending
+            destructive ops (an offline ref comparison — no network).
         project: Pre-loaded project config; avoids redundant ``load_project``.
     """
 
@@ -134,6 +139,17 @@ def get_project_state(
             log_warning(f"Gate commit lookup failed for {project_name}: {exc}")
             gate_last_commit = None
 
+    # Pending destructive gate ops (best-effort; errors degrade to None)
+    gate_pending_ops = None
+    if has_gate and gate_pending_provider is not None:
+        try:
+            gate_pending_ops = gate_pending_provider(project_name)
+        except Exception as exc:
+            from ..util.logging_utils import log_warning
+
+            log_warning(f"Gate pending-op lookup failed for {project_name}: {exc}")
+            gate_pending_ops = None
+
     return {
         "dockerfiles": has_dockerfiles,
         "dockerfiles_old": dockerfiles_old,
@@ -143,6 +159,7 @@ def get_project_state(
         "ssh": has_ssh,
         "gate": has_gate,
         "gate_last_commit": gate_last_commit,
+        "gate_pending_ops": gate_pending_ops,
     }
 
 
