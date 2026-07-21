@@ -155,6 +155,7 @@ def captured_runspec(agent_runner_mock: unittest.mock.Mock) -> Any:
         gpus=kwargs.get("gpus"),
         memory=kwargs.get("memory"),
         cpus=kwargs.get("cpus"),
+        caps=tuple(kwargs.get("caps") or ()),
         extra_args=tuple(kwargs.get("extra_args") or ()),
         unrestricted=kwargs.get("unrestricted", True),
         sealed=kwargs.get("sealed", False),

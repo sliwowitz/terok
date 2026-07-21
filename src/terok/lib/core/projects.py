@@ -274,6 +274,8 @@ def _build_project_config(
         cpus=raw.run.cpus,
         gpus=raw.run.gpus,
         nested_containers=raw.run.nested_containers,
+        perf=raw.run.perf,
+        podman_args=raw.run.podman_args,
         runtime=raw.run.runtime,
         timezone=raw.run.timezone,
         task_name_categories=raw.tasks.name_categories,

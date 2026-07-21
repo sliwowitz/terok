@@ -1231,6 +1231,71 @@ run:
 
 ---
 
+## Profiling Inside the Container (`perf`)
+
+Sampling with `perf` needs the `perf_event_open` syscall, which the
+default container seccomp profile denies unless the container holds the
+`perfmon` capability.  Declare it once in `project.yml`:
+
+```yaml
+run:
+  perf: true
+```
+
+terok grants `perfmon` through a typed, allowlisted channel (never a
+freeform flag), which flips the seccomp rule to allow.  Install the
+tool inside the task (`sudo dnf install perf`) or bake it into a
+[custom image](custom-images.md).
+
+**Host prerequisite.** Rootless containers can never hold `CAP_PERFMON`
+in the *initial* user namespace, so the kernel's
+`kernel.perf_event_paranoid` sysctl still applies — it is a host-global
+switch no container flag can substitute for:
+
+```bash
+sudo sysctl kernel.perf_event_paranoid=2   # persist via /etc/sysctl.d/
+```
+
+`2` is the mainline kernel default; hardened kernels (Ubuntu) ship `4`,
+which disables unprivileged perf entirely — task launch warns when it
+detects that.  The resulting scope is sampling the task's **own**
+processes, user-space call stacks only (`perf record ./bench`, flame
+graphs via DWARF or frame pointers).  System-wide profiling (`perf -a`)
+and kernel-side samples are structurally unavailable to rootless tasks.
+
+---
+
+## Custom Podman Flags (`run.podman_args`)
+
+An expert escape hatch for launch flags terok has no dedicated knob
+for — extra env vars, `--add-host` entries, port publishing, shm
+sizing, ulimits:
+
+```yaml
+run:
+  podman_args:
+    - "-e"
+    - "HTTPS_PROXY=http://host.containers.internal:8118"
+    - "--add-host"
+    - "my.model.example:10.0.0.5"
+    - "--shm-size=8g"
+```
+
+The list is appended verbatim to `podman run` — you own the pieces.
+Two guard rails, enforced when `project.yml` is parsed *and* again at
+launch:
+
+- **Sandbox-managed flags are rejected** (`--network`, `--name`,
+  `--cap-add`, `--userns`, `--annotation`, …, and volume mounts that
+  would shadow terok's `/run/terok/` sockets) — they would silently
+  fight the launch assembly terok performs.  Capability grants go
+  through curated knobs like `run.perf` instead.
+- **Isolation-weakening flags are rejected** (`--privileged`,
+  `--security-opt`) — those invalidate the shield/supervisor
+  assumptions and will only ever arrive as vetted, typed features.
+
+---
+
 ## Tips
 
 - **Show resolved paths:** `terok config paths`

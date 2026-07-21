@@ -118,6 +118,7 @@ if TYPE_CHECKING:
         stamp_path as stamp_path,
         systemd_creds_available as systemd_creds_available,
         systemd_creds_has_tpm2 as systemd_creds_has_tpm2,
+        validate_passthrough_args as validate_passthrough_args,
         yaml_update_section as yaml_update_section,
         yellow as yellow,
     )
@@ -218,6 +219,7 @@ _LAZY: dict[str, str] = {
     "stamp_path": "terok_sandbox",
     "systemd_creds_available": "terok_sandbox",
     "systemd_creds_has_tpm2": "terok_sandbox",
+    "validate_passthrough_args": "terok_sandbox",
     "yaml_update_section": "terok_sandbox",
     "yellow": "terok_sandbox",
 }
@@ -314,6 +316,7 @@ __all__ = [
     "stamp_path",
     "systemd_creds_available",
     "systemd_creds_has_tpm2",
+    "validate_passthrough_args",
     "yaml_update_section",
     "yellow",
 ]

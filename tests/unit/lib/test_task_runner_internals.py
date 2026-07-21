@@ -557,6 +557,8 @@ class TestRunContainer:
         p.memory = None
         p.cpus = None
         p.nested_containers = False
+        p.perf = False
+        p.podman_args = []
         p.runtime = None
         return p
 
@@ -1009,6 +1011,145 @@ class TestRunContainer:
         assert "label=nested" not in spec.extra_args
         assert "/dev/fuse" not in spec.extra_args
 
+    def test_perf_grants_perfmon_cap(self) -> None:
+        """run.perf=true rides executor's typed caps channel, not extra_args."""
+        project = self._make_project()
+        project.perf = True
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.container._maybe_warn_perf_restricted"
+            ) as warn,
+        ):
+            _run_container(
+                task_id="t1",
+                cname="perf-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+
+        warn.assert_called_once()
+        spec = captured_runspec(sandbox_factory)
+        assert spec.caps == ("perfmon",)
+        assert "--cap-add" not in spec.extra_args
+
+    def test_perf_default_grants_nothing(self) -> None:
+        """run.perf=false (default) passes no caps and skips the sysctl probe."""
+        project = self._make_project()
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            patch(
+                "terok.lib.orchestration.task_runners.container._maybe_warn_perf_restricted"
+            ) as warn,
+        ):
+            _run_container(
+                task_id="t1",
+                cname="plain-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+
+        warn.assert_not_called()
+        spec = captured_runspec(sandbox_factory)
+        assert spec.caps == ()
+
+    def test_podman_args_appended_to_extra_args(self) -> None:
+        """run.podman_args land verbatim after caller-supplied extra_args."""
+        project = self._make_project()
+        project.podman_args = ["-e", "HTTPS_PROXY=http://host:8118", "--shm-size=2g"]
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+        ):
+            _run_container(
+                task_id="t1",
+                cname="proxy-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+                extra_args=["-p", "127.0.0.1:8080:8080"],
+            )
+
+        spec = captured_runspec(sandbox_factory)
+        p_idx = spec.extra_args.index("-p")
+        e_idx = spec.extra_args.index("-e")
+        assert p_idx < e_idx  # caller flags first, project passthrough appends
+        assert "HTTPS_PROXY=http://host:8118" in spec.extra_args
+        assert "--shm-size=2g" in spec.extra_args
+
+    def test_podman_args_managed_flag_refused_at_launch(self) -> None:
+        """The launch path re-runs sandbox's gate on programmatic configs."""
+        project = self._make_project()
+        project.podman_args = ["--cap-add", "perfmon"]
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.container._agent_runner"
+            ) as sandbox_factory,
+            pytest.raises(SystemExit, match="--cap-add"),
+        ):
+            _run_container(
+                task_id="t1",
+                cname="bad-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+        sandbox_factory.return_value.launch_prepared.assert_not_called()
+
+
+# ── _maybe_warn_perf_restricted ───────────────────────────
+
+
+class TestPerfParanoidWarning:
+    """Verify the warn-not-fail posture of the perf sysctl preflight."""
+
+    def _run_with_sysctl(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str | None
+    ) -> None:
+        from terok.lib.orchestration.task_runners import container as mod
+
+        sysctl = tmp_path / "perf_event_paranoid"
+        if content is not None:
+            sysctl.write_text(content)
+        monkeypatch.setattr(mod, "PERF_EVENT_PARANOID_PATH", str(sysctl))
+        mod._maybe_warn_perf_restricted()
+
+    def test_warns_when_paranoid_blocks_perf(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        self._run_with_sysctl(tmp_path, monkeypatch, "4\n")
+        out = capsys.readouterr().out
+        assert "perf_event_paranoid=4" in out
+        assert "sysctl kernel.perf_event_paranoid=2" in out
+
+    def test_silent_when_sysctl_usable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        self._run_with_sysctl(tmp_path, monkeypatch, "2\n")
+        assert capsys.readouterr().out == ""
+
+    def test_silent_when_sysctl_unreadable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """Missing sysctl (non-Linux, sandboxed CI) is not a misconfiguration."""
+        self._run_with_sysctl(tmp_path, monkeypatch, None)
+        assert capsys.readouterr().out == ""
+
 
 # ── _apply_unrestricted_env ───────────────────────────────
 
@@ -1095,6 +1236,8 @@ class TestLaunchPreparedIdentity:
         p.memory = None
         p.cpus = None
         p.nested_containers = False
+        p.perf = False
+        p.podman_args = []
         p.runtime = None
         return p
 

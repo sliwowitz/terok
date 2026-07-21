@@ -82,6 +82,24 @@ class ProjectConfig(BaseModel):
     """
     nested_containers: bool = False
     """Project runs podman/docker inside its container (see ``run.nested_containers``)."""
+    perf: bool = False
+    """Grant the ``perfmon`` capability from ``run.perf`` in project.yml.
+
+    Curated alias for in-container ``perf`` sampling — travels through
+    terok-executor's typed ``caps`` channel, never freeform flags.
+    Rootless scope: the task samples its own processes, user-space
+    only, and only when the host's ``kernel.perf_event_paranoid``
+    sysctl is ≤ 2 (the launch path warns when it isn't).
+    """
+    podman_args: list[str] = Field(default_factory=list)
+    """Freeform extra ``podman run`` flags from ``run.podman_args``.
+
+    Expert escape hatch, appended verbatim after the flags terok
+    derives.  Sandbox validates the list twice — at project.yml parse
+    time and again at flag assembly — rejecting sandbox-managed flags,
+    mounts that shadow sandbox targets, and isolation-weakening flags
+    (``--privileged``, ``--security-opt``).
+    """
     runtime: Literal["crun", "krun"] | None = None
     """OCI runtime selector from ``run.runtime``.
 
