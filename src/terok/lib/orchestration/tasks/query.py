@@ -197,7 +197,10 @@ def get_task_meta(project_name: str, task_id: str) -> TaskMeta:
         name=raw["name"],
         agent=raw.get("agent"),
         unrestricted=raw.get("unrestricted"),
-        debug=bool(raw.get("debug")),
+        # Strict ``is True`` (not ``bool(...)``): debug mode relaxes container
+        # hardening, so a malformed/legacy persisted value must fail closed —
+        # only a canonical JSON ``true`` counts.
+        debug=raw.get("debug") is True,
         work_status=ws_status,
         work_message=ws_message,
         created_at=raw.get("created_at"),
@@ -280,7 +283,7 @@ def _get_tasks(project_name: str, reverse: bool = False) -> list[TaskMeta]:
                     name=meta["name"],
                     agent=meta.get("agent"),
                     unrestricted=meta.get("unrestricted"),
-                    debug=bool(meta.get("debug")),
+                    debug=meta.get("debug") is True,  # fail closed on malformed/legacy values
                     work_status=ws_status,
                     work_message=ws_message,
                     created_at=meta.get("created_at"),

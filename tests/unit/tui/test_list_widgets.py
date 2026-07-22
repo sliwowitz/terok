@@ -80,7 +80,13 @@ def test_task_list_preserves_live_state_and_posts_current_project() -> None:
 
 
 def test_task_label_shows_debug_badge_only_when_debug() -> None:
-    """A debug-mode task gets the cockroach badge; a normal one does not."""
+    """A debug-mode task gets the cockroach badge; a normal one does not.
+
+    Covers both render modes: the native-wide emoji when enabled, and the
+    ``[debug]`` text fallback when emoji rendering is globally disabled.
+    """
+    from terok.lib.util.emoji import is_emoji_enabled, set_emoji_enabled
+
     widgets = import_widgets()
     task_list = widgets.TaskList()
     _wire_listview(task_list)
@@ -92,6 +98,14 @@ def test_task_label_shows_debug_badge_only_when_debug() -> None:
 
     assert cockroach not in task_list._format_task_label(normal)
     assert cockroach in task_list._format_task_label(debugged)
+
+    original = is_emoji_enabled()
+    set_emoji_enabled(False)
+    try:
+        assert "[debug]" not in task_list._format_task_label(normal)
+        assert "[debug]" in task_list._format_task_label(debugged)
+    finally:
+        set_emoji_enabled(original)
 
 
 def test_task_list_drops_stale_selection_messages() -> None:

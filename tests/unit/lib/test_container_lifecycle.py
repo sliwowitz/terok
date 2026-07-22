@@ -367,6 +367,25 @@ def test_task_restart_recreate_preserves_debug_from_meta() -> None:
         run_cli.assert_called_once_with(project_name, task_id, unrestricted=None, debug=True)
 
 
+def test_task_restart_recreate_debug_fails_closed_on_malformed_meta() -> None:
+    """A malformed/legacy truthy debug value recreates fully hardened (fail-closed)."""
+    project_name = "proj_restart_debug_bad"
+    with project_env(project_config(project_name), project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name)
+        update_task_meta(ctx, project_name, task_id, debug="yes")  # not a canonical bool
+
+        runtime_mock = _mock_runtime(_mock_container(state=None))
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+            patch("terok.lib.orchestration.task_runners.restart._sandbox"),
+            patch("terok.lib.orchestration.task_runners.restart.task_run_cli") as run_cli,
+        ):
+            capture_stdout(task_restart, project_name, task_id)
+
+        run_cli.assert_called_once_with(project_name, task_id, unrestricted=None, debug=False)
+
+
 def test_task_restart_missing_toad_container_recreates_via_toad_runner() -> None:
     """A gone toad container takes the recreate rung through the toad runner."""
     project_name = "proj_restart_toad_gone"

@@ -364,7 +364,9 @@ def _recreate_in_place(
     # Recreation rewrites the sidecar from scratch, so debug mode is not
     # inherited from the old one — carry the task's saved choice forward
     # so a recreated container keeps its relaxed hardening (and its badge).
-    debug = bool(meta.get("debug"))
+    # Strict ``is True``: this drives real hardening on the new container, so a
+    # malformed/legacy persisted value must fail closed (fully hardened).
+    debug = meta.get("debug") is True
     if mode == "cli":
         task_run_cli(project.name, task_id, unrestricted=unrestricted, debug=debug)
     else:  # toad — the refusal above keeps mode binary here
