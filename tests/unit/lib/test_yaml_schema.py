@@ -49,6 +49,7 @@ class RawProjectYamlTests(unittest.TestCase):
                 "staging_root": MOCK_STAGING_ROOT,
                 "upstream_polling": {"enabled": False, "interval_minutes": 10},
                 "auto_sync": {"enabled": True, "branches": ["main", "dev"]},
+                "review_lag": {"enabled": False, "surface_in_tasks": False},
             },
             "run": {"shutdown_timeout": 30, "gpus": "all"},
             "shield": {"drop_on_task_run": False, "on_task_restart": "up"},
@@ -66,6 +67,8 @@ class RawProjectYamlTests(unittest.TestCase):
         self.assertEqual(raw.gatekeeping.upstream_polling.interval_minutes, 10)
         self.assertTrue(raw.gatekeeping.auto_sync.enabled)
         self.assertEqual(raw.gatekeeping.auto_sync.branches, ["main", "dev"])
+        self.assertFalse(raw.gatekeeping.review_lag.enabled)
+        self.assertFalse(raw.gatekeeping.review_lag.surface_in_tasks)
         self.assertEqual(raw.run.shutdown_timeout, 30)
         self.assertEqual(raw.run.gpus, "all")
         self.assertFalse(raw.shield.drop_on_task_run)
@@ -96,10 +99,13 @@ class RawProjectYamlTests(unittest.TestCase):
     def test_none_subsection_coerced_to_empty(self) -> None:
         """Nested None sub-sections (e.g. upstream_polling: null) get defaults."""
         raw = RawProjectYaml.model_validate(
-            {"gatekeeping": {"upstream_polling": None, "auto_sync": None}}
+            {"gatekeeping": {"upstream_polling": None, "auto_sync": None, "review_lag": None}}
         )
         self.assertTrue(raw.gatekeeping.upstream_polling.enabled)
         self.assertFalse(raw.gatekeeping.auto_sync.enabled)
+        # Review lag is default-ON — silence must be opted into, not out of.
+        self.assertTrue(raw.gatekeeping.review_lag.enabled)
+        self.assertTrue(raw.gatekeeping.review_lag.surface_in_tasks)
 
 
 class SecurityClassValidationTests(unittest.TestCase):

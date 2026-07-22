@@ -168,6 +168,28 @@ class TestRenderHelpers:
         text_str = str(result)
         assert f"Config: {TEST_PROJECT_ROOT}" in text_str
 
+    def test_render_project_details_shows_review_lag(self) -> None:
+        widgets = import_widgets()
+        project = make_project()
+        state = {"ssh": True, "dockerfiles": True, "images": True, "gate": True}
+
+        result = widgets.render_project_details(
+            project, state, task_count=5, review_lag=["!42 border-wave-1 +3"]
+        )
+
+        text_str = str(result)
+        assert "Review lag" in text_str
+        assert "!42 border-wave-1 +3" in text_str
+
+    def test_render_project_details_quiet_without_review_lag(self) -> None:
+        widgets = import_widgets()
+        project = make_project()
+        state = {"ssh": True, "dockerfiles": True, "images": True, "gate": True}
+
+        result = widgets.render_project_details(project, state, task_count=5, review_lag=[])
+
+        assert "Review lag" not in str(result)
+
     def test_render_project_details_none_project(self) -> None:
         widgets = import_widgets()
 

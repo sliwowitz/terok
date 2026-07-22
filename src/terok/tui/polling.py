@@ -56,6 +56,7 @@ class PollingMixin(_MixinBase):
         # lifecycle but stores its bookkeeping on the host instance.
         current_task: "TaskMeta | None"
         _staleness_info: "GateStalenessInfo | None"
+        _review_lag_lines: list[str] | None
         _polling_timer: "Timer | None"
         _polling_project_name: str | None
         _last_notified_stale: bool
@@ -82,6 +83,7 @@ class PollingMixin(_MixinBase):
 
         self._stop_upstream_polling()  # Stop any existing timer
         self._staleness_info = None
+        self._review_lag_lines = None
         self._last_notified_stale = False
 
         if not self.current_project_name:
@@ -367,12 +369,14 @@ class PollingMixin(_MixinBase):
         """Background worker to check upstream (runs in thread pool)."""
         import asyncio
 
-        from ..lib.api import load_project, make_git_gate
+        from ..lib.api import load_project, make_git_gate, refresh_review_lag
 
         try:
+            loop = asyncio.get_event_loop()
+            project = await loop.run_in_executor(None, lambda: load_project(project_name))
             # Run blocking call in thread pool
-            staleness = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: make_git_gate(load_project(project_name)).compare_vs_upstream()
+            staleness = await loop.run_in_executor(
+                None, lambda: make_git_gate(project).compare_vs_upstream()
             )
 
             # Validate project hasn't changed while we were polling
@@ -380,6 +384,11 @@ class PollingMixin(_MixinBase):
                 return
 
             self._on_staleness_updated(project_name, staleness)
+
+            # Same cadence, opposite direction: gate ahead of an open review.
+            entries = await loop.run_in_executor(None, lambda: refresh_review_lag(project))
+            if entries is not None and project_name == self.current_project_name:
+                self._on_review_lag_updated(project_name, [str(entry) for entry in entries])
 
         except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
             self._log_debug(f"upstream poll error: {e}")
@@ -411,6 +420,22 @@ class PollingMixin(_MixinBase):
 
         # Refresh the project state display
         self._refresh_project_state()
+
+    def _on_review_lag_updated(self, project_name: str, lines: list[str]) -> None:
+        """Store fresh review-lag warnings; toast the ones that just appeared.
+
+        ``lines`` is authoritative (the forge answered) — an empty list
+        *clears* the warning; a failed query never reaches here, so stale
+        state survives outages instead of silently reading as "all pushed".
+        """
+        if project_name != self.current_project_name:
+            return
+        previous = self._review_lag_lines
+        self._review_lag_lines = lines
+        if lines and lines != previous:
+            self.notify(f"Review lag: {'; '.join(lines)}", severity="warning")
+        if lines != previous:
+            self._refresh_project_state()
 
     def _maybe_auto_sync(self, project_name: str) -> None:
         """Trigger auto-sync if enabled for this project.

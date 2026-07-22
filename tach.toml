@@ -202,6 +202,7 @@ path = "terok.lib.api.gate"
 layer = "domain"
 depends_on = [
     "terok.lib.domain.project",
+    "terok.lib.domain.review_lag",
     "terok.lib.integrations.sandbox",
 ]
 
@@ -281,6 +282,16 @@ depends_on = [
 ]
 
 # Rich domain object: Project (Aggregate Root)
+[[modules]]
+path = "terok.lib.domain.review_lag"
+layer = "domain"
+depends_on = [
+    "terok.lib.domain.project",
+    "terok.lib.orchestration.tasks",
+    "terok.lib.integrations.sandbox",
+    "terok.lib.core.project_model",
+]
+
 [[modules]]
 path = "terok.lib.domain.project"
 layer = "domain"
@@ -965,6 +976,19 @@ from = ["terok.lib.domain.wizards.new_project"]
 [[interfaces]]
 expose = ["maybe_vault_db", "vault_db"]
 from = ["terok.lib.domain.vault"]
+
+[[interfaces]]
+expose = [
+    "OpenReview",
+    "ReviewLagEntry",
+    "REVIEW_STATUS_FILENAME",
+    "refresh_review_lag",
+    "fetch_open_reviews",
+    "review_lag_entries",
+    "format_review_status",
+    "write_review_status_files",
+]
+from = ["terok.lib.domain.review_lag"]
 
 [[interfaces]]
 expose = [

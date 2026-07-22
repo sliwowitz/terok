@@ -103,7 +103,9 @@ if TYPE_CHECKING:
     from terok.lib.api.gate import (
         GateAuthNotConfigured as GateAuthNotConfigured,
         GateStalenessInfo as GateStalenessInfo,
+        ReviewLagEntry as ReviewLagEntry,
         make_git_gate as make_git_gate,
+        refresh_review_lag as refresh_review_lag,
     )
     from terok.lib.api.project import (
         AGENTS_QUESTION as AGENTS_QUESTION,
@@ -362,6 +364,8 @@ _LAZY: dict[str, str] = {
     "list_projects": "terok.lib.api.project",
     "load_project": "terok.lib.api.project",
     "make_git_gate": "terok.lib.api.gate",
+    "ReviewLagEntry": "terok.lib.api.gate",
+    "refresh_review_lag": "terok.lib.api.gate",
     "make_sandbox_config": "terok.lib.core.config",
     "mark_task_deleting": "terok.lib.api.task",
     "mode_info": "terok.lib.api.task",
@@ -563,7 +567,9 @@ __all__ = [
     "list_projects",
     "load_project",
     "load_vault_status",
+    "ReviewLagEntry",
     "make_git_gate",
+    "refresh_review_lag",
     "make_sandbox_config",
     "mark_task_deleting",
     "mode_info",

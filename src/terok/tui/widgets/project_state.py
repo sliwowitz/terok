@@ -91,6 +91,7 @@ def render_project_details(
     staleness: GateStalenessInfo | None = None,
     css_variables: dict[str, str] | None = None,
     shield_env: EnvironmentCheck | None = None,
+    review_lag: list[str] | None = None,
 ) -> Text:
     """Render project details as a Rich Text object."""
     if project is None or state is None:
@@ -257,6 +258,15 @@ def render_project_details(
             lines.append(Text(f"  Commit:   {gate_head}"))
         lines.append(Text(f"  Checked:  {staleness.last_checked}"))
 
+    # Review lag — gate branches ahead of an open MR/PR (level-triggered:
+    # shown until the operator pushes the gate or the review closes).
+    if review_lag:
+        lines.append(Text(""))
+        lines.append(Text("Review lag (gate ahead of open review — push the gate!):"))
+        lines.extend(
+            Text(f"  {warning}", Style(color=warning_color, bold=True)) for warning in review_lag
+        )
+
     lines.append(Text(""))
     lines.append(Text(f"Config: {project.root}", style=dim_style))
 
@@ -285,6 +295,7 @@ class ProjectState(Static):
         task_count: int | None = None,
         staleness: GateStalenessInfo | None = None,
         shield_env: EnvironmentCheck | None = None,
+        review_lag: list[str] | None = None,
     ) -> None:
         """Display fully loaded project details including infrastructure status."""
         self.update(
@@ -295,6 +306,7 @@ class ProjectState(Static):
                 staleness,
                 _get_css_variables(self),
                 shield_env=shield_env,
+                review_lag=review_lag,
             )
         )
 

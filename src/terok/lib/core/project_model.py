@@ -55,6 +55,12 @@ class ProjectConfig(BaseModel):
     upstream_polling_interval_minutes: int = 5
     auto_sync_enabled: bool = False
     auto_sync_branches: list[str] = Field(default_factory=list)
+    review_lag_enabled: bool = True
+    """Warn when a gate branch is ahead of an open MR/PR (project.yml
+    ``gatekeeping.review_lag.enabled``)."""
+    review_lag_surface_in_tasks: bool = True
+    """Write review-lag warnings into each task's ``~/.terok/review-status``
+    (project.yml ``gatekeeping.review_lag.surface_in_tasks``)."""
     default_agent: str | None = None
     default_provider: str | None = None
     default_shell: str | None = None

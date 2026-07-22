@@ -31,6 +31,11 @@ if TYPE_CHECKING:
         make_git_gate as make_git_gate,
         summarize_gate_sync as summarize_gate_sync,
     )
+    from terok.lib.domain.review_lag import (
+        REVIEW_STATUS_FILENAME as REVIEW_STATUS_FILENAME,
+        ReviewLagEntry as ReviewLagEntry,
+        refresh_review_lag as refresh_review_lag,
+    )
     from terok.lib.integrations.sandbox import (
         AppliedOp as AppliedOp,
         ApplyPendingResult as ApplyPendingResult,
@@ -52,8 +57,11 @@ _LAZY: dict[str, str] = {
     "GateSyncResult": "terok.lib.integrations.sandbox",
     "GitGate": "terok.lib.integrations.sandbox",
     "PendingOp": "terok.lib.integrations.sandbox",
+    "REVIEW_STATUS_FILENAME": "terok.lib.domain.review_lag",
+    "ReviewLagEntry": "terok.lib.domain.review_lag",
     "describe_pending_op": "terok.lib.domain.project",
     "make_git_gate": "terok.lib.domain.project",
+    "refresh_review_lag": "terok.lib.domain.review_lag",
     "summarize_gate_sync": "terok.lib.domain.project",
 }
 
@@ -66,8 +74,11 @@ __all__ = [
     "GateSyncResult",
     "GitGate",
     "PendingOp",
+    "REVIEW_STATUS_FILENAME",
+    "ReviewLagEntry",
     "describe_pending_op",
     "make_git_gate",
+    "refresh_review_lag",
     "summarize_gate_sync",
 ]
 
