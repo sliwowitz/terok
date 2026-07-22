@@ -2007,6 +2007,26 @@ class TestGetTaskMeta:
             assert tm.container_state is None
             mock_runtime.container.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("persisted", "expected"),
+        [(True, True), (False, False), ("true", False), (1, False), (None, False)],
+        ids=["true", "false", "truthy-string", "truthy-int", "absent"],
+    )
+    def test_debug_hydrates_fail_closed(self, mock_runtime, persisted, expected) -> None:
+        """Only a canonical JSON ``true`` enables debug; anything else fails closed."""
+        from terok.lib.orchestration.tasks import get_task_meta
+
+        pid = "proj_gtm_debug"
+        with project_env(f"project:\n  id: {pid}\n", project_name=pid), mock_git_config():
+            task_id = task_new(pid)
+            meta_dir = tasks_meta_dir(pid)
+            meta = read_task_meta(meta_dir, task_id)
+            if persisted is not None:
+                meta["debug"] = persisted
+            write_task_meta(dossier_path(meta_dir, task_id), meta)
+
+            assert get_task_meta(pid, task_id).debug is expected
+
 
 class TestDossierHandle:
     """_dossier_handle_to_dir_and_id decomposes a dossier-file handle."""

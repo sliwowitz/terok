@@ -361,10 +361,16 @@ def _recreate_in_place(
         _sandbox(project).rm([cname])
     if unrestricted is None:
         unrestricted = meta.get("unrestricted")
+    # Recreation rewrites the sidecar from scratch, so debug mode is not
+    # inherited from the old one — carry the task's saved choice forward
+    # so a recreated container keeps its relaxed hardening (and its badge).
+    # Strict ``is True``: this drives real hardening on the new container, so a
+    # malformed/legacy persisted value must fail closed (fully hardened).
+    debug = meta.get("debug") is True
     if mode == "cli":
-        task_run_cli(project.name, task_id, unrestricted=unrestricted)
+        task_run_cli(project.name, task_id, unrestricted=unrestricted, debug=debug)
     else:  # toad — the refusal above keeps mode binary here
-        task_run_toad(project.name, task_id, unrestricted=unrestricted)
+        task_run_toad(project.name, task_id, unrestricted=unrestricted, debug=debug)
 
 
 __all__ = [
