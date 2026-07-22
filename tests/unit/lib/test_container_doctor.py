@@ -952,3 +952,16 @@ class TestReachabilityReferencesSupervisor:
         ):
             results = _check_per_container_services("proj-cli-42", supervisor_up=True)
         assert all("supervisor is not running" not in detail for _, _, detail in results)
+
+    def test_tcp_mode_unrecorded_port_references_root_cause_when_down(self, tmp_path: Path) -> None:
+        """TCP mode with no recorded port still cites the dead supervisor, like every other miss."""
+        from terok.lib.orchestration.container_doctor import _check_per_container_services
+
+        cfg = self._cfg(tmp_path)
+        cfg.services_mode = "tcp"  # no sidecar → _read_sidecar_ports returns {} → ports absent
+        with patch(
+            "terok.lib.orchestration.container_doctor.make_sandbox_config", return_value=cfg
+        ):
+            results = _check_per_container_services("proj-cli-42", supervisor_up=False)
+        assert all("cannot probe" in detail for _, _, detail in results)
+        assert all("supervisor is not running" in detail for _, _, detail in results)

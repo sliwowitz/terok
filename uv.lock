@@ -2478,8 +2478,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a16.dev432+g0965d0ff4"
-source = { git = "https://github.com/sliwowitz/terok-sandbox.git?rev=feat%2Fsupervisor-liveness#0965d0ff49a5761b68c3befea333e860705454c0" }
+version = "0.5.0a16.dev433+g9c44f2bf8"
+source = { git = "https://github.com/sliwowitz/terok-sandbox.git?rev=feat%2Fsupervisor-liveness#9c44f2bf884ed41a7fba8166b6706c3e017be95f" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },

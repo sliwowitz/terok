@@ -519,7 +519,7 @@ def _check_service_reachable(
         return ("warn", label, f"socket missing ({sock_path}){miss}")
     # TCP mode
     if tcp_port is None:
-        return ("warn", label, "TCP port not recorded in sidecar — cannot probe")
+        return ("warn", label, f"TCP port not recorded in sidecar — cannot probe{miss}")
     if _tcp_reachable(tcp_port):
         return ("ok", label, f"reachable on 127.0.0.1:{tcp_port}")
     return ("warn", label, f"not reachable on 127.0.0.1:{tcp_port}{miss}")
