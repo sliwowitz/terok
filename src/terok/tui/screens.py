@@ -68,7 +68,7 @@ else:
 from rich.style import Style
 from rich.text import Text
 
-from terok.lib.api.gate import GateStalenessInfo
+from terok.lib.api.gate import BackupRef, GateStalenessInfo
 from terok.lib.api.setup import EnvironmentCheck
 from terok.lib.api.vault import VaultState, VaultStatus, load_vault_status
 
@@ -151,6 +151,7 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
         _modal_binding("q", "dismiss", "Back"),
         _modal_binding("i", "project_init", "Full Setup"),
         _modal_binding("g", "sync_gate", "Sync git gate"),
+        _modal_binding("B", "gate_backups", "Gate backups"),
         _modal_binding("d", "generate", "Generate dockerfiles"),
         _modal_binding("b", "build", "Build project image"),
         _modal_binding("r", "build_agents", "Rebuild L1 with fresh agents"),
@@ -203,6 +204,7 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
                 id="project_init",
             ),
             Option("sync \\[g]it gate", id="sync_gate"),
+            Option("gate \\[B]ackups (list / restore / delete)...", id="gate_backups"),
             None,
             Option("generate \\[d]ockerfiles", id="generate"),
             Option("\\[b]uild project image", id="build"),
@@ -297,6 +299,10 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
     def action_sync_gate(self) -> None:
         """Trigger git gate synchronization."""
         self.dismiss("sync_gate")
+
+    def action_gate_backups(self) -> None:
+        """Open the gate backups browser."""
+        self.dismiss("gate_backups")
 
     def action_generate(self) -> None:
         """Trigger Dockerfile generation."""
@@ -1801,6 +1807,97 @@ class ConfirmDestructiveScreen(screen.ModalScreen[bool]):
     def action_cancel(self) -> None:
         """Cancel and dismiss without confirming."""
         self.dismiss(False)
+
+
+class GateBackupsScreen(screen.ModalScreen["tuple[str, str] | None"]):
+    """Browse the gate's backup refs and pick one to restore or delete.
+
+    Backups are the old branch tips saved before any destructive gate
+    change — a sync's confirmed op, or an agent force-push/delete caught
+    by the gate hook.  Dismisses with ``(action, ref)`` where *action* is
+    ``"restore"`` (Enter) or ``"delete"`` (``d``), or ``None`` if
+    cancelled or there is nothing to show.
+    """
+
+    BINDINGS = [
+        _modal_binding("escape", "cancel", "Cancel"),
+        _modal_binding("d", "delete", "Delete selected"),
+    ]
+
+    CSS = """
+    GateBackupsScreen {
+        align: center middle;
+    }
+
+    #backups-dialog {
+        width: 90;
+        height: auto;
+        max-height: 90%;
+        border: heavy $primary;
+        border-title-align: right;
+        border-subtitle-align: left;
+        background: $surface;
+        padding: 1;
+    }
+
+    #backups-list {
+        height: auto;
+        max-height: 20;
+    }
+    """
+
+    def __init__(self, backups: list[BackupRef]) -> None:
+        """Store the backup entries (newest first) to render on mount."""
+        super().__init__()
+        self._backups = backups
+
+    def compose(self) -> ComposeResult:
+        """Build the backup list; each option carries its ref as the id."""
+        from textual.widgets import OptionList
+        from textual.widgets.option_list import Option
+
+        with Vertical(id="backups-dialog") as dialog:
+            if self._backups:
+                options = [
+                    Option(
+                        f"{e['saved_at']}  {e['branch']}  {e['sha'][:12]}",
+                        id=e["ref"],
+                    )
+                    for e in self._backups
+                ]
+                yield OptionList(*options, id="backups-list")
+            else:
+                yield Static("No gate backups.", id="backups-empty")
+        dialog.border_title = "Gate backups"
+        dialog.border_subtitle = "Enter: restore   d: delete   Esc: cancel"
+
+    def on_mount(self) -> None:
+        """Focus the list so keyboard selection works immediately."""
+        if self._backups:
+            self.query_one("#backups-list").focus()
+
+    def on_option_list_option_selected(self, event: Any) -> None:
+        """Enter on a backup requests a restore of that ref."""
+        if event.option.id:
+            self.dismiss(("restore", event.option.id))
+
+    def action_delete(self) -> None:
+        """``d`` requests deletion of the highlighted backup."""
+        from textual.widgets import OptionList
+
+        if not self._backups:
+            return
+        option_list = self.query_one("#backups-list", OptionList)
+        highlighted = option_list.highlighted
+        if highlighted is None:
+            return
+        ref = option_list.get_option_at_index(highlighted).id
+        if ref:
+            self.dismiss(("delete", ref))
+
+    def action_cancel(self) -> None:
+        """Dismiss without acting."""
+        self.dismiss(None)
 
 
 class QuitConfirmScreen(screen.ModalScreen[bool]):

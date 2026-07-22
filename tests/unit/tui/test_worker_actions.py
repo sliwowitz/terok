@@ -160,6 +160,65 @@ def test_apply_gate_ops_reports_backups_and_failures() -> None:
     fake_gate.apply_pending_ops.assert_called_once()
 
 
+def test_restore_gate_backup_reports_previous_tip(capsys: pytest.CaptureFixture[str]) -> None:
+    """A successful restore names the branch and the safety backup it took."""
+    fake_gate = mock.Mock()
+    fake_gate.restore_backup.return_value = {
+        "branch": "feat/x",
+        "restored_sha": "b" * 40,
+        "previous_backup_ref": "refs/terok/backup/feat/x/20260722T000000Z-cccccccccccc",
+        "error": None,
+    }
+    ref = "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+    ):
+        worker_actions.restore_gate_backup("proj", ref)
+    fake_gate.restore_backup.assert_called_once_with(ref)
+    out = capsys.readouterr().out
+    assert "Restored feat/x" in out
+    assert "Previous tip saved as" in out
+
+
+def test_restore_gate_backup_error_raises() -> None:
+    """A failed restore raises SystemExit with the gate's reason."""
+    fake_gate = mock.Mock()
+    fake_gate.restore_backup.return_value = {
+        "branch": "feat/x",
+        "restored_sha": None,
+        "previous_backup_ref": None,
+        "error": "could not back up the current tip — restore refused",
+    }
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        pytest.raises(SystemExit, match="Restore failed"),
+    ):
+        worker_actions.restore_gate_backup("proj", "refs/terok/backup/feat/x/x-y")
+
+
+def test_delete_gate_backup_reports_and_errors() -> None:
+    """delete_gate_backup confirms on success and raises on the gate's error."""
+    fake_gate = mock.Mock()
+    fake_gate.delete_backup.return_value = None
+    ref = "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+    ):
+        worker_actions.delete_gate_backup("proj", ref)
+    fake_gate.delete_backup.assert_called_once_with(ref)
+
+    fake_gate.delete_backup.return_value = "not a backup ref: refs/heads/master"
+    with (
+        mock.patch("terok.lib.api.load_project"),
+        mock.patch("terok.lib.api.make_git_gate", return_value=fake_gate),
+        pytest.raises(SystemExit, match="Delete failed"),
+    ):
+        worker_actions.delete_gate_backup("proj", "refs/heads/master")
+
+
 def test_sync_gate_reports_cache_refresh_failure(capsys: pytest.CaptureFixture[str]) -> None:
     """A successful sync with a failed clone-cache refresh names the failure.
 

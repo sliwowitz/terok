@@ -92,7 +92,7 @@ gatekeeping:
 ```
 
 **Review-lag warning** (`gatekeeping.review_lag`):
-Warns when a gate branch is *ahead of an open MR/PR* on the forge — the "forgot to push the gate after CodeRabbit started reviewing" failure. An open MR whose source branch matches a gate branch is the "external review started" signal; before the MR exists, gate-ahead is the normal local-review state and stays silent. Runs on the upstream-polling cadence through the operator's own `gh`/`glab` login (read-only; containers never reach the forge).
+Warns when a gate branch is *ahead of an open MR/PR* on the forge — the "forgot to push the gate after CodeRabbit started reviewing" failure. An open MR whose source branch matches a gate branch is the "external review started" signal; before the MR exists, gate-ahead is the normal local-review state and stays silent. Runs on the upstream-polling cadence through the operator's own `gh`/`glab` login (read-only; containers never reach the forge), and re-checks immediately when an agent pushes — the gate's `post-receive` hook writes a marker the TUI watches, so a push made while an MR is open surfaces the warning within seconds rather than at the next poll tick.
 
 Warnings surface in the TUI project panel and — with `surface_in_tasks` — in each task's `~/.terok/review-status` file, which the container tmux status line displays (level-triggered: the mark stays until the gate is pushed) and the agent itself can read.
 

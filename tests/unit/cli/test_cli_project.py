@@ -601,6 +601,83 @@ def test_gate_backups_prune_reports_expired(capsys: pytest.CaptureFixture[str]) 
     assert "Pruned 1 backup ref(s)." in capsys.readouterr().out
 
 
+def test_gate_backups_restore_reports_and_saves_previous(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """gate-backups --restore prints the restored branch and the safety backup."""
+    fake_gate = MagicMock()
+    fake_gate.restore_backup.return_value = {
+        "branch": "feat/x",
+        "restored_sha": "b" * 40,
+        "previous_backup_ref": "refs/terok/backup/feat/x/20260722T000000Z-cccccccccccc",
+        "error": None,
+    }
+    ref = "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"
+    args = argparse.Namespace(project_name="p1", prune=False, restore=ref, delete=None)
+    with (
+        patch("terok.cli.commands.project.load_project"),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+    ):
+        from terok.cli.commands.project import _cmd_gate_backups
+
+        _cmd_gate_backups(args)
+
+    fake_gate.restore_backup.assert_called_once_with(ref)
+    out = capsys.readouterr().out
+    assert "Restored feat/x to " + "b" * 12 in out
+    assert "Previous tip saved as" in out
+
+
+def test_gate_backups_restore_error_exits(capsys: pytest.CaptureFixture[str]) -> None:
+    """A failed restore surfaces as a SystemExit with the gate's reason."""
+    fake_gate = MagicMock()
+    fake_gate.restore_backup.return_value = {
+        "branch": "feat/x",
+        "restored_sha": None,
+        "previous_backup_ref": None,
+        "error": "branch moved during the restore — not applied",
+    }
+    args = argparse.Namespace(
+        project_name="p1", prune=False, restore="refs/terok/backup/feat/x/x-y", delete=None
+    )
+    with (
+        patch("terok.cli.commands.project.load_project"),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+        pytest.raises(SystemExit, match="Restore failed"),
+    ):
+        from terok.cli.commands.project import _cmd_gate_backups
+
+        _cmd_gate_backups(args)
+
+
+def test_gate_backups_delete_reports(capsys: pytest.CaptureFixture[str]) -> None:
+    """gate-backups --delete removes one ref and confirms."""
+    fake_gate = MagicMock()
+    fake_gate.delete_backup.return_value = None
+    ref = "refs/terok/backup/feat/x/20260720T000000Z-aaaaaaaaaaaa"
+    args = argparse.Namespace(project_name="p1", prune=False, restore=None, delete=ref)
+    with (
+        patch("terok.cli.commands.project.load_project"),
+        patch("terok.cli.commands.project.make_git_gate", return_value=fake_gate),
+    ):
+        from terok.cli.commands.project import _cmd_gate_backups
+
+        _cmd_gate_backups(args)
+
+    fake_gate.delete_backup.assert_called_once_with(ref)
+    assert f"Deleted {ref}." in capsys.readouterr().out
+
+
+def test_gate_backups_ops_are_mutually_exclusive() -> None:
+    """--prune, --restore, and --delete cannot be combined."""
+    from terok.cli.commands.project import register
+
+    parser = argparse.ArgumentParser()
+    register(parser.add_subparsers(dest="project_cmd"))
+    with pytest.raises(SystemExit):
+        parser.parse_args(["gate-backups", "p1", "--prune", "--restore", "refs/x"])
+
+
 def test_gate_sync_renders_remoteless_upstream_label(capsys: pytest.CaptureFixture[str]) -> None:
     """A remoteless (upstream_url=None) gate renders a human hint, not ``None``."""
     fake_gate = MagicMock()

@@ -168,6 +168,36 @@ def apply_gate_ops(project_name: str, ops: list[dict]) -> None:
         raise SystemExit("Some gate changes were not applied — see above.")
 
 
+def restore_gate_backup(project_name: str, ref: str) -> None:
+    """Restore a branch to backup *ref* for *project_name*.
+
+    The gate backs up the tip being replaced before moving the branch, so
+    the restore is itself reversible; a branch that moved since the
+    backups were listed fails the compare-and-swap with a visible message
+    rather than clobbering the newer tip.
+    """
+    from terok.lib.api import load_project, make_git_gate
+
+    gate = make_git_gate(load_project(project_name))
+    result = gate.restore_backup(ref)
+    if result["error"] is not None:
+        raise SystemExit(f"Restore failed: {result['error']}")
+    print(f"Restored {result['branch']} to {(result['restored_sha'] or '')[:12]}.")
+    if result["previous_backup_ref"] is not None:
+        print(f"Previous tip saved as {result['previous_backup_ref']}")
+
+
+def delete_gate_backup(project_name: str, ref: str) -> None:
+    """Delete a single gate backup *ref* for *project_name*."""
+    from terok.lib.api import load_project, make_git_gate
+
+    gate = make_git_gate(load_project(project_name))
+    error = gate.delete_backup(ref)
+    if error is not None:
+        raise SystemExit(f"Delete failed: {error}")
+    print(f"Deleted {ref}.")
+
+
 # ── Shield ────────────────────────────────────────────────────────────
 
 
