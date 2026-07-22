@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import shlex
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from terok.lib.core.config import get_services_mode, is_experimental
@@ -28,17 +29,16 @@ from terok.lib.integrations.sandbox import (
     PodmanRuntime,
     Sandbox,
     VolumeSpec,
+    validate_passthrough_args,
 )
 
 from ...core import runtime as _rt
 from ...core.config import make_sandbox_config
 from ...core.projects import load_project
-from ...util.ansi import blue as _blue, yellow as _yellow
+from ...util.ansi import blue as _blue, supports_color as _supports_color, yellow as _yellow
 from ..tasks import dossier_path, tasks_meta_dir
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from terok.lib.integrations.sandbox import ContainerRuntime
 
     from ...core.project_model import ProjectConfig
@@ -151,6 +151,50 @@ def _maybe_warn_recovery_unconfirmed(color: bool) -> None:
     print(_yellow(msg, color))
 
 
+PERF_EVENT_PARANOID_PATH = "/proc/sys/kernel/perf_event_paranoid"
+"""Host sysctl gating unprivileged ``perf_event_open``.
+
+``run.perf`` can only grant the seccomp side (the ``perfmon``
+capability); the kernel check needs CAP_PERFMON in the *initial* user
+namespace, which a rootless container never has, so this sysctl is the
+remaining lever.  ≤ 2 (the mainline default) allows own-process
+user-space sampling; hardened kernels (Ubuntu) ship 4, which disables
+unprivileged perf entirely.
+"""
+
+_PERF_PARANOID_MAX_USABLE = 2
+"""Highest ``perf_event_paranoid`` value at which ``run.perf`` still works."""
+
+_SYSCTL_PERSIST_DIR = "/etc/sysctl.d/"
+"""Where the perf-paranoid warning tells the operator to persist the sysctl."""
+
+
+def _maybe_warn_perf_restricted() -> None:
+    """Warn (never fail) when ``run.perf`` is on but the host sysctl blocks it.
+
+    Mirrors the GPU preflight posture: the launch proceeds — the grant
+    is harmless without the sysctl — but the operator learns *why*
+    ``perf record`` will return EACCES and which host-side switch fixes
+    it.  Unreadable/missing sysctl (non-Linux CI, sandboxed tests) is
+    silently skipped: absence of evidence is not a misconfiguration.
+    """
+    try:
+        paranoid = int(Path(PERF_EVENT_PARANOID_PATH).read_text().strip())
+    except (OSError, ValueError):
+        return
+    if paranoid <= _PERF_PARANOID_MAX_USABLE:
+        return
+    print(
+        _yellow(
+            f"run.perf is enabled but the host has kernel.perf_event_paranoid={paranoid} —"
+            " unprivileged perf is disabled and in-container sampling will fail.\n"
+            f"  Fix on the host: sudo sysctl kernel.perf_event_paranoid={_PERF_PARANOID_MAX_USABLE}"
+            f" (persist via {_SYSCTL_PERSIST_DIR})",
+            _supports_color(),
+        )
+    )
+
+
 def _run_container(
     *,
     cname: str,
@@ -221,6 +265,8 @@ def _run_container(
         if project.cpus is not None:
             vcpus = max(1, min(16, math.ceil(float(project.cpus))))
             annotations["krun.cpus"] = str(vcpus)
+    if project.perf:
+        _maybe_warn_perf_restricted()
     try:
         _agent_runner(project).launch_prepared(
             env=env,
@@ -232,6 +278,7 @@ def _run_container(
             gpus=project.gpus,
             memory=project.memory,
             cpus=project.cpus,
+            caps=("perfmon",) if project.perf else None,
             unrestricted="TEROK_UNRESTRICTED" in env,
             sealed=project.is_sealed,
             hooks=hooks,
@@ -270,6 +317,13 @@ def _agent_runner(project: ProjectConfig) -> AgentRunner:
 def _project_runtime_flags(project: ProjectConfig, *, cname: str) -> list[str]:
     """Return extra ``podman run`` flags derived from project-level capabilities.
 
+    ``run.podman_args`` → appended verbatim, re-gated through
+    [`validate_passthrough_args`][terok_sandbox.podman_args.validate_passthrough_args]
+    so a programmatically-built
+    [`ProjectConfig`][terok.lib.core.project_model.ProjectConfig] can't
+    sidestep the parse-time check.  (``run.perf`` is *not* a flag here —
+    it rides executor's typed ``caps`` channel in ``_run_container``.)
+
     ``run.nested_containers`` → ``--security-opt label=nested`` plus
     ``--device /dev/fuse``.  ``label=nested`` confines the outer container
     to the SELinux type that permits nested container operations
@@ -297,6 +351,11 @@ def _project_runtime_flags(project: ProjectConfig, *, cname: str) -> list[str]:
     flags: list[str] = []
     if project.nested_containers:
         flags += ["--security-opt", "label=nested", "--device", "/dev/fuse"]
+    if project.podman_args:
+        # Revalidated here even though project.yml parsing already ran the
+        # same gate — a ProjectConfig can be built programmatically, and
+        # the launch is the last stop before podman.
+        flags += validate_passthrough_args(project.podman_args)
     if project.runtime == "krun":
         _validate_krun_compatibility(project)
         # Reserve a free loopback TCP port and forward it to the guest's
