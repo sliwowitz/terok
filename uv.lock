@@ -2462,8 +2462,8 @@ requires-dist = [
 
 [[package]]
 name = "terok-executor"
-version = "0.4.0a16.dev442+g996598ae8"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Fdebug-mode-allow-debugger#996598ae8152c2cecebb2272aa4d506dbc2f8185" }
+version = "0.4.0a16.dev443+g2cb7dd40c"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Fdebug-mode-allow-debugger#2cb7dd40c397f3517e2e428105a6d1203de6591b" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
