@@ -111,6 +111,7 @@ if TYPE_CHECKING:
         release_port as release_port,
         remove_container_state as remove_container_state,
         resolve_container_state_dir as resolve_container_state_dir,
+        respawn_supervisor as respawn_supervisor,
         sandbox_doctor_checks as sandbox_doctor_checks,
         sandbox_uninstall as sandbox_uninstall,
         selinux_install_command as selinux_install_command,
@@ -192,6 +193,7 @@ _LAZY: dict[str, str] = {
     "change_passphrase": "terok_sandbox",  # nosec: B105 — export-map path, not a secret
     "clear_redundant_session_file": "terok_sandbox",
     "container_diagnostics": "terok_sandbox",
+    "respawn_supervisor": "terok_sandbox",
     "credentials_provisioned": "terok_sandbox",
     "supervisor_liveness": "terok_sandbox",
     "gate_use_personal_ssh_default": "terok_sandbox",
@@ -292,6 +294,7 @@ __all__ = [
     "change_passphrase",
     "clear_redundant_session_file",
     "container_diagnostics",
+    "respawn_supervisor",
     "supervisor_liveness",
     "credentials_provisioned",
     "gate_use_personal_ssh_default",

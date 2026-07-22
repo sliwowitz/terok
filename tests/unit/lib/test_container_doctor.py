@@ -320,7 +320,7 @@ class TestRunContainerDoctor:
         # focused on the layered-probe machinery (its own class covers it).
         with patch(
             "terok.lib.orchestration.container_doctor._check_supervisor_alive",
-            return_value=[],
+            return_value=([], True),
         ):
             results = run_container_doctor("proj", "42")
 
@@ -397,7 +397,7 @@ class TestRunContainerDoctor:
             ),
             patch(
                 "terok.lib.orchestration.container_doctor._check_supervisor_alive",
-                return_value=[],
+                return_value=([], True),
             ),
         ):
             results = run_container_doctor("proj", "42", fix=True)
@@ -469,7 +469,7 @@ class TestRunContainerDoctor:
             ),
             patch(
                 "terok.lib.orchestration.container_doctor._check_supervisor_alive",
-                return_value=[],
+                return_value=([], True),
             ),
         ):
             results = run_container_doctor("proj", "42")
@@ -697,7 +697,7 @@ class TestStreamingGrouping:
             ),
             patch(
                 "terok.lib.orchestration.container_doctor._check_supervisor_alive",
-                return_value=[],
+                return_value=([], True),
             ),
         ):
             mock_runtime.container.return_value.state = "running"
@@ -820,7 +820,7 @@ class TestSupervisorAliveCheck:
     def test_unresolved_container_id_skips(self) -> None:
         from terok.lib.orchestration.container_doctor import _check_supervisor_alive
 
-        assert _check_supervisor_alive("proj-cli-42", "") == []
+        assert _check_supervisor_alive("proj-cli-42", "") == ([], True)
 
     @patch("terok.lib.orchestration.container_doctor.make_sandbox_config")
     @patch("terok.lib.orchestration.container_doctor.supervisor_liveness")
@@ -831,9 +831,10 @@ class TestSupervisorAliveCheck:
 
         mock_cfg.return_value = MagicMock(state_dir=tmp_path)
         mock_live.return_value = self._live(True, 4242, "supervisor pid 4242 alive")
-        assert _check_supervisor_alive("proj-cli-42", "cid123") == [
-            ("ok", "Supervisor alive", "supervisor pid 4242 alive")
-        ]
+        assert _check_supervisor_alive("proj-cli-42", "cid123") == (
+            [("ok", "Supervisor alive", "supervisor pid 4242 alive")],
+            True,
+        )
 
     @patch("terok.lib.orchestration.container_doctor.make_sandbox_config")
     @patch("terok.lib.orchestration.container_doctor.supervisor_liveness")
@@ -846,12 +847,79 @@ class TestSupervisorAliveCheck:
         mock_live.return_value = self._live(
             False, None, "no PID file — the supervisor hook never spawned a supervisor"
         )
-        status, label, detail = _check_supervisor_alive("proj-cli-42", "cid123")[0]
+        results, supervisor_up = _check_supervisor_alive("proj-cli-42", "cid123")
+        assert supervisor_up is False
+        status, label, detail = results[0]
         assert status == "error"
         assert label == "Supervisor alive"
         assert "no PID file" in detail
         assert "hook.log" in detail  # points at the cross-container diary
         assert "cid123.log" in detail  # and this container's supervisor log
+
+    @patch("terok.lib.orchestration.container_doctor.respawn_supervisor")
+    @patch("terok.lib.orchestration.container_doctor.make_sandbox_config")
+    @patch("terok.lib.orchestration.container_doctor.supervisor_liveness")
+    def test_fix_respawns_and_reports_success(
+        self,
+        mock_live: MagicMock,
+        mock_cfg: MagicMock,
+        mock_respawn: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--fix re-spawns a dead supervisor, reports it, and flips supervisor_up."""
+        mock_cfg.return_value = MagicMock(state_dir=tmp_path)
+        mock_live.return_value = self._live(False, None, "no PID file — …")
+        mock_respawn.return_value = self._live(True, 7777, "supervisor pid 7777 alive")
+
+        from terok.lib.orchestration.container_doctor import _check_supervisor_alive
+
+        results, supervisor_up = _check_supervisor_alive("proj-cli-42", "cid123", fix=True)
+
+        mock_respawn.assert_called_once()
+        assert supervisor_up is True  # symptoms won't cite a now-running supervisor
+        assert results[0][0] == "error"
+        assert results[1][0] == "ok"
+        assert "fix:" in results[1][1]
+        assert "re-spawned" in results[1][2]
+
+    @patch("terok.lib.orchestration.container_doctor.respawn_supervisor")
+    @patch("terok.lib.orchestration.container_doctor.make_sandbox_config")
+    @patch("terok.lib.orchestration.container_doctor.supervisor_liveness")
+    def test_fix_reports_failed_respawn(
+        self,
+        mock_live: MagicMock,
+        mock_cfg: MagicMock,
+        mock_respawn: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_cfg.return_value = MagicMock(state_dir=tmp_path)
+        mock_live.return_value = self._live(False, None, "no PID file — …")
+        mock_respawn.return_value = self._live(False, None, "no PID file — …")
+
+        from terok.lib.orchestration.container_doctor import _check_supervisor_alive
+
+        results, supervisor_up = _check_supervisor_alive("proj-cli-42", "cid123", fix=True)
+
+        assert supervisor_up is False
+        assert results[1][0] == "warn"
+        assert "respawn failed" in results[1][2]
+
+    def test_no_respawn_without_fix(self) -> None:
+        """A dead supervisor is reported but not touched when fix is off."""
+        with (
+            patch("terok.lib.orchestration.container_doctor.make_sandbox_config") as mock_cfg,
+            patch("terok.lib.orchestration.container_doctor.supervisor_liveness") as mock_live,
+            patch("terok.lib.orchestration.container_doctor.respawn_supervisor") as mock_respawn,
+        ):
+            mock_cfg.return_value = MagicMock(state_dir=Path("/x"))
+            mock_live.return_value = self._live(False, None, "no PID file — …")
+            from terok.lib.orchestration.container_doctor import _check_supervisor_alive
+
+            results, supervisor_up = _check_supervisor_alive("proj-cli-42", "cid123")
+
+        mock_respawn.assert_not_called()
+        assert supervisor_up is False
+        assert len(results) == 1
 
 
 class TestReachabilityReferencesSupervisor:

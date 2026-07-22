@@ -32,6 +32,7 @@ from terok.lib.integrations.sandbox import (
     ExecResult,
     ShieldManager,
     container_diagnostics,
+    respawn_supervisor,
     sandbox_doctor_checks,
     supervisor_liveness,
 )
@@ -385,7 +386,9 @@ def _check_shield_state(task_dir: Path, cname: str) -> _CheckResult:
 # ---------------------------------------------------------------------------
 
 
-def _check_supervisor_alive(cname: str, cid: str) -> list[_CheckResult]:
+def _check_supervisor_alive(
+    cname: str, cid: str, *, fix: bool = False
+) -> tuple[list[_CheckResult], bool]:
     """Root-cause check: is *cname*'s per-container supervisor actually running?
 
     Delegates the "is our supervisor alive?" question to sandbox
@@ -396,23 +399,51 @@ def _check_supervisor_alive(cname: str, cid: str) -> list[_CheckResult]:
     ways as missing sockets.  A dead supervisor points the operator at the
     hook diary (empty ⇒ the hook never fired) and the supervisor log.
 
-    Returns a single-item list (empty only when the container ID is
-    unresolved, so there is no PID file to name).
+    With *fix*, a dead supervisor is re-fired via
+    [`respawn_supervisor`][terok_sandbox.diagnostics.respawn_supervisor]
+    (idempotently re-invoking the OCI hook) and a follow-up line reports
+    the outcome.  Returns ``(results, supervisor_up)`` — *supervisor_up*
+    reflects the state *after* any fix, so the reachability symptoms only
+    cite a still-down supervisor.  ``results`` is empty (and
+    *supervisor_up* ``True``) when the container ID is unresolved, so there
+    is no PID file to name and nothing to blame the symptoms on.
     """
     if not cid:
-        return []
+        return ([], True)
     state_dir = make_sandbox_config().state_dir
     live = supervisor_liveness(cid, state_dir=state_dir)
     if live.alive:
-        return [("ok", _SUPERVISOR_CHECK_LABEL, live.detail)]
+        return ([("ok", _SUPERVISOR_CHECK_LABEL, live.detail)], True)
+
     diag = container_diagnostics(cid, cname, state_dir=state_dir)
-    return [
+    results: list[_CheckResult] = [
         (
             "error",
             _SUPERVISOR_CHECK_LABEL,
             f"{live.detail}. See {diag.hook_log} (empty ⇒ hook never fired) and {diag.log}",
         )
     ]
+    if not fix:
+        return (results, False)
+
+    respawned = respawn_supervisor(cid, cname, state_dir=state_dir)
+    if respawned.alive:
+        results.append(
+            (
+                "ok",
+                f"  fix: {_SUPERVISOR_CHECK_LABEL}",
+                f"re-spawned supervisor ({respawned.detail})",
+            )
+        )
+        return (results, True)
+    results.append(
+        (
+            "warn",
+            f"  fix: {_SUPERVISOR_CHECK_LABEL}",
+            f"respawn failed — {respawned.detail}; see {diag.hook_log}",
+        )
+    )
+    return (results, False)
 
 
 # ---------------------------------------------------------------------------
@@ -722,8 +753,9 @@ class ContainerDoctor:
         # Root cause first: is the per-container supervisor even running?
         # Reported ahead of every socket/bridge probe so a dead supervisor
         # is named once, and the reachability symptoms below reference it.
-        supervisor = _check_supervisor_alive(cname, cid)
-        supervisor_up = not any(status == "error" for status, _, _ in supervisor)
+        # With ``fix`` a dead supervisor is respawned here; supervisor_up
+        # reflects the post-fix state.
+        supervisor, supervisor_up = _check_supervisor_alive(cname, cid, fix=fix)
 
         # Resolve the runtime once per doctor run so every probe / fix
         # reaches the container through the same backend that booted it
