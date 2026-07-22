@@ -91,6 +91,20 @@ gatekeeping:
     interval_minutes: 5     # default: 5
 ```
 
+**Review-lag warning** (`gatekeeping.review_lag`):
+Warns when a gate branch is *ahead of an open MR/PR* on the forge — the "forgot to push the gate after CodeRabbit started reviewing" failure. An open MR whose source branch matches a gate branch is the "external review started" signal; before the MR exists, gate-ahead is the normal local-review state and stays silent. Runs on the upstream-polling cadence through the operator's own `gh`/`glab` login (read-only; containers never reach the forge).
+
+Warnings surface in the TUI project panel and — with `surface_in_tasks` — in each task's `~/.terok/review-status` file, which the container tmux status line displays (level-triggered: the mark stays until the gate is pushed) and the agent itself can read.
+
+```yaml
+gatekeeping:
+  review_lag:
+    enabled: true           # default: true
+    surface_in_tasks: true  # default: true
+```
+
+Behind the warning sits the gate's recovery layer: every destructive agent update (force-push, delete) leaves a named backup under `refs/terok/backup/<branch>/…`, expired after the gate's `backup_retention_days` (default 30), with the always-on reflog (`gc.reflogExpire`, 90 days) as the unnamed last resort.
+
 **Auto-sync** (`gatekeeping.auto_sync`):
 Automatically sync gate branches when upstream changes are detected. Opt-in (default: disabled).
 

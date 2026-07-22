@@ -264,6 +264,8 @@ def _build_project_config(
         upstream_polling_interval_minutes=raw.gatekeeping.upstream_polling.interval_minutes,
         auto_sync_enabled=raw.gatekeeping.auto_sync.enabled,
         auto_sync_branches=raw.gatekeeping.auto_sync.branches,
+        review_lag_enabled=raw.gatekeeping.review_lag.enabled,
+        review_lag_surface_in_tasks=raw.gatekeeping.review_lag.surface_in_tasks,
         default_agent=raw.default_agent or get_global_default_agent(),
         default_provider=raw.default_provider or get_global_default_provider(),
         default_shell=raw.default_shell or get_global_default_shell(),

@@ -273,6 +273,21 @@ class RawAutoSync(BaseModel):
     branches: list[str] = Field(default_factory=list, description="Branch names to auto-sync")
 
 
+class RawReviewLag(BaseModel):
+    """Nested ``gatekeeping.review_lag`` settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=True,
+        description="Warn when a gate branch is ahead of an open MR/PR on the forge",
+    )
+    surface_in_tasks: bool = Field(
+        default=True,
+        description="Write the warning into each task's ~/.terok/review-status",
+    )
+
+
 class RawGatekeepingSection(BaseModel):
     """The ``gatekeeping:`` section of project.yml."""
 
@@ -287,13 +302,14 @@ class RawGatekeepingSection(BaseModel):
     )
     upstream_polling: RawUpstreamPolling = Field(default_factory=RawUpstreamPolling)
     auto_sync: RawAutoSync = Field(default_factory=RawAutoSync)
+    review_lag: RawReviewLag = Field(default_factory=RawReviewLag)
 
     @model_validator(mode="before")
     @classmethod
     def _coerce_none_subsections(cls, data: Any) -> Any:
         """Coerce None sub-sections to empty dicts."""
         if isinstance(data, dict):
-            for key in ("upstream_polling", "auto_sync"):
+            for key in ("upstream_polling", "auto_sync", "review_lag"):
                 if data.get(key) is None:
                     data[key] = {}
         return data

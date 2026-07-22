@@ -180,6 +180,7 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
         state: dict | None,
         task_count: int | None,
         staleness: GateStalenessInfo | None = None,
+        review_lag: list[str] | None = None,
     ) -> None:
         """Store the project data to render when the screen is mounted."""
         super().__init__()
@@ -187,6 +188,7 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
         self._state = state
         self._task_count = task_count
         self._staleness = staleness
+        self._review_lag = review_lag
 
     def compose(self) -> ComposeResult:
         """Build the detail pane and categorized action list for a project."""
@@ -224,7 +226,11 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
         detail_widget = self.query_one("#detail-content", Static)
         if self._state is not None:
             rendered = render_project_details(
-                self._project, self._state, self._task_count, self._staleness
+                self._project,
+                self._state,
+                self._task_count,
+                self._staleness,
+                review_lag=self._review_lag,
             )
         else:
             rendered = render_project_loading(self._project, self._task_count)

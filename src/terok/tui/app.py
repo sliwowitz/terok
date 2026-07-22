@@ -329,6 +329,7 @@ if _HAS_TEXTUAL:
             self._last_task_count: int | None = None
             # Upstream polling state
             self._staleness_info: GateStalenessInfo | None = None
+            self._review_lag_lines: list[str] | None = None
             self._polling_timer = None
             self._polling_project_name: str | None = None  # Project name the timer was started for
             self._last_notified_stale: bool = False  # Track if we already notified about staleness
@@ -1710,6 +1711,7 @@ if _HAS_TEXTUAL:
                     self._last_task_count,
                     self._staleness_info,
                     shield_env=psr.shield_env,
+                    review_lag=self._review_lag_lines,
                 )
                 return
 
@@ -2143,6 +2145,7 @@ if _HAS_TEXTUAL:
                     self._last_project_state,
                     self._last_task_count,
                     self._staleness_info,
+                    review_lag=self._review_lag_lines,
                 ),
                 self._on_project_action_screen_result,
             )
