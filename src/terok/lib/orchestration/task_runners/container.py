@@ -165,6 +165,9 @@ unprivileged perf entirely.
 _PERF_PARANOID_MAX_USABLE = 2
 """Highest ``perf_event_paranoid`` value at which ``run.perf`` still works."""
 
+_SYSCTL_PERSIST_DIR = "/etc/sysctl.d/"
+"""Where the perf-paranoid warning tells the operator to persist the sysctl."""
+
 
 def _maybe_warn_perf_restricted() -> None:
     """Warn (never fail) when ``run.perf`` is on but the host sysctl blocks it.
@@ -186,7 +189,7 @@ def _maybe_warn_perf_restricted() -> None:
             f"run.perf is enabled but the host has kernel.perf_event_paranoid={paranoid} —"
             " unprivileged perf is disabled and in-container sampling will fail.\n"
             f"  Fix on the host: sudo sysctl kernel.perf_event_paranoid={_PERF_PARANOID_MAX_USABLE}"
-            " (persist via /etc/sysctl.d/)",
+            f" (persist via {_SYSCTL_PERSIST_DIR})",
             _supports_color(),
         )
     )

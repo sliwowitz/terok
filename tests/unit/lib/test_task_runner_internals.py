@@ -1132,6 +1132,7 @@ class TestPerfParanoidWarning:
     def test_warns_when_paranoid_blocks_perf(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
+        """A hardened host (paranoid > 2) earns a warning naming the fix."""
         self._run_with_sysctl(tmp_path, monkeypatch, "4\n")
         out = capsys.readouterr().out
         assert "perf_event_paranoid=4" in out
@@ -1140,6 +1141,7 @@ class TestPerfParanoidWarning:
     def test_silent_when_sysctl_usable(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
+        """A usable sysctl (≤ 2) produces no output at all."""
         self._run_with_sysctl(tmp_path, monkeypatch, "2\n")
         assert capsys.readouterr().out == ""
 
