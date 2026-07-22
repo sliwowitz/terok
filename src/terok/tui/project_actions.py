@@ -708,35 +708,41 @@ class ProjectActionsMixin(_MixinBase):
         if pid != self.current_project_name:
             return
 
-        async def _on_pick(picked: tuple[str, str] | None) -> None:
+        def _on_pick(picked: tuple[str, str] | None) -> None:
+            """Confirm the chosen restore/delete, then dispatch it (callback form).
+
+            Nested callback-style ``push_screen`` — not ``push_screen_wait``
+            — because this runs as a screen-result callback, outside any
+            worker.
+            """
             if picked is None:
                 return
             action, ref = picked
             if action == "restore":
-                confirmed = await self.push_screen_wait(
-                    ConfirmDestructiveScreen(
-                        message=(
-                            f"Restore a branch to this backup?\n\n  {ref}\n\n"
-                            "The tip it replaces is backed up first, so this can be undone."
-                        ),
-                        title=f"Restore gate backup: {pid}",
-                        confirm_label="Restore",
-                    )
+                confirm = ConfirmDestructiveScreen(
+                    message=(
+                        f"Restore a branch to this backup?\n\n  {ref}\n\n"
+                        "The tip it replaces is backed up first, so this can be undone."
+                    ),
+                    title=f"Restore gate backup: {pid}",
+                    confirm_label="Restore",
                 )
                 worker_ref = "terok.tui.worker_actions:restore_gate_backup"
                 title = f"Restoring gate backup for {pid}"
             else:
-                confirmed = await self.push_screen_wait(
-                    ConfirmDestructiveScreen(
-                        message=f"Delete this backup ref permanently?\n\n  {ref}",
-                        title=f"Delete gate backup: {pid}",
-                        confirm_label="Delete",
-                    )
+                confirm = ConfirmDestructiveScreen(
+                    message=f"Delete this backup ref permanently?\n\n  {ref}",
+                    title=f"Delete gate backup: {pid}",
+                    confirm_label="Delete",
                 )
                 worker_ref = "terok.tui.worker_actions:delete_gate_backup"
                 title = f"Deleting gate backup for {pid}"
-            if confirmed:
-                self._run_console_action(worker_ref, pid, ref, title=title)
+
+            def _on_confirm(confirmed: bool | None) -> None:
+                if confirmed:
+                    self._run_console_action(worker_ref, pid, ref, title=title)
+
+            self.push_screen(confirm, _on_confirm)
 
         await self.push_screen(GateBackupsScreen(backups), _on_pick)
 

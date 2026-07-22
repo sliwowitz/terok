@@ -199,21 +199,15 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         ),
     )
     _add_project_arg(p_backups)
-    p_backups.add_argument(
+    # List (no flag), prune, restore, and delete are the four modes — at most
+    # one at a time.  ``--older-than`` only modifies ``--prune``.
+    backups_ops = p_backups.add_mutually_exclusive_group()
+    backups_ops.add_argument(
         "--prune",
         dest="prune",
         action="store_true",
         help="Delete backups older than the retention window instead of listing",
     )
-    p_backups.add_argument(
-        "--older-than",
-        dest="older_than",
-        type=int,
-        metavar="DAYS",
-        default=None,
-        help="Override the project's retention window for this prune",
-    )
-    backups_ops = p_backups.add_mutually_exclusive_group()
     backups_ops.add_argument(
         "--restore",
         dest="restore",
@@ -227,6 +221,14 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         metavar="REF",
         default=None,
         help="Delete a single backup ref ahead of its retention expiry",
+    )
+    p_backups.add_argument(
+        "--older-than",
+        dest="older_than",
+        type=int,
+        metavar="DAYS",
+        default=None,
+        help="Override the project's retention window for this prune",
     )
 
     # agents — subgroup mirroring `terok agents` but scoped per-project

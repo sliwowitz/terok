@@ -668,6 +668,16 @@ def test_gate_backups_delete_reports(capsys: pytest.CaptureFixture[str]) -> None
     assert f"Deleted {ref}." in capsys.readouterr().out
 
 
+def test_gate_backups_ops_are_mutually_exclusive() -> None:
+    """--prune, --restore, and --delete cannot be combined."""
+    from terok.cli.commands.project import register
+
+    parser = argparse.ArgumentParser()
+    register(parser.add_subparsers(dest="project_cmd"))
+    with pytest.raises(SystemExit):
+        parser.parse_args(["gate-backups", "p1", "--prune", "--restore", "refs/x"])
+
+
 def test_gate_sync_renders_remoteless_upstream_label(capsys: pytest.CaptureFixture[str]) -> None:
     """A remoteless (upstream_url=None) gate renders a human hint, not ``None``."""
     fake_gate = MagicMock()
