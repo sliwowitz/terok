@@ -681,6 +681,65 @@ class ProjectActionsMixin(_MixinBase):
             _on_confirm,
         )
 
+    async def _action_gate_backups(self) -> None:
+        """Browse the gate's backups; restore or delete the chosen one.
+
+        The list is read fresh and offline (no fetch) so it reflects the
+        gate as it is now; the restore/delete then runs as a captured
+        child action, and the gate's own compare-and-swap guards protect
+        a restore against an agent push that raced the modal.
+        """
+        import asyncio
+
+        from ..lib.api import load_project, make_git_gate
+        from .screens import ConfirmDestructiveScreen, GateBackupsScreen
+
+        if not self.current_project_name:
+            self.notify("No project selected.")
+            return
+        pid = self.current_project_name
+        try:
+            backups = await asyncio.to_thread(
+                lambda: make_git_gate(load_project(pid)).list_backups()
+            )
+        except (Exception, SystemExit):  # noqa: BLE001 — a bad gate just means nothing to show
+            self.notify("Could not read gate backups.")
+            return
+        if pid != self.current_project_name:
+            return
+
+        async def _on_pick(picked: tuple[str, str] | None) -> None:
+            if picked is None:
+                return
+            action, ref = picked
+            if action == "restore":
+                confirmed = await self.push_screen_wait(
+                    ConfirmDestructiveScreen(
+                        message=(
+                            f"Restore a branch to this backup?\n\n  {ref}\n\n"
+                            "The tip it replaces is backed up first, so this can be undone."
+                        ),
+                        title=f"Restore gate backup: {pid}",
+                        confirm_label="Restore",
+                    )
+                )
+                worker_ref = "terok.tui.worker_actions:restore_gate_backup"
+                title = f"Restoring gate backup for {pid}"
+            else:
+                confirmed = await self.push_screen_wait(
+                    ConfirmDestructiveScreen(
+                        message=f"Delete this backup ref permanently?\n\n  {ref}",
+                        title=f"Delete gate backup: {pid}",
+                        confirm_label="Delete",
+                    )
+                )
+                worker_ref = "terok.tui.worker_actions:delete_gate_backup"
+                title = f"Deleting gate backup for {pid}"
+            if confirmed:
+                self._run_console_action(worker_ref, pid, ref, title=title)
+
+        await self.push_screen(GateBackupsScreen(backups), _on_pick)
+
     # ---------- Instructions editing ----------
 
     async def _edit_instructions_file(self, instr_path: Path, *, title: str, done_msg: str) -> None:

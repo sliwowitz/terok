@@ -213,6 +213,21 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         default=None,
         help="Override the project's retention window for this prune",
     )
+    backups_ops = p_backups.add_mutually_exclusive_group()
+    backups_ops.add_argument(
+        "--restore",
+        dest="restore",
+        metavar="REF",
+        default=None,
+        help="Restore a branch to a backup ref (backs up the tip it replaces first)",
+    )
+    backups_ops.add_argument(
+        "--delete",
+        dest="delete",
+        metavar="REF",
+        default=None,
+        help="Delete a single backup ref ahead of its retention expiry",
+    )
 
     # agents — subgroup mirroring `terok agents` but scoped per-project
     p_agents = sub.add_parser(
@@ -482,8 +497,22 @@ def _apply_pending_gate_ops(gate: GitGate, pending: list[PendingOp]) -> None:
 
 
 def _cmd_gate_backups(args: argparse.Namespace) -> None:
-    """List or prune the gate's backup refs for a project."""
+    """List, prune, restore, or delete the gate's backup refs for a project."""
     gate = make_git_gate(load_project(args.project_name))
+    if restore_ref := getattr(args, "restore", None):
+        result = gate.restore_backup(restore_ref)
+        if result["error"] is not None:
+            raise SystemExit(f"Restore failed: {result['error']}")
+        print(f"Restored {result['branch']} to {(result['restored_sha'] or '')[:12]}.")
+        if result["previous_backup_ref"] is not None:
+            print(f"  Previous tip saved as {result['previous_backup_ref']}")
+        return
+    if delete_ref := getattr(args, "delete", None):
+        error = gate.delete_backup(delete_ref)
+        if error is not None:
+            raise SystemExit(f"Delete failed: {error}")
+        print(f"Deleted {delete_ref}.")
+        return
     if getattr(args, "prune", False):
         expired = gate.prune_backups(older_than_days=getattr(args, "older_than", None))
         print(f"Pruned {len(expired)} backup ref(s).")

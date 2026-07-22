@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from terok.lib.api.gate import GateStalenessInfo
 
     from ..lib.api import ContainerEventStream, TaskMeta
+    from ..lib.core.project_model import ProjectConfig
     from .task_watcher import TaskWatcher
 
     # At type-check time only, inherit from textual.App so all of its methods
@@ -65,6 +66,8 @@ class PollingMixin(_MixinBase):
         _task_watcher: "TaskWatcher | None"
         _container_event_stream: "ContainerEventStream | None"
         _watch_debounce: "Timer | None"
+        _gate_marker_watcher: "TaskWatcher | None"
+        _gate_watch_debounce: "Timer | None"
 
         # TerokTUI helpers (not on textual.App).
         current_project_name: str | None
@@ -113,12 +116,74 @@ class PollingMixin(_MixinBase):
             interval_seconds, self._poll_upstream, name="upstream_polling"
         )
 
+        # Watch the gate for pushes so review lag re-checks at once, instead
+        # of waiting up to a full interval for the next tick.
+        self._start_gate_marker_watch(project)
+
     def _stop_upstream_polling(self) -> None:
-        """Stop the upstream polling timer."""
+        """Stop the upstream polling timer and the gate marker watch."""
         if self._polling_timer is not None:
             self._polling_timer.stop()
             self._polling_timer = None
         self._polling_project_name = None
+        self._stop_gate_marker_watch()
+
+    def _start_gate_marker_watch(self, project: "ProjectConfig") -> None:
+        """Watch the gate dir so an agent push re-checks review lag at once.
+
+        The gate's ``post-receive`` hook (re)writes a marker file directly
+        in the gate directory on every push (see
+        [`PUSH_MARKER_FILENAME`][terok_sandbox.PUSH_MARKER_FILENAME]);
+        catching that write recomputes review lag within the debounce
+        window rather than at the next poll tick — the exact moment the
+        warning must appear is when the agent pushes while an MR is open.
+        Best-effort: if inotify is unavailable the poll timer still
+        carries review lag on its slower cadence.
+        """
+        import asyncio
+
+        from .task_watcher import TaskWatcher
+
+        if not project.review_lag_enabled:
+            return
+        try:
+            watcher = TaskWatcher()
+        except Exception as e:  # noqa: BLE001 — best-effort; the poll timer covers it
+            self._log_debug(f"gate marker watch init error: {e}")
+            return
+        if not watcher.start([project.gate_path]):
+            return
+        try:
+            asyncio.get_running_loop().add_reader(watcher.fileno, self._on_gate_dir_changed)
+        except (RuntimeError, ValueError, OSError, NotImplementedError) as e:
+            self._log_debug(f"gate marker watch attach error: {e}")
+            watcher.stop()
+            return
+        self._gate_marker_watcher = watcher
+
+    def _on_gate_dir_changed(self) -> None:
+        """React to gate-dir activity: drain, then debounce a review-lag recheck."""
+        if self._gate_marker_watcher is None or not self._gate_marker_watcher.drain():
+            return
+        if self._gate_watch_debounce is not None:
+            self._gate_watch_debounce.stop()
+        self._gate_watch_debounce = self.set_timer(_WATCH_DEBOUNCE_S, self._poll_review_lag)
+
+    def _stop_gate_marker_watch(self) -> None:
+        """Detach and close the gate-dir watch and any pending debounce."""
+        if self._gate_watch_debounce is not None:
+            self._gate_watch_debounce.stop()
+            self._gate_watch_debounce = None
+        if self._gate_marker_watcher is None:
+            return
+        import asyncio
+
+        try:
+            asyncio.get_running_loop().remove_reader(self._gate_marker_watcher.fileno)
+        except (RuntimeError, ValueError, OSError):
+            pass
+        self._gate_marker_watcher.stop()
+        self._gate_marker_watcher = None
 
     def _start_container_status_polling(self) -> None:
         """Track container status from events, with a slow resync as insurance.
@@ -369,7 +434,7 @@ class PollingMixin(_MixinBase):
         """Background worker to check upstream (runs in thread pool)."""
         import asyncio
 
-        from ..lib.api import load_project, make_git_gate, refresh_review_lag
+        from ..lib.api import load_project, make_git_gate
 
         try:
             loop = asyncio.get_event_loop()
@@ -385,13 +450,42 @@ class PollingMixin(_MixinBase):
 
             self._on_staleness_updated(project_name, staleness)
 
-            # Same cadence, opposite direction: gate ahead of an open review.
-            entries = await loop.run_in_executor(None, lambda: refresh_review_lag(project))
-            if entries is not None and project_name == self.current_project_name:
-                self._on_review_lag_updated(project_name, [str(entry) for entry in entries])
-
         except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
             self._log_debug(f"upstream poll error: {e}")
+
+        # Same cadence, opposite direction: gate ahead of an open review.
+        # Independent of the staleness comparison above — run it even if
+        # that failed (a forge outage and an upstream outage are unrelated).
+        await self._refresh_review_lag(project_name)
+
+    def _poll_review_lag(self) -> None:
+        """Recompute review lag out of band — the gate push marker changed."""
+        project_name = self._polling_project_name
+        if not project_name or project_name != self.current_project_name:
+            return
+        self._log_debug(f"gate push marker fired review-lag recheck for {project_name}")
+        self.run_worker(
+            self._refresh_review_lag(project_name),
+            name="poll_review_lag",
+            group="review_lag",
+            exclusive=True,  # collapse a burst of marker writes into one recheck
+        )
+
+    async def _refresh_review_lag(self, project_name: str) -> None:
+        """Recompute review lag and surface it (shared by timer + marker paths)."""
+        import asyncio
+
+        from ..lib.api import load_project, refresh_review_lag
+
+        try:
+            loop = asyncio.get_event_loop()
+            project = await loop.run_in_executor(None, lambda: load_project(project_name))
+            entries = await loop.run_in_executor(None, lambda: refresh_review_lag(project))
+        except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
+            self._log_debug(f"review lag error: {e}")
+            return
+        if entries is not None and project_name == self.current_project_name:
+            self._on_review_lag_updated(project_name, [str(entry) for entry in entries])
 
     def _on_staleness_updated(self, project_name: str, staleness: "GateStalenessInfo") -> None:
         """Handle updated staleness info."""

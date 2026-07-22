@@ -236,18 +236,28 @@ lost), while *would discard N gate-local commit(s)* means agent work
 sits on that branch — confirm those only when you know the work is
 merged or obsolete.
 
-Before any confirmed change is applied, the old branch tip is saved as a
-backup ref inside the gate.  Inspect and recover with:
+Backups are saved from both sides of the gate: before any confirmed sync
+change is applied, and — via the gate's `post-receive` hook — whenever an
+agent force-pushes or deletes a branch through the gate.  Either way the
+old tip lands under `refs/terok/backup/<branch>/…`, so nothing an agent
+overwrites is ever the last copy.  Inspect and recover with:
 
 ```bash
-terok project gate-backups myproj            # list saved tips
-git -C "$(terok project gate-path myproj | sed s,file://,,)" \
-    update-ref refs/heads/lost-branch <sha>  # resurrect one
-terok project gate-backups myproj --prune    # expire old backups now
+terok project gate-backups myproj                 # list saved tips
+terok project gate-backups myproj --restore <ref> # move a branch back to a backup
+terok project gate-backups myproj --delete <ref>  # drop one backup early
+terok project gate-backups myproj --prune         # expire old backups now
 ```
 
-Backups expire automatically after 30 days (checked during sync).
-Configure per project:
+A `--restore` is itself reversible: the tip it replaces is backed up
+first, and the branch move is compare-and-swap guarded, so a restore
+that races an agent push fails loudly instead of clobbering the newer
+tip.  The same list/restore/delete actions are available in the TUI from
+the project screen (`B`).
+
+Backups expire automatically after 30 days (checked during sync), behind
+which the gate's always-on reflog (`gc.reflogExpire`, 90 days) is the
+unnamed last resort.  Configure per project:
 
 ```yaml
 gate:

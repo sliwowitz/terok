@@ -166,6 +166,7 @@ if _HAS_TEXTUAL:
         "build_full": "_action_build_full",
         "init_ssh": "action_init_ssh",
         "sync_gate": "_action_sync_gate",
+        "gate_backups": "_action_gate_backups",
         "edit_instructions": "_action_edit_instructions",
         "toggle_inherit": "_action_toggle_instructions_inherit",
         "show_resolved": "_action_show_resolved_instructions",
@@ -345,6 +346,8 @@ if _HAS_TEXTUAL:
             self._task_watcher: TaskWatcher | None = None
             self._container_event_stream: ContainerEventStream | None = None
             self._watch_debounce = None
+            self._gate_marker_watcher: TaskWatcher | None = None
+            self._gate_watch_debounce: Timer | None = None
             self._last_shield_env: EnvironmentCheck | None = None
             self._last_vault_status: VaultStatus | None = None
             self._vault_watcher: TaskWatcher | None = None
