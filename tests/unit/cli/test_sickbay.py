@@ -13,6 +13,7 @@ from terok_sandbox import SelinuxCheckResult, SelinuxStatus
 
 from terok.cli.commands.sickbay import (
     _check_default_agents,
+    _check_git_http_backend,
     _check_kernel_keyring_quota,
     _check_recovery_acknowledged,
     _check_selinux_policy,
@@ -61,6 +62,28 @@ class TestCheckKernelKeyringQuota:
         sev, _label, detail = _check_kernel_keyring_quota()
         assert sev == "warn"
         assert "check failed" in detail
+
+
+class TestCheckGitHttpBackend:
+    """The sickbay row renders sandbox's git-http-backend probe."""
+
+    def test_ok_names_the_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        backend = Path("/usr/libexec/git-core/git-http-backend")
+        monkeypatch.setattr("terok.lib.api.setup.git_http_backend", lambda: backend)
+        assert _check_git_http_backend() == ("ok", "git http-backend", str(backend))
+
+    def test_missing_warns_with_the_package_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from terok.lib.api.setup import GIT_HTTP_BACKEND_HINT
+
+        monkeypatch.setattr("terok.lib.api.setup.git_http_backend", lambda: None)
+        sev, _label, detail = _check_git_http_backend()
+        assert sev == "warn"
+        assert GIT_HTTP_BACKEND_HINT in detail
+
+    def test_registered_as_global_check(self) -> None:
+        from terok.cli.commands.sickbay import _GLOBAL_CHECKS
+
+        assert ("git http-backend", _check_git_http_backend) in _GLOBAL_CHECKS
 
 
 @pytest.fixture()
