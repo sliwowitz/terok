@@ -2503,8 +2503,8 @@ requires-dist = [
 
 [[package]]
 name = "terok-executor"
-version = "0.4.0a33.dev490+gcff0431e1"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=chore%2Fsandbox-supervisor-placement-pin#cff0431e1be4063e799c762d51bd32ad358fe51a" }
+version = "0.4.0a33.dev491+g01d1b2c6e"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=chore%2Fsandbox-supervisor-placement-pin#01d1b2c6e9db109f7de5a4094fe18f87e1137b9c" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2519,8 +2519,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a34.dev491+ge08d2dc05"
-source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Fsupervisor-placement#e08d2dc05f64646d7831c749466b90f00591745d" }
+version = "0.5.0a34.dev492+gccbebc8fa"
+source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Fsupervisor-placement#ccbebc8fa7d491f26b512927e67c9803618a48de" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
