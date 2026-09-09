@@ -618,6 +618,16 @@ def _stream_containers(
             )
 
 
+def _check_git_http_backend() -> _CheckResult:
+    """The CGI the git gate spawns — Alpine packages it apart from git."""
+    from terok.lib.api.setup import GIT_HTTP_BACKEND_HINT, git_http_backend
+
+    label = "git http-backend"
+    if backend := git_http_backend():
+        return ("ok", label, str(backend))
+    return ("warn", label, f"not in git's exec path ({GIT_HTTP_BACKEND_HINT})")
+
+
 def _check_selinux_policy() -> _CheckResult:
     """Check SELinux policy prerequisites for socket-based services.
 
@@ -812,6 +822,7 @@ _GLOBAL_CHECKS = [
     ("Recovery key acknowledged", _check_recovery_acknowledged),
     ("Kernel keyring quota", _check_kernel_keyring_quota),
     ("SSH signer", _check_ssh_signer),
+    ("git http-backend", _check_git_http_backend),
     ("SELinux policy", _check_selinux_policy),
     ("Stray sidecars", _check_stray_sidecars),
     ("Default agents", _check_default_agents),
