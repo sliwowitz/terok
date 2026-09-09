@@ -72,10 +72,14 @@ Terok was started at the
 ### Prerequisites
 
 - **Podman** (rootless) and **`nft`** (nftables CLI) — the two hard
-  dependencies
+  dependencies.  Podman 4 and newer is what the test matrix covers; podman
+  3.4 (Ubuntu 22.04) works with a degraded supervisor and is unofficial
 - **Python 3.12+**
 - **OpenSSH client** — for private git repos
-- Optional but recommended: **systemd** user session, **`dnsmasq`**
+- Optional but recommended: a **systemd** user session (it hosts the
+  per-container supervisor as a user unit; without one the supervisor runs
+  as a daemon in the container runtime's namespace with a file-backed
+  passphrase cache, see [Container Lifecycle](container-lifecycle.md#the-host-side-supervisor)), **`dnsmasq`**
   and **`dig`** or **`drill`** (DNS plumbing for the egress firewall, see
   [DNS tiers](shield-security.md#dns-tiers)), a desktop
   **notification daemon**

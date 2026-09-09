@@ -48,6 +48,16 @@ All three persist independently and survive:
 - Machine reboots
 - terok restarts
 
+### The host-side supervisor
+
+Every running container has a supervisor on the host: the vault proxy, the SSH signer, the git gate, the clearance hub.
+Where it runs is decided by one fact: a per-user systemd manager that answers.
+With one, the supervisor is a transient user unit, `terok-supervisor-<container id>.service`, and `journalctl --user -u` reads it.
+Without one, it is a daemon inside the container runtime's user namespace, and the per-container log under the sandbox state directory reads it.
+`terok sickbay` names the placement on the supervisor row.
+A user unit stops at the last logout unless `loginctl enable-linger` is set.
+That is the rule rootless podman documents for the containers themselves; a task meant to outlive your login needs it either way.
+
 ### Container States
 
 ```text
