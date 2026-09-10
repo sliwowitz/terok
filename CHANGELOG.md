@@ -17,6 +17,9 @@
   hosting, language and container registries, and OS package repos; the
   new-project wizard offers it.  Move hosts from a customized shield
   profile under `~/.config/terok/shield/profiles` to `shield.allow`.
+  `config.yml` rejects the `shield.profiles` key, which never took
+  effect: remove it, because terok falls back to defaults for the whole
+  file when `config.yml` fails validation.
 * **Upgrade contract**: containers created by a different shield-bundle
   generation refuse to resume (`terok task restart` fails fast before
   anything is stopped; `terok sickbay` diagnoses them).  Re-create the task
