@@ -19,7 +19,8 @@ class TaskListItem(ListItem):
 
     def __init__(self, project_name: str, task: TaskMeta, label: str, generation: int) -> None:
         """Create a task list item with its metadata and display label."""
-        super().__init__(Static(label, markup=False))
+        self.label = Static(label, markup=False)
+        super().__init__(self.label)
         self.project_name = project_name
         self.task_meta = task
         self.generation = generation
@@ -111,7 +112,7 @@ class TaskList(ListView):
         width = self._label_width()
         for item in self.query(TaskListItem):
             label = self._format_task_label(item.task_meta, width)
-            item.query_one(Static).update(label)
+            item.label.update(label)
 
     def on_resize(self, event: events.Resize) -> None:
         """Re-wrap labels only when the panel's content width changes."""
@@ -158,7 +159,7 @@ class TaskList(ListView):
                 continue
             item.task_meta.deleting = True
             label = self._format_task_label(item.task_meta, width)
-            item.query_one(Static).update(label)
+            item.label.update(label)
             found = True
 
         return found

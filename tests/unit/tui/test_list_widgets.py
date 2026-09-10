@@ -108,6 +108,25 @@ def test_task_label_shows_debug_badge_only_when_debug() -> None:
         set_emoji_enabled(original)
 
 
+def test_task_labels_refresh_before_rows_mount() -> None:
+    """Refreshing a newly appended row must not query its unmounted children."""
+    widgets = import_widgets()
+    task_list = widgets.TaskList()
+    rows, _messages = _wire_listview(task_list)
+    task_list._label_width = lambda: 80
+    task_list.query = lambda _widget_type: rows
+
+    task_list.set_tasks(
+        "alpha", [widgets.TaskMeta(task_id="t1", mode="cli", workspace="", web_port=None)]
+    )
+    updates: list[str] = []
+    rows[0].label.update = updates.append
+
+    task_list.refresh_labels()
+
+    assert len(updates) == 1
+
+
 def test_task_list_drops_stale_selection_messages() -> None:
     """Stale rows from another project cannot update the current selection."""
     widgets = import_widgets()
