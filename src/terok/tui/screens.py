@@ -2392,14 +2392,12 @@ def render_shield_status(
         _shield_dns_line(getattr(env_check, "dns_tier", "") or ""),
     ]
 
-    # Config details from shield_info (mode, audit, profiles)
+    # Config details from shield_info (mode, audit)
     if shield_info:
         mode = shield_info.get("mode", "hook")
         audit = "enabled" if shield_info.get("audit_enabled", True) else "disabled"
-        profiles = shield_info.get("profiles", [])
         lines.append(Text(f"Mode:      {mode}"))
         lines.append(Text(f"Audit:     {audit}"))
-        lines.append(Text(f"Profiles:  {', '.join(profiles) or '(none)'}"))
     if env_check.issues:
         lines.append(Text(""))
         lines.append(Text("Issues:"))
@@ -2477,7 +2475,7 @@ class ShieldScreen(screen.Screen[str | None]):
         self._start_refresh()
 
     def _load_shield_info(self) -> None:
-        """Fetch shield config (mode, audit, profiles) for display."""
+        """Fetch shield config (mode, audit) for display."""
         import tempfile
         from pathlib import Path
 
