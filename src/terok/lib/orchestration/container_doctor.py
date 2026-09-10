@@ -406,8 +406,8 @@ def _check_supervisor_alive(
     what this row adds is their names, so an operator reading a green line
     can see which of them are behind it.  The split matters for ``fix``:
     a respawn re-fires the OCI hook, which is the remedy for a parent that
-    never spawned and no remedy at all for a child that exited.  A dead supervisor points the operator at the
-    hook diary (empty ⇒ the hook never fired) and the supervisor log.
+    never spawned and no remedy at all for a child that exited.  A dead
+    supervisor points the operator at the hook diary and the supervisor log.
 
     With *fix*, a dead supervisor is re-fired via
     [`respawn_supervisor`][terok_sandbox.diagnostics.respawn_supervisor]
@@ -430,7 +430,7 @@ def _check_supervisor_alive(
         (
             "error",
             _SUPERVISOR_CHECK_LABEL,
-            f"{live.detail}. See {diag.hook_log} (empty ⇒ hook never fired) and {diag.log}",
+            f"{live.detail}. See the hook diary {diag.hook_log} and {diag.log}",
         )
     ]
     if not fix:
