@@ -2503,8 +2503,8 @@ requires-dist = [
 
 [[package]]
 name = "terok-executor"
-version = "0.4.0a35.dev2+g32a8ecd6c"
-source = { git = "https://github.com/terok-ai/terok-executor.git?rev=refs%2Fpull%2F545%2Fhead#32a8ecd6c71a6b2af66ccddfc61de32d8f4fe8c0" }
+version = "0.4.0a35.dev3+g876782ea2"
+source = { git = "https://github.com/terok-ai/terok-executor.git?rev=refs%2Fpull%2F545%2Fhead#876782ea29daa2a63e774d5a340874efa3e2a21e" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2519,8 +2519,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a36.dev4+g87ac1922b"
-source = { git = "https://github.com/terok-ai/terok-sandbox.git?rev=refs%2Fpull%2F549%2Fhead#87ac1922b939147fdda068242d7ac37cae343978" }
+version = "0.5.0a36.dev5+g8bf9f694f"
+source = { git = "https://github.com/terok-ai/terok-sandbox.git?rev=refs%2Fpull%2F549%2Fhead#8bf9f694fdf0e8671189f3c175216f35253d5fe9" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
