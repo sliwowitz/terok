@@ -160,7 +160,6 @@ def shielded_e2e(_pull_image: None, gate_env: dict) -> Iterator[ShieldedContaine
     config = _terok_shield.ShieldConfig(
         state_dir=state_dir,
         mode=_terok_shield.ShieldMode.HOOK,
-        default_profiles=("dev-standard",),
         loopback_ports=(port,),
         audit_enabled=True,
     )
