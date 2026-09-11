@@ -2503,8 +2503,8 @@ requires-dist = [
 
 [[package]]
 name = "terok-executor"
-version = "0.4.0a35.dev3+g876782ea2"
-source = { git = "https://github.com/terok-ai/terok-executor.git?rev=refs%2Fpull%2F545%2Fhead#876782ea29daa2a63e774d5a340874efa3e2a21e" }
+version = "0.4.0a35.dev5+gf9d6a37f6"
+source = { git = "https://github.com/terok-ai/terok-executor.git?rev=refs%2Fpull%2F545%2Fhead#f9d6a37f6cbc699b5c59cfbfd07f7222cdf7c65e" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2519,8 +2519,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.0a36.dev5+g8bf9f694f"
-source = { git = "https://github.com/terok-ai/terok-sandbox.git?rev=refs%2Fpull%2F549%2Fhead#8bf9f694fdf0e8671189f3c175216f35253d5fe9" }
+version = "0.5.0a36.dev7+g29b41b043"
+source = { git = "https://github.com/terok-ai/terok-sandbox.git?rev=refs%2Fpull%2F549%2Fhead#29b41b043796c00d0d9cd67cace4ad236ab232b1" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
@@ -2539,8 +2539,8 @@ dependencies = [
 
 [[package]]
 name = "terok-shield"
-version = "0.8.0a17.dev2+g4b8ad09c6"
-source = { git = "https://github.com/terok-ai/terok-shield.git?rev=refs%2Fpull%2F448%2Fhead#4b8ad09c6b8951a4c16bf839f27d1cbb1b332991" }
+version = "0.8.0a17.dev3+g83520812c"
+source = { git = "https://github.com/terok-ai/terok-shield.git?rev=refs%2Fpull%2F448%2Fhead#83520812c6bd148ca6c88a49946fafab6db6d6cb" }
 dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
