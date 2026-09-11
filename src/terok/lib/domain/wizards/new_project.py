@@ -484,7 +484,6 @@ QUESTIONS: tuple[Question, ...] = (
         kind="choice",
         prompt="Curated egress sets while the shield is up",
         help=(
-            "Hosts the shield allows this project's tasks while it is up.  "
             "Recommended covers git hosting, language package registries, "
             "container registries, and OS package repos.  With none, a task "
             "reaches only its git remote and its agent's provider endpoints.  "

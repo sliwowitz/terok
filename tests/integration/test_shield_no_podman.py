@@ -192,8 +192,8 @@ class TestProfilesIntegration:
 class TestSandboxRunShieldIntegration:
     """Verify the full path from Sandbox.run() through real shield.
 
-    Now that _run_container() delegates to Sandbox.run(), these tests
-    exercise the sandbox executor directly with real shield pre_start.
+    _run_container() delegates to Sandbox.run(), so these tests exercise
+    the sandbox executor directly with real shield pre_start.
     """
 
     def test_sandbox_run_includes_shield_args(self, shield_env: TerokShieldIntegrationEnv) -> None:
