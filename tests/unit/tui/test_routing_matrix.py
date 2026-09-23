@@ -146,6 +146,14 @@ class TestRender:
         assert "bar" in plain
         assert "linked" in plain
 
+    def test_default_link_has_distinct_marker_and_status(self, matrix):
+        """Default routing is shown independently of the key's label."""
+        matrix.set_routing(matrix._keys, matrix._scopes, matrix._links, {"bar": 2})
+        matrix._row, matrix._col = 1, 1
+        assert "*" in matrix._render_row(1, matrix._keys[1]).plain
+        assert "default — offered first" in matrix._render_status().plain
+        assert "* default" in matrix._render_legend().plain
+
     def test_empty_projects_message(self, matrix):
         """With no columns the widget says so instead of rendering a grid."""
         matrix.set_routing([], [], set())

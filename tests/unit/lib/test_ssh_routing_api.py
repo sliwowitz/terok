@@ -36,6 +36,18 @@ class _FakeDB:
         """Return the stored assignment edges."""
         return self.assignments
 
+    def list_ssh_key_defaults(self):
+        """Return the default chosen independently for each scope."""
+        return {"foo": 1, "bar": 2}
+
+    def get_ssh_public_key(self, key_id):
+        """Return a public line for a known key."""
+        return "ssh-ed25519 AAAA example" if key_id == 1 else None
+
+    def set_default_ssh_key(self, scope, key_id):
+        """Record a default selection."""
+        self.calls.append(("default", scope, key_id))
+
     def assign_ssh_key(self, scope, key_id):
         """Record a link."""
         self.calls.append(("assign", scope, key_id))
@@ -104,6 +116,9 @@ class TestLoadKeyRouting:
         routing = ssh_routing.load_key_routing()
         assert routing.links == {("foo", 1), ("bar", 1), ("bar", 2), ("%host", 2)}
 
+    def test_defaults_belong_to_scopes(self, db):
+        assert ssh_routing.load_key_routing().defaults == {"foo": 1, "bar": 2}
+
 
 class TestMutations:
     """Verify the verbs delegate to the matching DB calls."""
@@ -128,37 +143,44 @@ class TestMutations:
         assert ssh_routing.rename_key("fp", "new comment") is True
         assert ("rename", "fp", "new comment") in db.calls
 
+    def test_set_default_for_one_scope(self, db):
+        ssh_routing.set_default_key("bar", 1)
+        assert db.calls == [("default", "bar", 1)]
+
+    def test_public_key_returns_only_public_line(self, db):
+        assert ssh_routing.public_key(1) == "ssh-ed25519 AAAA example"
+
+    def test_missing_public_key_reports_deleted_key(self, db):
+        with pytest.raises(ValueError, match="no longer exists"):
+            ssh_routing.public_key(99)
+
 
 class TestMint:
-    """Verify minting routes through the project aggregate."""
+    """Minting and naming use the same scope-bound manager as the CLI."""
 
-    def test_default_requests_additive_generation(self, monkeypatch):
-        """A bare mint requests a fresh side key instead of reusing the primary key."""
-        project = SimpleNamespace(provision_ssh_key=mock.Mock(return_value={"key_id": 8}))
-        monkeypatch.setattr(ssh_routing, "get_project", lambda _name: project)
-
-        result = ssh_routing.mint_key("foo")
-
-        project.provision_ssh_key.assert_called_once_with(key_type="ed25519", comment="")
+    def test_default_requests_additive_generation(self, db):
+        """A bare mint creates a named key, without an empty-comment sentinel."""
+        manager = mock.Mock()
+        manager.mint.return_value = {"key_id": 8}
+        with mock.patch.object(ssh_routing, "SSHManager", return_value=manager) as factory:
+            result = ssh_routing.mint_key("foo")
+        factory.assert_called_once_with(scope="foo", db=db)
+        manager.mint.assert_called_once_with(key_type="ed25519", comment=None)
         assert result == {"key_id": 8}
 
-    def test_mint_provisions_for_project(self, monkeypatch):
-        """mint_key calls provision_ssh_key on the named project."""
-        recorded = {}
-        project = SimpleNamespace(
-            provision_ssh_key=lambda **kw: recorded.update(kw) or {"key_id": 7}
-        )
+    def test_mint_preserves_explicit_comment(self, db):
+        manager = mock.Mock()
+        with mock.patch.object(ssh_routing, "SSHManager", return_value=manager):
+            ssh_routing.mint_key("foo", key_type="rsa", comment="hi")
+        manager.mint.assert_called_once_with(key_type="rsa", comment="hi")
 
-        def fake_get_project(name):
-            recorded["name"] = name
-            return project
-
-        monkeypatch.setattr(ssh_routing, "get_project", fake_get_project)
-        result = ssh_routing.mint_key("foo", key_type="rsa", comment="hi")
-        assert recorded["name"] == "foo"
-        assert recorded["key_type"] == "rsa"
-        assert recorded["comment"] == "hi"
-        assert result == {"key_id": 7}
+    def test_suggestion_uses_canonical_scope_naming(self, db):
+        manager = mock.Mock()
+        manager.suggested_comment.return_value = "foo-2"
+        with mock.patch.object(ssh_routing, "SSHManager", return_value=manager) as factory:
+            assert ssh_routing.suggested_key_comment("foo") == "foo-2"
+        factory.assert_called_once_with(scope="foo", db=db)
+        manager.suggested_comment.assert_called_once_with()
 
 
 class TestIsLastLink:

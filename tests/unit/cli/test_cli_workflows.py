@@ -108,7 +108,7 @@ class TestProjectInit:
 
         cmd_project_init("myproj")
 
-        project.provision_ssh_key.assert_called_once_with()
+        project.provision_ssh_key.assert_called_once_with(comment=None)
         mock_summarize.assert_called_once_with(_FAKE_SSH_INIT_RESULT)
         project.pause_for_ssh_key_registration_if_needed.assert_called_once_with()
         mock_gen.assert_called_once_with("myproj")
@@ -218,6 +218,72 @@ class TestCliSshInit:
         )
         mock_summarize.assert_called_once_with(_FAKE_SSH_INIT_RESULT)
 
+    @pytest.mark.parametrize(
+        "typed, expected", [("", None), ("proj-1", None), ("deploy", "deploy")]
+    )
+    def test_interactive_comment_default_and_override(self, typed, expected) -> None:
+        from terok.cli.commands.setup import prompt_ssh_key_comment
+
+        project = unittest.mock.Mock()
+        project.suggested_ssh_key_comment.return_value = "proj-1"
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=True),
+            unittest.mock.patch("builtins.input", return_value=typed) as prompt,
+        ):
+            assert prompt_ssh_key_comment(project) == expected
+        prompt.assert_called_once_with("SSH key comment [proj-1]: ")
+        project.suggested_ssh_key_comment.assert_called_once_with(force=False, prompt_on_tty=True)
+
+    @pytest.mark.parametrize("comment, tty", [(None, False), ("custom", True), ("", True)])
+    def test_explicit_comment_and_noninteractive_skip_prompt(self, comment, tty) -> None:
+        from terok.cli.commands.setup import prompt_ssh_key_comment
+
+        project = unittest.mock.Mock()
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=tty),
+            unittest.mock.patch("builtins.input") as prompt,
+        ):
+            assert prompt_ssh_key_comment(project, comment=comment) == comment
+        prompt.assert_not_called()
+        project.suggested_ssh_key_comment.assert_not_called()
+
+    def test_reusing_default_does_not_prompt(self) -> None:
+        from terok.cli.commands.setup import prompt_ssh_key_comment
+
+        project = unittest.mock.Mock()
+        project.suggested_ssh_key_comment.return_value = None
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=True),
+            unittest.mock.patch("builtins.input") as prompt,
+        ):
+            assert prompt_ssh_key_comment(project) is None
+        prompt.assert_not_called()
+
+    @pytest.mark.parametrize("interrupt", [EOFError, KeyboardInterrupt])
+    def test_comment_prompt_cancellation(self, interrupt) -> None:
+        from terok.cli.commands.setup import prompt_ssh_key_comment
+
+        project = unittest.mock.Mock()
+        project.suggested_ssh_key_comment.return_value = "proj-1"
+        with (
+            unittest.mock.patch("sys.stdin.isatty", return_value=True),
+            unittest.mock.patch("builtins.input", side_effect=interrupt),
+            pytest.raises(SystemExit, match="Aborted"),
+        ):
+            prompt_ssh_key_comment(project)
+        project.provision_ssh_key.assert_not_called()
+
+    @pytest.mark.parametrize("flag", ["-c", "--comment"])
+    def test_comment_alias(self, flag) -> None:
+        import argparse
+
+        from terok.cli.commands.project import register
+
+        parser = argparse.ArgumentParser()
+        register(parser.add_subparsers(dest="cmd"))
+        args = parser.parse_args(["project", "ssh-init", "proj", flag, "deploy"])
+        assert args.comment == "deploy"
+
 
 class TestSshPause:
     """Tests for the SSH key registration pause helper."""
@@ -255,7 +321,7 @@ class TestSshPause:
 
         cmd_project_init("sshproj")
 
-        project.provision_ssh_key.assert_called_once_with()
+        project.provision_ssh_key.assert_called_once_with(comment=None)
         mock_summarize.assert_called_once_with(_FAKE_SSH_INIT_RESULT)
         project.pause_for_ssh_key_registration_if_needed.assert_called_once_with()
         mock_gen.assert_called_once_with("sshproj")

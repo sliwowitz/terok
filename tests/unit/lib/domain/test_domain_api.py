@@ -160,6 +160,33 @@ class TestProvisionSshKey:
         db.assign_ssh_key.assert_called_once_with("myproj", 7)
         assert result is init_result
 
+    @pytest.mark.parametrize(
+        "existing, force, expected",
+        [(False, False, "myproj-1"), (True, False, None), (True, True, "myproj-1")],
+    )
+    @pytest.mark.parametrize("prompt_on_tty", [False, True])
+    def test_comment_suggestion_only_when_creating(
+        self, existing, force, expected, prompt_on_tty
+    ) -> None:
+        """Reusing a default does not prompt; first creation and rotation offer a name."""
+        db = MagicMock()
+        db.list_ssh_keys_for_scope.return_value = [MagicMock()] if existing else []
+        with (
+            patch("terok.lib.domain.project.vault_db") as vault,
+            patch("terok.lib.domain.project.SSHManager") as manager,
+        ):
+            vault.return_value.__enter__.return_value = db
+            manager.return_value.suggested_comment.return_value = "myproj-1"
+            result = _project_with_id("myproj").suggested_ssh_key_comment(
+                force=force, prompt_on_tty=prompt_on_tty
+            )
+            assert result == expected
+        vault.assert_called_once_with(prompt_on_tty=prompt_on_tty)
+        if expected is None:
+            manager.assert_not_called()
+        else:
+            manager.assert_called_once_with(scope="myproj", db=db)
+
 
 class TestSummarizeSshInit:
     """summarize_ssh_init prints every field from the SSHInitResult."""

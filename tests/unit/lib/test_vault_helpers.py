@@ -139,6 +139,20 @@ class TestScopeHasVaultKeyLockedVault:
 class TestLookupVaultPubLine:
     """``tui.worker_actions._lookup_vault_pub_line`` renders the public line."""
 
+    def test_uses_default_first_record_not_newest(self) -> None:
+        from terok.tui.worker_actions import _lookup_vault_pub_line
+
+        default, additional = MagicMock(), MagicMock()
+        db = MagicMock()
+        db.load_ssh_keys_for_scope.return_value = [default, additional]
+        with (
+            patch("terok.lib.api.vault_db") as vault,
+            patch("terok.lib.api.setup.public_line_of", return_value="public default") as render,
+        ):
+            vault.return_value.__enter__.return_value = db
+            assert _lookup_vault_pub_line("proj") == "public default"
+        render.assert_called_once_with(default)
+
     def test_renders_ed25519_pub_line(self) -> None:
         from terok.tui.worker_actions import _lookup_vault_pub_line
 

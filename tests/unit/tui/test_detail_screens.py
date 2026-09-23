@@ -929,16 +929,63 @@ class TestSSHKeyRegistration:
         return ProjectActionsMixin
 
     def test_action_init_ssh_dispatches_init_ssh(self) -> None:
-        """action_init_ssh dispatches the init_ssh worker action for the selection."""
+        """An existing key is reused without an unnecessary naming prompt."""
         mixin = self._get_mixin()
         instance = mock.Mock(spec=mixin)
         instance.current_project_name = "proj"
-        run(mixin.action_init_ssh(instance))
+        instance.push_screen = mock.Mock()
+        project = mock.Mock()
+        project.suggested_ssh_key_comment.return_value = None
+        with mock.patch("terok.lib.api.get_project", return_value=project):
+            run(mixin.action_init_ssh(instance))
         instance._run_console_action.assert_called_once_with(
             "terok.tui.worker_actions:init_ssh",
             "proj",
+            None,
             title="Initializing SSH key for proj",
         )
+        instance.push_screen.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("choice", "forwarded"), [("proj-1", None), ("deploy", "deploy"), (None, None)]
+    )
+    def test_action_init_ssh_prompts_before_creation(self, choice, forwarded) -> None:
+        """The project action accepts a default or custom label, and cancels without minting."""
+        from terok.tui.ssh_key_screens import SshKeyCommentScreen
+
+        mixin = self._get_mixin()
+        instance = mock.Mock(spec=mixin)
+        instance.current_project_name = "proj"
+        instance.push_screen = mock.Mock()
+        project = mock.Mock()
+        project.suggested_ssh_key_comment.return_value = "proj-1"
+        with mock.patch("terok.lib.api.get_project", return_value=project):
+            run(mixin.action_init_ssh(instance))
+        screen, callback = instance.push_screen.call_args.args
+        assert isinstance(screen, SshKeyCommentScreen)
+        assert screen._comment == "proj-1"
+        instance._run_console_action.assert_not_called()
+        callback(choice)
+        if choice is None:
+            instance._run_console_action.assert_not_called()
+        else:
+            instance._run_console_action.assert_called_once_with(
+                "terok.tui.worker_actions:init_ssh",
+                "proj",
+                forwarded,
+                title="Initializing SSH key for proj",
+            )
+
+    def test_action_init_ssh_reports_vault_failure(self) -> None:
+        """A locked vault fails before dispatch and leaves the UI responsive."""
+        mixin = self._get_mixin()
+        instance = mock.Mock(spec=mixin)
+        instance.current_project_name = "proj"
+        instance.notify = mock.Mock()
+        with mock.patch("terok.lib.api.get_project", side_effect=RuntimeError("locked")):
+            run(mixin.action_init_ssh(instance))
+        instance._run_console_action.assert_not_called()
+        instance.notify.assert_called_once_with("SSH key unavailable: locked", severity="error")
 
     def test_action_project_init_opens_init_progress_screen(self) -> None:
         """_action_project_init reuses the wizard's InitProgressScreen.

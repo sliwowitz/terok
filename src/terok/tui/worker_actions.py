@@ -53,11 +53,11 @@ def build_full(project_name: str) -> None:
     build_images(project_name, full_rebuild=True)
 
 
-def init_ssh(project_name: str) -> None:
-    """Mint a vault-backed SSH keypair for *project_name* and print its summary."""
+def init_ssh(project_name: str, comment: str | None = None) -> None:
+    """Initialize a vault-backed key with the chosen comment and print its summary."""
     from terok.lib.api import get_project, summarize_ssh_init
 
-    summarize_ssh_init(get_project(project_name).provision_ssh_key())
+    summarize_ssh_init(get_project(project_name).provision_ssh_key(comment=comment))
 
 
 # Full project setup ("Full setup" project-screen action) is *not* a
@@ -71,13 +71,13 @@ def init_ssh(project_name: str) -> None:
 
 
 def _lookup_vault_pub_line(scope: str) -> str | None:
-    """Return *scope*'s most-recent public key line, or ``None`` if unassigned."""
+    """Return *scope*'s default public key line, or ``None`` if unassigned."""
     from terok.lib.api import vault_db
     from terok.lib.api.setup import public_line_of
 
     with vault_db() as db:
         records = db.load_ssh_keys_for_scope(scope)
-    return public_line_of(records[-1]) if records else None
+    return public_line_of(records[0]) if records else None
 
 
 def _print_sync_gate_ssh_help(project_name: str) -> None:

@@ -26,7 +26,7 @@ from ...lib.domain.project import make_git_gate
 from ...lib.domain.wizards.new_project import offer_edit_then_init, run_wizard
 from ...lib.util.output_capture import tee_output
 from ._completers import complete_project_names as _complete_project_names, set_completer
-from .setup import cmd_project_init
+from .setup import cmd_project_init, prompt_ssh_key_comment
 
 
 def _add_project_arg(parser: argparse.ArgumentParser, **kwargs: Any) -> None:
@@ -134,12 +134,12 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         help="Key algorithm (default: ed25519)",
     )
     p_ssh.add_argument(
+        "-c",
         "--comment",
         default=None,
         help=(
             "Comment embedded in the public key "
-            "(default: tk-main:<project> for the project's first key, "
-            "tk-side:<project>:<n> for subsequent additive inits)"
+            "(new keys default to the next unused <project>-N; bare init reuses the default key)"
         ),
     )
     p_ssh.add_argument(
@@ -390,10 +390,13 @@ def _cmd_project_delete(project_name: str, *, force: bool = False) -> None:
 
 def _cmd_ssh_init(args: argparse.Namespace) -> None:
     """Provision a vault-managed SSH keypair for the project."""
-    result = get_project(args.project_name).provision_ssh_key(
+    project = get_project(args.project_name)
+    force = getattr(args, "force", False)
+    comment = prompt_ssh_key_comment(project, comment=getattr(args, "comment", None), force=force)
+    result = project.provision_ssh_key(
         key_type=getattr(args, "key_type", "ed25519"),
-        comment=getattr(args, "comment", None),
-        force=getattr(args, "force", False),
+        comment=comment,
+        force=force,
     )
     summarize_ssh_init(result)
 

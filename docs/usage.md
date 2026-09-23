@@ -503,6 +503,27 @@ Mints an ed25519 keypair into the vault credential database (no on-disk
 key files in the project directory).  The public key is printed on
 success — register it as a deploy key on your Git host.
 
+Repeating `ssh-init` reuses the scope's default key. To add another key, use
+`terok ssh add myproj`; `-c NAME` (or `--comment NAME`) sets its comment.
+Without a supplied comment, new keys use the next unused `myproj-N` name.
+Interactive creation offers that name for editing before generating the key.
+
+```bash
+terok ssh list --scope myproj       # Inspect key IDs and the default marker
+terok ssh pub myproj                # All assigned public keys, default first
+terok ssh pub myproj --key-id 7     # One public key
+terok ssh default myproj 7          # Offer this already-linked key first
+```
+
+The default belongs to the scope–key link: a shared key can be default in
+several projects independently. The first assigned key becomes default;
+adding or renaming keys does not change it. Removing the default promotes
+the oldest remaining assignment. Comments never determine priority.
+
+In the SSH routing TUI, press **p** to show the selected public key for
+copying, **n** to mint with an editable name, and **f** to make a linked key
+the selected scope's default. The default link is marked with `*`.
+
 ### Step 7: Create and Run a Task
 
 Authenticate each provider the task will use *before* starting the task —

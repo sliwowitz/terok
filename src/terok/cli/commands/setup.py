@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from typing import TYPE_CHECKING
 
 from terok.lib.api import bold, red, stage_line, yellow
 
@@ -42,6 +43,9 @@ from ...lib.api import (
 from ...lib.api.gate import summarize_gate_sync
 from ...lib.core.projects import require_project_exists
 from ...lib.util.output_capture import tee_output
+
+if TYPE_CHECKING:
+    from ...lib.api import Project
 
 # ── CLI wiring ─────────────────────────────────────────────────────────
 
@@ -449,7 +453,7 @@ def cmd_project_init(project_name: str) -> None:
 
     project = get_project(project_name)
     print("==> Initializing SSH...")
-    summarize_ssh_init(project.provision_ssh_key())
+    summarize_ssh_init(project.provision_ssh_key(comment=prompt_ssh_key_comment(project)))
     project.pause_for_ssh_key_registration_if_needed()
 
     print("==> Generating Dockerfiles...")
@@ -479,3 +483,20 @@ def cmd_project_init(project_name: str) -> None:
         # Setup is not the place to confirm destructive changes — leave
         # them pending and point at the command that gates them properly.
         print(f"Review them with: terok project gate-sync {project_name}")
+
+
+def prompt_ssh_key_comment(
+    project: Project, *, comment: str | None = None, force: bool = False
+) -> str | None:
+    """Offer an editable default only when an interactive init will create a key."""
+    if comment is not None or not sys.stdin.isatty():
+        return comment
+    suggestion = project.suggested_ssh_key_comment(force=force, prompt_on_tty=True)
+    if suggestion is None:
+        return None
+    try:
+        chosen = input(f"SSH key comment [{suggestion}]: ") or suggestion
+    except (EOFError, KeyboardInterrupt):
+        print()
+        raise SystemExit("Aborted.") from None
+    return None if chosen == suggestion else chosen

@@ -26,7 +26,7 @@ class TestSshInit:
     def test_ssh_init_is_idempotent(self, terok_env: TerokIntegrationEnv) -> None:
         """Re-running ``ssh-init`` on the same scope shows the same primary key (#856).
 
-        A bare second invocation used to mint a fresh ``tk-side:`` key,
+        A bare second invocation used to mint a fresh additional key,
         leaving the operator to figure out which public line to register
         upstream and why the previous one no longer worked alone.  The
         fixed contract: same scope, no flags → same key, idempotent
@@ -45,8 +45,8 @@ class TestSshInit:
         fp2 = _extract_fingerprint(second.stdout)
         assert fp1 is not None and fp2 is not None
         assert fp1 == fp2  # same key shown twice
-        assert "tk-main:demo" in first.stdout
-        assert "tk-main:demo" in second.stdout
+        assert "demo-1" in first.stdout
+        assert "demo-1" in second.stdout
 
     def test_ssh_init_rotation_picks_new_key(self, terok_env: TerokIntegrationEnv) -> None:
         """``--force`` rotates: scope ends up with a fresh key, distinct fingerprint."""
