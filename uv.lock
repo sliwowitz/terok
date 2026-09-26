@@ -2439,8 +2439,8 @@ requires-dist = [
     { name = "rich", specifier = "~=15.0" },
     { name = "ruamel-yaml", specifier = "==0.19.1" },
     { name = "terok-clearance", specifier = ">=0.8.0,<0.9.0" },
-    { name = "terok-executor", specifier = ">=0.4.0,<0.5.0" },
-    { name = "terok-sandbox", git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Fssh-key-defaults" },
+    { name = "terok-executor", url = "https://github.com/terok-ai/terok-executor/releases/download/v0.4.1a2/terok_executor-0.4.1a2-py3-none-any.whl" },
+    { name = "terok-sandbox", url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.5.1a2/terok_sandbox-0.5.1a2-py3-none-any.whl" },
     { name = "terok-shield", specifier = ">=0.8.0,<0.9.0" },
     { name = "terok-util", specifier = ">=0.3.1,<0.4.0" },
     { name = "textual", extras = ["syntax"], specifier = "~=8.2.8" },
@@ -2498,8 +2498,8 @@ wheels = [
 
 [[package]]
 name = "terok-executor"
-version = "0.4.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.4.1a2"
+source = { url = "https://github.com/terok-ai/terok-executor/releases/download/v0.4.1a2/terok_executor-0.4.1a2-py3-none-any.whl" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2511,15 +2511,27 @@ dependencies = [
     { name = "terok-util" },
     { name = "tomli-w" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/db/6a/670bfbdcb46388a1f8a8307295abde6d813958598abff1d3750a8f542883/terok_executor-0.4.0.tar.gz", hash = "sha256:3961559fdb670ddd396cb0c0529d35e1fb66a626b33e1d6e755208a67ee2b3c4", size = 626985, upload-time = "2026-09-11T09:12:55.59Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/8f/37e8eb8d92ecc3a10ddbffa92cfb1e4337efc85314d25615b70e98ac315d/terok_executor-0.4.0-py3-none-any.whl", hash = "sha256:a115b3d24a7cbe7fee37da9fb178609b55f8d90aca137e1f5affe1f21cbe6d8f", size = 320821, upload-time = "2026-09-11T09:12:54.085Z" },
+    { url = "https://github.com/terok-ai/terok-executor/releases/download/v0.4.1a2/terok_executor-0.4.1a2-py3-none-any.whl", hash = "sha256:d7f1cb3677a772e4fca2977aeff74853d936700b188f94fe925a1790e79c80ba" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-client-protocol", specifier = "==0.12.1" },
+    { name = "jinja2", specifier = "~=3.1" },
+    { name = "prompt-toolkit", specifier = "~=3.0" },
+    { name = "pydantic", specifier = "~=2.13" },
+    { name = "rich", specifier = "~=15.0" },
+    { name = "ruamel-yaml", specifier = "==0.19.1" },
+    { name = "terok-sandbox", url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.5.1a2/terok_sandbox-0.5.1a2-py3-none-any.whl" },
+    { name = "terok-util", specifier = ">=0.3.1,<0.4.0" },
+    { name = "tomli-w", specifier = "~=1.2" },
 ]
 
 [[package]]
 name = "terok-sandbox"
-version = "0.5.1.dev495+gb5423f45b"
-source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Fssh-key-defaults#b5423f45b21f785050e2ad213ecb639932df4e20" }
+version = "0.5.1a2"
+source = { url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.5.1a2/terok_sandbox-0.5.1a2-py3-none-any.whl" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
@@ -2534,6 +2546,26 @@ dependencies = [
     { name = "terok-clearance" },
     { name = "terok-shield" },
     { name = "terok-util" },
+]
+wheels = [
+    { url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.5.1a2/terok_sandbox-0.5.1a2-py3-none-any.whl", hash = "sha256:bfb365076606ee0627f9e0b30588eaa21a0a87315267cd4837d03ed4187270fc" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiohttp", specifier = "~=3.14.3" },
+    { name = "cryptography", specifier = "~=50.0" },
+    { name = "jinja2", specifier = "~=3.1" },
+    { name = "keyring", specifier = "~=25.7" },
+    { name = "packaging", specifier = "~=26.3" },
+    { name = "platformdirs", specifier = "~=4.11" },
+    { name = "prompt-toolkit", specifier = "~=3.0" },
+    { name = "pydantic", specifier = "~=2.13" },
+    { name = "ruamel-yaml", specifier = "==0.19.1" },
+    { name = "sqlcipher3", specifier = "==0.6.2" },
+    { name = "terok-clearance", specifier = ">=0.8.0,<0.9.0" },
+    { name = "terok-shield", specifier = ">=0.8.0,<0.9.0" },
+    { name = "terok-util", specifier = ">=0.3.1,<0.4.0" },
 ]
 
 [[package]]
