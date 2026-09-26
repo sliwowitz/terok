@@ -192,7 +192,6 @@ path = "terok.lib.api.ssh_routing"
 layer = "domain"
 depends_on = [
     "terok.lib.core.projects",
-    "terok.lib.domain.project",
     "terok.lib.domain.vault",
     "terok.lib.integrations.sandbox",
 ]

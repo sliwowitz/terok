@@ -29,6 +29,7 @@ from textual.message import Message
 from textual.widgets import Static
 
 _LINKED_GLYPH = "●"
+_DEFAULT_GLYPH = "*"
 _EMPTY_GLYPH = "·"
 _CELL_WIDTH = 3
 """Width each connection cell is padded to."""
@@ -101,18 +102,24 @@ class RoutingMatrix(Static):
         self._keys: list[MatrixKey] = []
         self._scopes: list[str] = []
         self._links: set[tuple[str, int]] = set()
+        self._defaults: dict[str, int] = {}
         self._row = 0
         self._col = 0
 
     # ── Data feed ──────────────────────────────────────────────────────
 
     def set_routing(
-        self, keys: list[MatrixKey], scopes: list[str], links: set[tuple[str, int]]
+        self,
+        keys: list[MatrixKey],
+        scopes: list[str],
+        links: set[tuple[str, int]],
+        defaults: dict[str, int] | None = None,
     ) -> None:
         """Replace the rendered routing and clamp the cursor into the new grid."""
         self._keys = keys
         self._scopes = scopes
         self._links = links
+        self._defaults = defaults or {}
         self._row = _clamp(self._row, len(keys))
         self._col = _clamp(self._col, len(scopes))
         self.refresh()
@@ -184,6 +191,8 @@ class RoutingMatrix(Static):
         line = Text(_pad(_truncate(key.label, _LABEL_WIDTH), _LABEL_WIDTH), style=label_style)
         for col, scope in enumerate(self._scopes):
             glyph = _LINKED_GLYPH if (scope, key.key_id) in self._links else _EMPTY_GLYPH
+            if self._defaults.get(scope) == key.key_id:
+                glyph = _DEFAULT_GLYPH
             line.append(_pad(glyph, _CELL_WIDTH), style=self._cell_style(row, col))
         return line
 
@@ -200,6 +209,7 @@ class RoutingMatrix(Static):
         legend = Text("", style=_DIM_STYLE)
         for index, scope in enumerate(self._scopes):
             legend.append(f"{index + 1}={scope}  ")
+        legend.append(f"  {_DEFAULT_GLYPH} default · {_LINKED_GLYPH} linked")
         return legend
 
     def _render_status(self) -> Text:
@@ -209,6 +219,8 @@ class RoutingMatrix(Static):
             return Text("", style=_DIM_STYLE)
         linked = (scope, key.key_id) in self._links
         state = "linked" if linked else "not linked"
+        if self._defaults.get(scope) == key.key_id:
+            state = "default — offered first"
         return Text(f"{key.label}  ↔  {scope}   [{state}]", style=_DIM_STYLE)
 
 

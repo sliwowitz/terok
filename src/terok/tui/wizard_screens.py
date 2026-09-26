@@ -64,6 +64,7 @@ from ..lib.api import (
 from .agents_screen import AgentsSelectScreen
 from .askpass_service import build_askpass_env, gui_askpass_usable
 from .gpu_screen import GpuSelectScreen
+from .ssh_key_screens import ShowSshKeyScreen, SshKeyCommentScreen
 from .widgets.ansi_log import AnsiLog
 
 # ── Step 1: the form ──────────────────────────────────────────────────
@@ -518,76 +519,6 @@ class ProjectReviewScreen(ModalScreen["str | object | None"]):
 # ── Step 3: initialize project (ssh-init → generate → build → gate) ──
 
 
-class ShowSshKeyScreen(ModalScreen[None]):
-    """Borderless full-screen view of the SSH public key for terminal copy.
-
-    Textual's ``copy_to_clipboard`` path (used by the "Copy" button) relies
-    on OSC-52 or a host-side helper; neither works when the user runs terok
-    over an SSH tunnel on a locked-down box — a very common setup.  As a
-    last resort they fall back to the host terminal's own mouse selection
-    (iTerm2, GNOME Terminal, xterm, …), which requires Shift-drag to
-    bypass Textual's mouse handling.
-
-    That fallback breaks the moment a ``│`` border character or padding
-    space lands inside the selected rectangle, so this screen is
-    deliberately naked: solid background, a one-line hint, then the key
-    rendered with ``overflow="fold"`` so the base64 blob wraps at the
-    current terminal width — even mid-"word", which the base64 alphabet
-    tolerates because SSH services strip embedded whitespace before
-    validating the key.
-    """
-
-    BINDINGS = [
-        Binding("escape", "close", "Close"),
-        Binding("q", "close", "Close"),
-        Binding("enter", "close", "Close"),
-    ]
-
-    # Horizontal padding is deliberately zero: Textual paints the
-    # padded cells with the Screen background, so a character-flow
-    # Shift-drag across wrapped rows would capture the left padding
-    # as literal spaces on every continuation line, defeating the
-    # whole point of this screen.  Vertical padding is harmless —
-    # it sits above the first and below the last row of the key,
-    # outside any drag that starts/ends on the key itself.
-    CSS = """
-    ShowSshKeyScreen {
-        background: $surface;
-        padding: 1 0;
-    }
-
-    #wizard-ssh-show-hint {
-        color: $text-muted;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    #wizard-ssh-show-pubkey {
-        height: auto;
-    }
-    """
-
-    def __init__(self, public_line: str) -> None:
-        """Store the SSH public key line to render."""
-        super().__init__()
-        self._public_line = public_line
-
-    def compose(self) -> ComposeResult:
-        """Build the hint + bare public key."""
-        yield Static(
-            "Shift-drag to select the key below  ·  Esc, Enter or q to return",
-            id="wizard-ssh-show-hint",
-        )
-        yield Static(
-            Text(self._public_line, overflow="fold", no_wrap=False),
-            id="wizard-ssh-show-pubkey",
-        )
-
-    def action_close(self) -> None:
-        """Dismiss back to the wizard."""
-        self.dismiss(None)
-
-
 class InitOutcome(enum.Enum):
     """Result of [`InitProgressScreen`][terok.tui.wizard_screens.InitProgressScreen] — four distinct states.
 
@@ -998,9 +929,21 @@ class InitProgressScreen(ModalScreen[InitOutcome]):
         try:
             # Step 1: SSH
             self._mark("ssh", "running")
-            result = await asyncio.to_thread(project.provision_ssh_key)
+            suggestion = await asyncio.to_thread(project.suggested_ssh_key_comment)
+            comment = None
+            if suggestion is not None:
+                comment = await self.app.push_screen_wait(
+                    SshKeyCommentScreen(suggestion, title=f"SSH key for {self._project_name}")
+                )
+                if comment is None:
+                    self._outcome = InitOutcome.CANCELLED
+                    self.dismiss(self._outcome)
+                    return
+                if comment == suggestion:
+                    comment = None
+            result = await asyncio.to_thread(project.provision_ssh_key, comment=comment)
             self._mark("ssh", "done", f"key id {result['key_id']}")
-            log.write(f"[green]✓[/] SSH key minted: {result['comment']}")
+            log.write(f"[green]✓[/] SSH key ready: {result['comment']}")
 
             if project.needs_ssh_key_registration:
                 # ``overflow="fold"`` is load-bearing: Static's default

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from textual import screen
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Footer, Input, ListItem, ListView, OptionList, SelectionList, Static
+from textual.widgets import Footer, ListItem, ListView, OptionList, SelectionList, Static
 from textual.widgets.option_list import Option
 from textual.widgets.selection_list import Selection
 
@@ -39,11 +39,15 @@ from terok.lib.api.ssh_routing import (
     link_key,
     load_key_routing,
     mint_key,
+    public_key,
     rename_key,
+    set_default_key,
+    suggested_key_comment,
     unlink_key,
 )
 
 from .screens import ConfirmDestructiveScreen, _modal_binding
+from .ssh_key_screens import ShowSshKeyScreen, SshKeyCommentScreen
 from .widgets.routing_matrix import MatrixKey, RoutingMatrix
 
 if TYPE_CHECKING:
@@ -99,8 +103,31 @@ class _BaseRoutingScreen(screen.Screen[None]):
             self._mint(scope)
 
     def _mint(self, scope: str) -> None:
-        """Mint a key for *scope*."""
-        self._apply(lambda: mint_key(scope), "Mint failed")
+        """Offer an editable comment before minting a key for *scope*."""
+        try:
+            comment = suggested_key_comment(scope)
+        except Exception as exc:  # noqa: BLE001 — any vault failure is operator-facing
+            self.app.notify(f"Mint failed: {exc}", severity="error")
+            return
+        self.app.push_screen(
+            SshKeyCommentScreen(comment, title=f"Mint key for {scope}"),
+            lambda chosen: self._mint_with_comment(scope, chosen, suggestion=comment),
+        )
+
+    def _mint_with_comment(self, scope: str, comment: str | None, *, suggestion: str) -> None:
+        """Mint with a custom comment, or allocate an accepted suggestion transactionally."""
+        if comment is not None:
+            comment = None if comment == suggestion else comment
+            self._apply(lambda: mint_key(scope, comment=comment), "Mint failed")
+
+    def _show_public_key(self, key_id: int) -> None:
+        """Show a selected public key without exposing private key material."""
+        try:
+            public_line = public_key(key_id)
+        except Exception as exc:  # noqa: BLE001 — any vault failure is operator-facing
+            self.app.notify(f"Public key unavailable: {exc}", severity="error")
+            return
+        self.app.push_screen(ShowSshKeyScreen(public_line))
 
     def _link(self, scope: str, key_id: int) -> None:
         """Grant project *scope* access to *key_id*."""
@@ -148,7 +175,7 @@ class _BaseRoutingScreen(screen.Screen[None]):
         if key is None:
             return
         self.app.push_screen(
-            _RenameScreen(key.comment, _key_label(key)),
+            SshKeyCommentScreen(key.comment, title=f"Rename {_key_label(key)}", allow_empty=True),
             lambda comment: self._apply_rename(key.fingerprint, comment),
         )
 
@@ -186,6 +213,8 @@ class KeyRoutingScreen(_BaseRoutingScreen):
         _modal_binding("q", "dismiss_screen", "Back"),
         _modal_binding("m", "toggle_mode", "Matrix / list"),
         _modal_binding("n", "pick_project_to_mint", "Mint key"),
+        _modal_binding("p", "show_cursor_public_key", "Public key"),
+        _modal_binding("f", "set_cursor_default", "Make default"),
         _modal_binding("c", "rename_cursor_key", "Rename key"),
         _modal_binding("d", "delete_cursor_key", "Delete key"),
         _modal_binding("i", "show_inventory", "Inventory"),
@@ -197,7 +226,7 @@ class KeyRoutingScreen(_BaseRoutingScreen):
     CSS = """
     KeyRoutingScreen { layout: vertical; background: $background; }
     #kr-header { height: 1; background: $primary; color: $text; padding: 0 1; }
-    #kr-hint { height: 1; color: $text-muted; padding: 0 1; }
+    #kr-hint { height: auto; color: $text-muted; padding: 0 1; }
     #kr-list { height: 1fr; }
     #kr-keys { width: 40%; border: round $primary; }
     #kr-projects { width: 1fr; border: round $primary; }
@@ -234,6 +263,7 @@ class KeyRoutingScreen(_BaseRoutingScreen):
             [MatrixKey(k.id, _key_label(k)) for k in routing.keys],
             list(routing.projects),
             set(routing.links),
+            routing.defaults,
         )
         if self._list_mode:
             self._sync_list_mode(routing)
@@ -302,6 +332,23 @@ class KeyRoutingScreen(_BaseRoutingScreen):
         if (key_id := self._current_key_id()) is not None:
             self._rename(key_id)
 
+    def action_show_cursor_public_key(self) -> None:
+        """Show the public key under the matrix cursor or list highlight."""
+        if (key_id := self._current_key_id()) is not None:
+            self._show_public_key(key_id)
+
+    def action_set_cursor_default(self) -> None:
+        """Offer the selected linked key first for the highlighted project."""
+        key_id, scope = self._current_key_id(), self._current_scope()
+        if key_id is None or scope is None or self._routing is None:
+            return
+        if (scope, key_id) not in self._routing.links:
+            self.app.notify(
+                "Link this key to the project before making it default.", severity="warning"
+            )
+            return
+        self._apply(lambda: set_default_key(scope, key_id), "Set default failed")
+
     def action_delete_cursor_key(self) -> None:
         """Delete the key the cursor points at (matrix or list)."""
         if (key_id := self._current_key_id()) is not None:
@@ -313,6 +360,14 @@ class KeyRoutingScreen(_BaseRoutingScreen):
             return self._highlighted_key_id()
         key = self.query_one(RoutingMatrix).cursor_key
         return key.key_id if key is not None else None
+
+    def _current_scope(self) -> str | None:
+        """The project under the matrix cursor or checklist highlight."""
+        if not self._list_mode:
+            return self.query_one(RoutingMatrix).cursor_scope
+        checklist = self.query_one("#kr-projects", SelectionList)
+        index = checklist.highlighted
+        return checklist.get_option_at_index(index).value if index is not None else None
 
     def action_show_inventory(self) -> None:
         """Open the key inventory; reload on return."""
@@ -339,10 +394,18 @@ class KeyRoutingScreen(_BaseRoutingScreen):
     def _fill_checklist(self, routing: KeyRouting, key_id: int) -> None:
         """Show every project as a checkbox, ticked where the key is linked."""
         checklist = self.query_one("#kr-projects", SelectionList)
+        highlighted = checklist.highlighted
         checklist.clear_options()
         checklist.add_options(
-            Selection(scope, scope, (scope, key_id) in routing.links) for scope in routing.projects
+            Selection(
+                f"{scope} (default)" if routing.defaults.get(scope) == key_id else scope,
+                scope,
+                (scope, key_id) in routing.links,
+            )
+            for scope in routing.projects
         )
+        if routing.projects:
+            checklist.highlighted = min(highlighted or 0, len(routing.projects) - 1)
 
     def _highlighted_key_id(self) -> int | None:
         """The key highlighted in the list-mode key pane, if any."""
@@ -357,6 +420,7 @@ class KeyInventoryScreen(_BaseRoutingScreen):
         _modal_binding("escape", "dismiss_screen", "Back"),
         _modal_binding("q", "dismiss_screen", "Back"),
         _modal_binding("n", "mint", "Mint key"),
+        _modal_binding("p", "show_public_key", "Public key"),
         _modal_binding("c", "rename", "Rename key"),
         _modal_binding("d", "delete", "Delete key"),
         _modal_binding("r", "reload", "Refresh"),
@@ -364,13 +428,16 @@ class KeyInventoryScreen(_BaseRoutingScreen):
 
     CSS = """
     KeyInventoryScreen { layout: vertical; background: $background; }
-    #ki-header { height: 1; background: $primary; color: $text; padding: 0 1; }
+    #ki-header { height: auto; background: $primary; color: $text; padding: 0 1; }
     #ki-list { height: 1fr; border: round $primary; }
     """
 
     def compose(self) -> ComposeResult:
         """Header plus the scrollable key list."""
-        yield Static(" SSH Key Inventory   n mint · c rename · d delete · Esc back", id="ki-header")
+        yield Static(
+            " SSH Key Inventory   n mint · p public key · c rename · d delete · Esc back",
+            id="ki-header",
+        )
         listing = ListView(id="ki-list")
         listing.border_title = "Keys"
         yield listing
@@ -400,6 +467,12 @@ class KeyInventoryScreen(_BaseRoutingScreen):
         item = self.query_one("#ki-list", ListView).highlighted_child
         if item is not None:
             self._rename(_item_key_id(item))
+
+    def action_show_public_key(self) -> None:
+        """Show the highlighted key's public line for copying."""
+        item = self.query_one("#ki-list", ListView).highlighted_child
+        if item is not None:
+            self._show_public_key(_item_key_id(item))
 
     def action_delete(self) -> None:
         """Delete the highlighted key everywhere."""
@@ -439,38 +512,6 @@ class _ProjectPickerScreen(screen.ModalScreen[str | None]):
 
     def action_cancel(self) -> None:
         """Dismiss without picking."""
-        self.dismiss(None)
-
-
-class _RenameScreen(screen.ModalScreen[str | None]):
-    """A modal that returns a key's new comment (or ``None`` on cancel)."""
-
-    BINDINGS = [_modal_binding("escape", "cancel", "Cancel")]
-
-    CSS = """
-    _RenameScreen { align: center middle; }
-    #rename-input { width: 60; background: $surface; }
-    """
-
-    def __init__(self, comment: str, label: str) -> None:
-        """Prefill the input with the key's current comment."""
-        super().__init__()
-        self._comment = comment
-        self._label = label
-
-    def compose(self) -> ComposeResult:
-        """A single-line input prefilled with the current comment."""
-        box = Input(value=self._comment, id="rename-input")
-        box.border_title = f"Rename {self._label}"
-        box.border_subtitle = "Enter to save · Esc to cancel"
-        yield box
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Return the typed comment on Enter."""
-        self.dismiss(event.value)
-
-    def action_cancel(self) -> None:
-        """Dismiss without renaming."""
         self.dismiss(None)
 
 
@@ -533,6 +574,8 @@ def _hint(*, list_mode: bool) -> str:
     shortcuts = [
         ("space", "link/unlink"),
         ("n", "mint"),
+        ("p", "public key"),
+        ("f", "make default"),
         ("c", "rename"),
         ("d", "delete"),
         ("m", f"{target_mode} mode"),

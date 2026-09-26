@@ -550,6 +550,7 @@ async def test_failed_step_is_marked_without_widget_readback() -> None:
 
     fake_project = MagicMock()
     fake_project.provision_ssh_key.side_effect = RuntimeError("boom")
+    fake_project.suggested_ssh_key_comment.return_value = None
 
     with patch.object(InitProgressScreen, "on_mount", new=AsyncMock()):
         app = _WizardHost(InitProgressScreen("demo"))
@@ -733,6 +734,7 @@ async def _drive_run_init(*, gate_enabled: bool) -> AsyncMock:
     project.config.gate_enabled = gate_enabled
     project.needs_ssh_key_registration = False
     project.provision_ssh_key.return_value = _SSH_RESULT
+    project.suggested_ssh_key_comment.return_value = None
 
     class _Host(App):
         def on_mount(self) -> None:
@@ -780,6 +782,56 @@ async def test_run_init_skips_gate_sync_when_gate_disabled() -> None:
     assert refs == ["terok.tui.worker_actions:build"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("choice", ["demo-1", "deploy", None])
+async def test_init_offers_editable_key_comment_before_creating(choice: str | None) -> None:
+    """Accepting a name provisions once; cancelling does not create a key."""
+    from terok.tui.ssh_key_screens import SshKeyCommentScreen
+    from terok.tui.wizard_screens import InitOutcome, InitProgressScreen
+
+    project = MagicMock()
+    project.suggested_ssh_key_comment.return_value = "demo-1"
+    project.provision_ssh_key.return_value = _SSH_RESULT
+    project.needs_ssh_key_registration = False
+    project.config.gate_enabled = False
+    screen = InitProgressScreen("demo")
+    app = _WizardHost(screen)
+    with (
+        patch("terok.lib.api.get_project", return_value=project),
+        patch("terok.lib.api.summarize_ssh_init"),
+        patch("terok.lib.api.generate_dockerfiles"),
+        patch.object(
+            InitProgressScreen, "_askpass_subprocess_env", new=AsyncMock(return_value=None)
+        ),
+        patch.object(InitProgressScreen, "_run_dispatched_step", new=AsyncMock()),
+    ):
+        async with app.run_test() as pilot:
+            for _ in range(20):
+                await pilot.pause()
+                if isinstance(app.screen, SshKeyCommentScreen):
+                    break
+            assert isinstance(app.screen, SshKeyCommentScreen)
+            comment = app.screen.query_one(Input)
+            assert comment.value == "demo-1"
+            project.provision_ssh_key.assert_not_called()
+            if choice is None:
+                await pilot.press("escape")
+            else:
+                comment.value = choice
+                await pilot.press("enter")
+            for _ in range(20):
+                await pilot.pause()
+                if screen._outcome is not InitOutcome.FAILED:
+                    break
+            if choice is None:
+                project.provision_ssh_key.assert_not_called()
+                assert screen._outcome is InitOutcome.CANCELLED
+            else:
+                expected = None if choice == "demo-1" else choice
+                project.provision_ssh_key.assert_called_once_with(comment=expected)
+                assert screen._outcome is InitOutcome.SUCCESS
+
+
 # ── SSH fingerprint display ───────────────────────────────────────────
 
 
@@ -808,6 +860,7 @@ async def test_ssh_panel_shows_fingerprint_alongside_pubkey() -> None:
     project = MagicMock()
     project.needs_ssh_key_registration = True
     project.provision_ssh_key.return_value = minted
+    project.suggested_ssh_key_comment.return_value = None
     app = _WizardHost(InitProgressScreen("demo", "project:\n  id: demo\n"))
     with (
         patch.object(InitProgressScreen, "_existing_project_yaml_path", return_value=None),
@@ -872,6 +925,7 @@ async def test_init_screen_esc_cancels_mid_run() -> None:
     project = MagicMock()
     project.needs_ssh_key_registration = True
     project.provision_ssh_key.return_value = minted
+    project.suggested_ssh_key_comment.return_value = None
     app = _WizardHost(InitProgressScreen("demo", "project:\n  id: demo\n"))
     with (
         patch.object(InitProgressScreen, "_existing_project_yaml_path", return_value=None),

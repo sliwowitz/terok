@@ -19,12 +19,12 @@ anywhere" and "unlink its final project" are the same act.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from terok.lib.core.projects import discover_projects
-from terok.lib.domain.project import get_project
 from terok.lib.domain.vault import vault_db
+from terok.lib.integrations.sandbox import SSHManager
 
 if TYPE_CHECKING:
     from terok.lib.integrations.sandbox import SSHInitResult, SSHKeyRow
@@ -42,7 +42,7 @@ class KeyRouting:
     The two axes plus the links between them are everything a routing
     view needs: ``keys`` are the rows, ``projects`` the columns, and a
     cell ``(project, key_id)`` is wired exactly when it appears in
-    ``links``.  Immutable — re-fetch with
+    ``links``.  ``defaults`` selects one linked key per scope. Re-fetch with
     [`load_key_routing`][terok.lib.api.ssh_routing.load_key_routing]
     after a mutation rather than editing in place.
     """
@@ -58,6 +58,9 @@ class KeyRouting:
     links: frozenset[tuple[str, int]]
     """The ``(scope, key_id)`` pairs that are currently wired."""
 
+    defaults: dict[str, int] = field(default_factory=dict)
+    """The key offered first in each scope, independent of its comment."""
+
 
 def load_key_routing() -> KeyRouting:
     """Assemble the current key↔project routing from the vault.
@@ -70,9 +73,10 @@ def load_key_routing() -> KeyRouting:
     with vault_db() as db:
         keys = tuple(db.list_all_ssh_keys())
         links = frozenset(db.list_ssh_key_assignments())
+        defaults = db.list_ssh_key_defaults()
     orphaned = {scope for scope, _ in links if not scope.startswith(_INFRA_SCOPE_SIGIL)}
     projects = tuple(sorted(project_names | orphaned))
-    return KeyRouting(keys=keys, projects=projects, links=links)
+    return KeyRouting(keys=keys, projects=projects, links=links, defaults=defaults)
 
 
 def link_key(scope: str, key_id: int) -> None:
@@ -99,15 +103,31 @@ def delete_key(key_id: int) -> None:
         db.delete_ssh_key(key_id)
 
 
-def mint_key(project_name: str, *, key_type: str = "ed25519", comment: str = "") -> SSHInitResult:
-    """Generate a fresh keypair already linked to *project_name*.
+def mint_key(scope: str, *, key_type: str = "ed25519", comment: str | None = None) -> SSHInitResult:
+    """Generate a fresh keypair linked to *scope*, preserving its existing default."""
+    with vault_db() as db:
+        return SSHManager(scope=scope, db=db).mint(key_type=key_type, comment=comment)
 
-    A key is born attached to a project (the vault holds no unlinked
-    keys), so minting always names the column it lands in.  The blank
-    comment deliberately selects additive provisioning; ``None`` means
-    "reuse the primary key" and therefore is not a mint operation.
-    """
-    return get_project(project_name).provision_ssh_key(key_type=key_type, comment=comment)
+
+def suggested_key_comment(scope: str) -> str:
+    """Return the next unused ``scope-N`` comment for a new key."""
+    with vault_db() as db:
+        return SSHManager(scope=scope, db=db).suggested_comment()
+
+
+def public_key(key_id: int) -> str:
+    """Return a stored key's public line without loading its private material."""
+    with vault_db() as db:
+        line = db.get_ssh_public_key(key_id)
+    if line is None:
+        raise ValueError(f"SSH key {key_id} no longer exists")
+    return line
+
+
+def set_default_key(scope: str, key_id: int) -> None:
+    """Offer an already-linked key first for *scope*, leaving other scopes unchanged."""
+    with vault_db() as db:
+        db.set_default_ssh_key(scope, key_id)
 
 
 def rename_key(fingerprint: str, comment: str) -> bool:
@@ -137,6 +157,9 @@ __all__ = [
     "link_key",
     "load_key_routing",
     "mint_key",
+    "public_key",
     "rename_key",
+    "set_default_key",
+    "suggested_key_comment",
     "unlink_key",
 ]

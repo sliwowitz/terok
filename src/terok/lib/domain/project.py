@@ -916,6 +916,19 @@ class Project:
 
     # --- SSH key provisioning ---
 
+    def suggested_ssh_key_comment(
+        self, *, force: bool = False, prompt_on_tty: bool = False
+    ) -> str | None:
+        """Suggest a new key's comment, or ``None`` when init would reuse a key.
+
+        CLI callers may enable the vault's TTY unlock prompt; TUI callers
+        keep it disabled so a locked vault cannot block on terminal input.
+        """
+        with vault_db(prompt_on_tty=prompt_on_tty) as db:
+            if not force and db.list_ssh_keys_for_scope(self._config.name):
+                return None
+            return SSHManager(scope=self._config.name, db=db).suggested_comment()
+
     def provision_ssh_key(
         self,
         *,

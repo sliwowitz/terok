@@ -281,16 +281,38 @@ class ProjectActionsMixin(_MixinBase):
         )
 
     async def action_init_ssh(self) -> None:
-        """Mint a fresh vault-backed SSH keypair for the current project."""
+        """Initialize SSH, offering an editable comment before creating a key."""
         if not self.current_project_name:
             self.notify("No project selected.")
             return
+        from ..lib.api import get_project
+        from .ssh_key_screens import SshKeyCommentScreen
+
         pid = self.current_project_name
-        self._run_console_action(
-            "terok.tui.worker_actions:init_ssh",
-            pid,
-            title=f"Initializing SSH key for {pid}",
-        )
+        try:
+            suggestion = await asyncio.to_thread(get_project(pid).suggested_ssh_key_comment)
+        except Exception as exc:  # noqa: BLE001 — vault failures are operator-facing
+            self.notify(f"SSH key unavailable: {exc}", severity="error")
+            return
+
+        def initialize(comment: str | None) -> None:
+            """Dispatch initialization with the operator's chosen comment."""
+            self._run_console_action(
+                "terok.tui.worker_actions:init_ssh",
+                pid,
+                comment,
+                title=f"Initializing SSH key for {pid}",
+            )
+
+        def confirmed(comment: str | None) -> None:
+            """Cancel without dispatch, or resolve an unchanged suggestion at creation time."""
+            if comment is not None:
+                initialize(None if comment == suggestion else comment)
+
+        if suggestion is None:
+            initialize(None)
+        else:
+            self.push_screen(SshKeyCommentScreen(suggestion, title=f"SSH key for {pid}"), confirmed)
 
     async def _action_build_agents(self) -> None:
         """Rebuild from L1 with fresh agents."""
