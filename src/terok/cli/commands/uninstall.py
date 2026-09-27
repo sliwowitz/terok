@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import argparse
 
+from terok_util import setup_lock
+
 from terok.lib.api import bold, stage_line, yellow
 
 # ── CLI wiring ─────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ def dispatch(args: argparse.Namespace) -> bool:
 # ── Orchestrator ───────────────────────────────────────────────────────
 
 
+@setup_lock()
 def cmd_uninstall(
     *,
     no_desktop_entry: bool = False,
@@ -91,6 +94,10 @@ def cmd_uninstall(
     than it survives losing its shield hooks, so the aggregator's
     order keeps shield-hooks last.
     """
+    from terok.lib.api.setup import invalidate_setup, preflight_setup
+
+    preflight_setup()
+    invalidate_setup()
     print(bold("\nUninstalling terok host services\n"))
 
     all_ok = True
