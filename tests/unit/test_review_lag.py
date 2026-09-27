@@ -82,6 +82,15 @@ _GITLAB_PAYLOAD = [{"iid": 42, "source_branch": "border-wave-1", "sha": "def456"
 class TestFetchOpenReviews:
     """One API call, honest failure semantics: None means 'could not ask'."""
 
+    @pytest.fixture(autouse=True)
+    def _forge_tools(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Resolve fixture tools, not GitHub/GitLab clients installed on the test host."""
+        tools = tmp_path / "bin"
+        tools.mkdir()
+        for name in ("gh", "glab"):
+            (tools / name).touch(mode=0o755)
+        monkeypatch.setenv("PATH", str(tools))
+
     def _completed(self, payload: object) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess([], 0, stdout=json.dumps(payload), stderr="")
 
