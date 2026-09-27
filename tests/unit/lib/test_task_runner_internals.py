@@ -19,7 +19,7 @@ from terok_executor import BuildError
 from terok.lib.orchestration.task_runners.config import _apply_unrestricted_env, _str_to_bool
 from terok.lib.orchestration.task_runners.container import _run_container
 from tests.test_utils import captured_runspec
-from tests.testfs import MOCK_TASK_DIR
+from tests.testfs import MOCK_BASE, MOCK_TASK_DIR
 
 # ── _str_to_bool ─────────────────────────────────────────
 
@@ -1326,6 +1326,14 @@ class TestApplyUnrestrictedEnv:
 
 class TestResolveContainerUuid:
     """``resolve_container_uuid`` wraps ``podman inspect -f '{{.Id}}'``."""
+
+    @pytest.fixture(autouse=True)
+    def _podman_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Supply a discovered executable alongside these mocked Podman responses."""
+        monkeypatch.setattr(
+            "terok.lib.orchestration.task_runners.shield.require_host_tool",
+            lambda _name: str(MOCK_BASE / "host-bin" / "podman"),
+        )
 
     def test_returns_inspected_id(self) -> None:
         """A live container yields the full UUID."""

@@ -13,8 +13,9 @@ pipe plumbing gets exercised end-to-end.
 from __future__ import annotations
 
 import asyncio
-import os
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from textual.app import App
@@ -140,18 +141,45 @@ def test_worker_argv_structure() -> None:
     """``worker_argv`` produces an unbuffered ``-m _worker_entry`` invocation."""
     argv = worker_argv("terok.lib.api:build_images", ["proj", True])
     assert argv[0] == sys.executable
-    assert argv[1:4] == ["-u", "-m", "terok.tui._worker_entry"]
-    assert argv[4] == "terok.lib.api:build_images"
-    assert argv[5] == '["proj", true]'
+    assert argv[1:5] == ["-P", "-u", "-m", "terok.tui._worker_entry"]
+    assert argv[5] == "terok.lib.api:build_images"
+    assert argv[6] == '["proj", true]'
+
+
+def test_worker_does_not_import_cwd_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real worker imports installed terok, not a matching package in its cwd."""
+    package = tmp_path / "terok"
+    package.mkdir()
+    (package / "__init__.py").write_text("raise RuntimeError('untrusted cwd package')\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    result = subprocess.run(
+        worker_argv("builtins:print", ["installed worker"]),
+        env=child_process_env(),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    assert result.stdout.strip() == "installed worker"
 
 
 # ── child_process_env (Nix #717 shim) ─────────────────────────────────
 
 
-def test_child_process_env_threads_sys_path_as_pythonpath() -> None:
-    """The child env carries the parent's ``sys.path`` as ``PYTHONPATH`` (#717)."""
+def test_child_process_env_threads_sys_path_as_pythonpath(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The child env carries parent package paths but excludes cwd and relative entries."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    packages = tmp_path / "packages"
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(sys, "path", ["", ".", str(cwd), str(packages)])
     env = child_process_env()
-    assert env["PYTHONPATH"] == os.pathsep.join(sys.path)
+    assert env["PYTHONPATH"] == str(packages)
     # And it still inherits the parent environment.
     assert "PATH" in env
 
@@ -160,7 +188,7 @@ def test_child_process_env_pythonpath_wins_over_overrides() -> None:
     """An ambient/override ``PYTHONPATH`` can never shadow the parent's real path."""
     env = child_process_env({"FOO": "bar", "PYTHONPATH": "ambient-junk"})
     assert env["FOO"] == "bar"
-    assert env["PYTHONPATH"] == os.pathsep.join(sys.path)
+    assert env["PYTHONPATH"] == child_process_env()["PYTHONPATH"]
 
 
 # ── _worker_entry.main ────────────────────────────────────────────────

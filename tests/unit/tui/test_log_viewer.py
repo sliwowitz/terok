@@ -8,6 +8,7 @@ from unittest import mock
 
 import pytest
 
+from tests.testfs import MOCK_BASE
 from tests.unit.tui.tui_test_helpers import import_log_viewer
 
 
@@ -422,6 +423,14 @@ class TestLogViewerScreenConstruction:
 
 class TestStreamLogs:
     """Tests for LogViewerScreen._stream_logs (binary I/O with manual line splitting)."""
+
+    @pytest.fixture(autouse=True)
+    def _podman_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Supply the host executable alongside these mocked log subprocesses."""
+        monkeypatch.setattr(
+            "terok_executor.container.runner.require_host_tool",
+            lambda _name: str(MOCK_BASE / "host-bin" / "podman"),
+        )
 
     @mock.patch("subprocess.Popen")
     @mock.patch("select.select")

@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 
 def child_process_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
     """Build the environment for a spawned ``terok`` child process.
 
-    Threads the parent's ``sys.path`` through as ``PYTHONPATH`` so the
+    Threads the parent's absolute non-cwd import paths through as ``PYTHONPATH`` so the
     child can import ``terok`` regardless of how the parent was
     launched.  Under Nix, ``sys.executable`` is a wrapper script that
     rewrites the env on startup — but spawning it directly via
@@ -30,4 +31,8 @@ def child_process_env(overrides: dict[str, str] | None = None) -> dict[str, str]
     always wins so a stray ambient value can't shadow the parent's
     real import path.
     """
-    return {**os.environ, **(overrides or {}), "PYTHONPATH": os.pathsep.join(sys.path)}
+    cwd = Path.cwd()
+    import_paths = (
+        entry for entry in sys.path if os.path.isabs(entry) and Path(entry).resolve() != cwd
+    )
+    return {**os.environ, **(overrides or {}), "PYTHONPATH": os.pathsep.join(import_paths)}

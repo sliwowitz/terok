@@ -28,5 +28,7 @@ def dispatch(args: argparse.Namespace) -> bool:
 
     import os
 
-    os.execlp("terok-clearance", "terok-clearance")
+    from terok_util import require_host_tool
+
+    os.execlp(require_host_tool("terok-clearance"), "terok-clearance")
     return True  # type: ignore[unreachable]  # in tests os.execlp is mocked

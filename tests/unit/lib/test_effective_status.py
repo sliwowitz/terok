@@ -14,6 +14,7 @@ from terok_sandbox import PodmanRuntime
 from terok.lib.core.task_display import STATUS_DISPLAY, mode_info
 from terok.lib.core.task_state import TaskState, effective_status
 from terok.lib.orchestration.tasks import TaskMeta, get_all_task_states
+from tests.testfs import MOCK_BASE
 
 
 def _task(**kwargs: object) -> TaskMeta:
@@ -184,7 +185,13 @@ def test_container_states_handles_output_and_errors(
 ) -> None:
     """Project-wide state lookup parses output; a failed query is ``None``, not ``{}``."""
     patch_kwargs = {"side_effect": error} if error else {"return_value": output}
-    with patch("terok_sandbox.runtime.podman.subprocess.check_output", **patch_kwargs):
+    with (
+        patch(
+            "terok_sandbox.runtime.podman.require_host_tool",
+            return_value=str(MOCK_BASE / "host-bin" / "podman"),
+        ),
+        patch("terok_sandbox.runtime.podman.subprocess.check_output", **patch_kwargs),
+    ):
         assert PodmanRuntime().container_states("proj") == expected
 
 

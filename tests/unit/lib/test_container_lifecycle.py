@@ -26,6 +26,7 @@ from terok.lib.orchestration.tasks import (
     write_task_meta,
 )
 from tests.test_utils import mock_git_config, project_env
+from tests.testfs import MOCK_BASE
 
 
 def project_config(project_name: str, *, shutdown_timeout: int | None = None) -> str:
@@ -114,7 +115,13 @@ def test_container_state_handles_success_and_errors(
 ) -> None:
     """Container state lookup lowercases successful output and ignores Podman errors."""
     patch_kwargs = {"side_effect": error} if error else {"return_value": output}
-    with patch("terok_sandbox.runtime.podman.subprocess.check_output", **patch_kwargs):
+    with (
+        patch(
+            "terok_sandbox.runtime.podman.require_host_tool",
+            return_value=str(MOCK_BASE / "host-bin" / "podman"),
+        ),
+        patch("terok_sandbox.runtime.podman.subprocess.check_output", **patch_kwargs),
+    ):
         assert PodmanRuntime().container("test-container").state == expected
 
 

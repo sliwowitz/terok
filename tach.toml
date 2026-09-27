@@ -532,7 +532,7 @@ depends_on = []
 [[modules]]
 path = "terok.lib.core.version"
 layer = "core"
-depends_on = ["terok"]
+depends_on = ["terok", "terok.lib.util.subprocess_env"]
 
 # Path resolution (FHS/XDG)
 [[modules]]

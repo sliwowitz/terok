@@ -7,10 +7,20 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from terok_util import SetupDowngradeError, SetupRequiredError
+
+
+@pytest.fixture
+def tui_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Install a discoverable TUI stub; tests intercept exec before it can run."""
+    binary = tmp_path / "terok-tui"
+    binary.touch(mode=0o700)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    return str(binary)
 
 
 @pytest.mark.parametrize("error,code", [(SetupRequiredError, 3), (SetupDowngradeError, 4)])
@@ -60,10 +70,11 @@ class TestCliProgName:
         assert result.stdout.startswith("terok ")
 
 
+@pytest.mark.usefixtures("tui_binary")
 class TestTuiSubcommand:
     """Verify the ``terok tui`` subcommand dispatches correctly."""
 
-    def test_tui_subcommand_execs_terok_tui(self) -> None:
+    def test_tui_subcommand_execs_terok_tui(self, tui_binary: str) -> None:
         """``terok tui`` calls os.execlp with ``terok-tui``."""
         with patch("os.execlp") as mock_exec:
             # Import after patching to avoid actual exec
@@ -74,10 +85,10 @@ class TestTuiSubcommand:
 
             mock_exec.assert_called_once()
             args = mock_exec.call_args[0]
-            assert args[0] == "terok-tui"
+            assert args[0] == tui_binary
             assert args[1] == "terok-tui"
 
-    def test_tui_subcommand_forwards_args(self) -> None:
+    def test_tui_subcommand_forwards_args(self, tui_binary: str) -> None:
         """``terok tui --tmux`` forwards --tmux to terok-tui."""
         with patch("os.execlp") as mock_exec:
             from terok.cli.main import main
@@ -86,9 +97,9 @@ class TestTuiSubcommand:
                 main()
 
             args = mock_exec.call_args[0]
-            assert args == ("terok-tui", "terok-tui", "--tmux")
+            assert args == (tui_binary, "terok-tui", "--tmux")
 
-    def test_tui_subcommand_forwards_multiple_args(self) -> None:
+    def test_tui_subcommand_forwards_multiple_args(self, tui_binary: str) -> None:
         """``terok tui --no-tmux --experimental`` forwards all args."""
         with patch("os.execlp") as mock_exec:
             from terok.cli.main import main
@@ -97,14 +108,14 @@ class TestTuiSubcommand:
                 main()
 
             args = mock_exec.call_args[0]
-            assert args == ("terok-tui", "terok-tui", "--no-tmux", "--experimental")
+            assert args == (tui_binary, "terok-tui", "--no-tmux", "--experimental")
 
     def test_tui_listed_in_help(self) -> None:
         """``terok --help`` lists ``tui`` as a subcommand."""
         result = _run_cli("--help")
         assert "tui" in result.stdout
 
-    def test_root_tmux_flag_is_tui_shortcut(self) -> None:
+    def test_root_tmux_flag_is_tui_shortcut(self, tui_binary: str) -> None:
         """``terok --tmux`` is a shortcut for ``terok tui --tmux``."""
         with patch("os.execlp") as mock_exec:
             from terok.cli.main import main
@@ -113,9 +124,9 @@ class TestTuiSubcommand:
                 main()
 
             args = mock_exec.call_args[0]
-            assert args == ("terok-tui", "terok-tui", "--tmux")
+            assert args == (tui_binary, "terok-tui", "--tmux")
 
-    def test_root_tmux_shortcut_forwards_args(self) -> None:
+    def test_root_tmux_shortcut_forwards_args(self, tui_binary: str) -> None:
         """``terok --tmux --new-session`` forwards the extra flags to terok-tui."""
         with patch("os.execlp") as mock_exec:
             from terok.cli.main import main
@@ -124,7 +135,7 @@ class TestTuiSubcommand:
                 main()
 
             args = mock_exec.call_args[0]
-            assert args == ("terok-tui", "terok-tui", "--tmux", "--new-session")
+            assert args == (tui_binary, "terok-tui", "--tmux", "--new-session")
 
 
 class TestEmojiFlag:
@@ -220,10 +231,11 @@ class TestTerokctlSurface:
         assert not re.search(r"^ {4}attach\s{2,}", human.stdout, flags=re.MULTILINE)
 
 
+@pytest.mark.usefixtures("tui_binary")
 class TestTuiOnNoArgs:
     """Bare ``terok`` in a terminal execs ``terok-tui``; scripts get help."""
 
-    def test_tty_no_args_execs_terok_tui(self) -> None:
+    def test_tty_no_args_execs_terok_tui(self, tui_binary: str) -> None:
         """``terok`` with no args and a TTY on stdin/stdout execs the TUI."""
         with (
             patch("os.execlp") as mock_exec,
@@ -235,7 +247,7 @@ class TestTuiOnNoArgs:
 
             main()
 
-            mock_exec.assert_called_once_with("terok-tui", "terok-tui")
+            mock_exec.assert_called_once_with(tui_binary, "terok-tui")
 
     def test_non_tty_no_args_falls_through_to_argparse(self) -> None:
         """Without a TTY, bare ``terok`` errors out — automation-safe default."""
@@ -254,10 +266,11 @@ class TestTuiOnNoArgs:
         # the moment SystemExit fires, so anything above this line never ran.
         mock_exec.assert_not_called()
 
-    def test_missing_terok_tui_falls_through_to_argparse(self) -> None:
+    def test_missing_terok_tui_falls_through_to_argparse(self, tui_binary: str) -> None:
         """If ``terok-tui`` isn't on PATH, argparse's usage error is the fallback."""
+        Path(tui_binary).unlink()
         with (
-            patch("os.execlp", side_effect=FileNotFoundError) as mock_exec,
+            patch("os.execlp") as mock_exec,
             patch("sys.argv", ["terok"]),
             patch("sys.stdin.isatty", return_value=True),
             patch("sys.stdout.isatty", return_value=True),
@@ -267,7 +280,7 @@ class TestTuiOnNoArgs:
 
             main()
 
-        mock_exec.assert_called_once_with("terok-tui", "terok-tui")
+        mock_exec.assert_not_called()
 
     def test_terokctl_no_args_never_launches_tui(self) -> None:
         """``terokctl`` is the stable surface — no-args always prints usage."""

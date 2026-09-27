@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit
 
+from terok_util import require_host_tool
+
 from terok.lib.orchestration.tasks import agent_config_dir, iter_task_ids, tasks_meta_dir
 from terok.lib.util.net import git_remote_host
 
@@ -148,6 +150,7 @@ def fetch_open_reviews(upstream_url: str) -> list[OpenReview] | None:
     try:
         result = subprocess.run(  # nosec B603 — argv is a fixed CLI verb + values derived from project config
             command,
+            executable=require_host_tool(command[0]),
             capture_output=True,
             text=True,
             timeout=_FORGE_QUERY_TIMEOUT_SECONDS,

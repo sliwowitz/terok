@@ -22,9 +22,20 @@ from terok.tui.shell_launch import (
     tmux_new_window,
 )
 from terok.tui.tmux_session import TMUX_TIMEOUT_S
-from tests.testfs import FAKE_TMUX_SOCKET
+from tests.testfs import FAKE_TMUX_SOCKET, MOCK_BASE
 
 SHELL_COMMAND = ["podman", "exec", "-it", "c1", "bash"]
+_HOST_BIN = MOCK_BASE / "host-bin"
+_HOST_BASH = str(_HOST_BIN / "bash")
+
+
+@pytest.fixture
+def host_tool_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply executable paths to launcher tests whose subprocesses are mocked."""
+    # TUI stub tests reload modules; these imported functions retain their original globals.
+    monkeypatch.setitem(
+        tmux_new_window.__globals__, "require_host_tool", lambda name: str(_HOST_BIN / name)
+    )
 
 
 def _shell_payload(command: list[str]) -> str:
@@ -108,6 +119,7 @@ class TestTerminalDetection:
             assert detector() is expected
 
 
+@pytest.mark.usefixtures("host_tool_paths")
 class TestTmuxNewWindow:
     """Tests for tmux_new_window."""
 
@@ -140,7 +152,12 @@ class TestTmuxNewWindow:
             result = tmux_new_window(SHELL_COMMAND, title="login:c1")
         assert result is expected
         mock_run.assert_called_once_with(
-            expected_argv, check=True, capture_output=True, text=True, timeout=TMUX_TIMEOUT_S
+            expected_argv,
+            executable=str(_HOST_BIN / "tmux"),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=TMUX_TIMEOUT_S,
         )
 
     @pytest.mark.parametrize(
@@ -170,6 +187,7 @@ class TestTmuxNewWindow:
         assert stamped == expected_stamps
 
 
+@pytest.mark.usefixtures("host_tool_paths")
 class TestSpawnTerminal:
     """Tests for spawn_terminal_with_command."""
 
@@ -180,7 +198,7 @@ class TestSpawnTerminal:
                 terminal_env("gnome-terminal"),
                 False,
                 None,
-                ["gnome-terminal", "--tab", "--", "bash", "-c", _shell_payload(SHELL_COMMAND)],
+                ["gnome-terminal", "--tab", "--", _HOST_BASH, "-c", _shell_payload(SHELL_COMMAND)],
             ),
             (
                 terminal_env("gnome-terminal"),
@@ -192,7 +210,7 @@ class TestSpawnTerminal:
                     "--title",
                     "login:c1",
                     "--",
-                    "bash",
+                    _HOST_BASH,
                     "-c",
                     _shell_payload(SHELL_COMMAND),
                 ],
@@ -201,7 +219,7 @@ class TestSpawnTerminal:
                 terminal_env("konsole"),
                 False,
                 None,
-                ["konsole", "--new-tab", "-e", "bash", "-c", _shell_payload(SHELL_COMMAND)],
+                ["konsole", "--new-tab", "-e", _HOST_BASH, "-c", _shell_payload(SHELL_COMMAND)],
             ),
             (
                 terminal_env("konsole"),
@@ -213,7 +231,7 @@ class TestSpawnTerminal:
                     "--title",
                     "login:c1",
                     "-e",
-                    "bash",
+                    _HOST_BASH,
                     "-c",
                     _shell_payload(SHELL_COMMAND),
                 ],
@@ -222,7 +240,7 @@ class TestSpawnTerminal:
                 terminal_env("ptyxis"),
                 False,
                 None,
-                ["ptyxis", "--tab", "--", "bash", "-c", _shell_payload(SHELL_COMMAND)],
+                ["ptyxis", "--tab", "--", _HOST_BASH, "-c", _shell_payload(SHELL_COMMAND)],
             ),
             (
                 terminal_env("ptyxis"),
@@ -234,7 +252,7 @@ class TestSpawnTerminal:
                     "--title",
                     "login:c1",
                     "--",
-                    "bash",
+                    _HOST_BASH,
                     "-c",
                     _shell_payload(SHELL_COMMAND),
                 ],
@@ -266,7 +284,11 @@ class TestSpawnTerminal:
         ):
             result = spawn_terminal_with_command(SHELL_COMMAND, title=title)
         assert result
-        mock_popen.assert_called_once_with(expected_argv, start_new_session=True)
+        mock_popen.assert_called_once_with(
+            expected_argv,
+            executable=str(_HOST_BIN / expected_argv[0]),
+            start_new_session=True,
+        )
 
     @pytest.mark.parametrize(
         ("env", "parent_match"),

@@ -11,6 +11,7 @@ from typing import Any
 from unittest import mock
 
 from terok.cli.commands.clearance import dispatch, register
+from tests.testfs import MOCK_BASE
 from tests.unit.tui.tui_test_helpers import (
     _import_with_stubs,
     import_app,
@@ -379,9 +380,13 @@ class TestClearanceCLI:
 
     def test_dispatch_execs_terok_clearance(self) -> None:
         """Dispatch execs the terok-clearance entry point."""
-        with mock.patch("os.execlp") as execlp:
+        binary = str(MOCK_BASE / "host-bin" / "terok-clearance")
+        with (
+            mock.patch("terok_util.require_host_tool", return_value=binary),
+            mock.patch("os.execlp") as execlp,
+        ):
             dispatch(argparse.Namespace(cmd="clearance"))
-            execlp.assert_called_once_with("terok-clearance", "terok-clearance")
+            execlp.assert_called_once_with(binary, "terok-clearance")
 
 
 # ---------------------------------------------------------------------------

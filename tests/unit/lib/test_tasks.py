@@ -54,7 +54,7 @@ from tests.test_utils import (
     project_env,
     write_project,
 )
-from tests.testfs import CONTAINER_SSH_DIR
+from tests.testfs import CONTAINER_SSH_DIR, MOCK_BASE
 from tests.testnet import GATE_PORT
 
 
@@ -1302,6 +1302,7 @@ class TestTaskLogs:
 
     def test_raw_mode_exec(self, mock_runtime) -> None:
         """task_logs in raw mode calls os.execvp."""
+        podman = str(MOCK_BASE / "host-bin" / "podman")
         mock_runtime.container.return_value.state = "exited"
         with project_env(
             "project:\n  id: proj_logs5\n",
@@ -1317,13 +1318,18 @@ class TestTaskLogs:
                     captured_args.append((file, args))
                     raise SystemExit(0)
 
-                with unittest.mock.patch(
-                    "terok.lib.domain.task_logs.os.execvp", side_effect=fake_execvp
+                with (
+                    unittest.mock.patch(
+                        "terok.lib.domain.task_logs.require_host_tool", return_value=podman
+                    ),
+                    unittest.mock.patch(
+                        "terok.lib.domain.task_logs.os.execvp", side_effect=fake_execvp
+                    ),
                 ):
                     with pytest.raises(SystemExit):
                         task_logs("proj_logs5", task_id, LogViewOptions(raw=True))
                     assert len(captured_args) == 1
-                    assert captured_args[0][0] == "podman"
+                    assert captured_args[0][0] == podman
                     assert "logs" in captured_args[0][1]
 
     def test_raw_mode_podman_not_found(self, mock_runtime) -> None:

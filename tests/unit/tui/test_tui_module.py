@@ -9,8 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tests.testfs import MOCK_BASE
 from tests.testmodule_utils import assert_module_callable
 from tests.unit.tui.tui_test_helpers import import_app
+
+_HOST_TMUX = str(MOCK_BASE / "host-bin" / "tmux")
+_HOST_TUI = str(MOCK_BASE / "host-bin" / "terok-tui")
 
 
 def test_tui_main_is_callable() -> None:
@@ -73,7 +77,8 @@ def test_launch_in_tmux_creates_or_forks(
 
     monkeypatch.delenv("TMUX", raising=False)
     # The launcher imports its lookup helper locally.
-    monkeypatch.setattr(terok_util, "find_host_tool", lambda _cmd: "/usr/bin/tmux")
+    monkeypatch.setattr(terok_util, "find_host_tool", lambda _cmd: _HOST_TMUX)
+    monkeypatch.setattr(terok_util, "require_host_tool", lambda _cmd: _HOST_TUI)
     monkeypatch.setattr(tmux_session, "session_exists", lambda: False)
     monkeypatch.setattr(tmux_session, "session_marker_args", lambda: marker_args)
 
@@ -85,7 +90,7 @@ def test_launch_in_tmux_creates_or_forks(
     # argv is ["tmux", "-f", <conf>, *session_args, *marker_args, "terok-tui"];
     # the conf path is materialised at runtime so we assert around it.
     assert captured[:2] == ["tmux", "-f"]
-    assert captured[3:] == [*expected_session_args, *marker_args, "terok-tui"]
+    assert captured[3:] == [*expected_session_args, *marker_args, _HOST_TUI]
 
 
 @pytest.mark.parametrize(
@@ -106,7 +111,7 @@ def test_launch_in_tmux_creates_or_forks(
                 "=terok:^",
                 "-n",
                 "terok",
-                "terok-tui",
+                _HOST_TUI,
                 ";",
                 "attach-session",
                 "-t",
@@ -127,7 +132,8 @@ def test_launch_in_tmux_resumes_existing_session(
     from terok.tui import app, tmux_session
 
     monkeypatch.delenv("TMUX", raising=False)
-    monkeypatch.setattr(terok_util, "find_host_tool", lambda _cmd: "/usr/bin/tmux")
+    monkeypatch.setattr(terok_util, "find_host_tool", lambda _cmd: _HOST_TMUX)
+    monkeypatch.setattr(terok_util, "require_host_tool", lambda _cmd: _HOST_TUI)
     monkeypatch.setattr(tmux_session, "session_exists", lambda: True)
     monkeypatch.setattr(tmux_session, "find_main_window", lambda: main_window)
     # Modern-tmux placement args; the version split itself is pinned in

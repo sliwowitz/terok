@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from terok_util import ConfigStack
+from terok_util import ConfigStack, require_host_tool
 from terok_util.config_stack import ConfigScope
 
 from terok.lib.integrations.sandbox import gate_use_personal_ssh_default
@@ -95,7 +95,11 @@ def _get_global_git_config(key: str) -> str | None:
     """
     try:
         result = subprocess.run(
-            ["git", "config", "--global", "--get", key], capture_output=True, text=True, check=False
+            ["git", "config", "--global", "--get", key],
+            executable=require_host_tool("git"),
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout.strip() or None

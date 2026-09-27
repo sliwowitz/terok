@@ -15,6 +15,8 @@ import os
 import sys
 from typing import Any
 
+from terok_util import require_host_tool
+
 from ..lib.core.version import format_version_string, get_version_info
 from .tree import CommandDef, CommandTree, inject_cfg_factory, inject_pt_resolver
 
@@ -202,7 +204,7 @@ def main(prog: str = "terok") -> None:
         import os
 
         try:
-            os.execlp("terok-tui", "terok-tui")
+            os.execlp(require_host_tool("terok-tui"), "terok-tui")
             return  # type: ignore[unreachable]  # in tests os.execlp is mocked
         except FileNotFoundError:
             pass
@@ -215,7 +217,7 @@ def main(prog: str = "terok") -> None:
         import os
 
         try:
-            os.execlp("terok-tui", "terok-tui", *sys.argv[1:])  # nosec B606 B607 — PATH lookup of our own entry point is the install contract; argv is fixed + user's own flags
+            os.execlp(require_host_tool("terok-tui"), "terok-tui", *sys.argv[1:])  # nosec B606 B607 — executable resolved from host PATH; argv is fixed + user's own flags
             return  # type: ignore[unreachable]  # in tests os.execlp is mocked
         except FileNotFoundError:
             pass
@@ -311,7 +313,7 @@ def main(prog: str = "terok") -> None:
     if prog == "terok" and len(sys.argv) >= 2 and sys.argv[1] == "tui":
         import os
 
-        os.execlp("terok-tui", "terok-tui", *sys.argv[2:])
+        os.execlp(require_host_tool("terok-tui"), "terok-tui", *sys.argv[2:])
         return  # type: ignore[unreachable]  # in tests os.execlp is mocked
 
     args = parser.parse_args()
@@ -327,7 +329,9 @@ def main(prog: str = "terok") -> None:
     if getattr(args, "cmd", None) == "tui":
         import os
 
-        os.execlp("terok-tui", "terok-tui", *sys.argv[sys.argv.index("tui") + 1 :])
+        os.execlp(
+            require_host_tool("terok-tui"), "terok-tui", *sys.argv[sys.argv.index("tui") + 1 :]
+        )
         return  # type: ignore[unreachable]  # in tests os.execlp is mocked
 
     from terok.lib.api.shield import ShieldSetupError

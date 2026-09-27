@@ -18,6 +18,9 @@ from types import SimpleNamespace
 import pytest
 
 from terok.tui import tmux_session
+from tests.testfs import MOCK_BASE
+
+_HOST_TMUX = str(MOCK_BASE / "host-bin" / "tmux")
 
 
 class FakeTmux:
@@ -44,6 +47,7 @@ class FakeTmux:
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> FakeTmux:
         """Patch ``subprocess.run`` inside tmux_session with this fake."""
+        monkeypatch.setattr(tmux_session, "require_host_tool", lambda _name: _HOST_TMUX)
         monkeypatch.setattr(tmux_session.subprocess, "run", self)
         return self
 
@@ -303,6 +307,7 @@ class TestTmuxRunner:
 
     def test_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A hung server ⇒ None instead of a TUI stall."""
+        FakeTmux().install(monkeypatch)
 
         def run(*_args: object, **_kwargs: object) -> SimpleNamespace:
             raise subprocess.TimeoutExpired(cmd="tmux", timeout=5)

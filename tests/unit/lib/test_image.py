@@ -12,9 +12,11 @@ from terok_executor import ImageSet
 from terok.lib.core.config import build_dir
 from terok.lib.orchestration.image import build_images, generate_dockerfiles
 from tests.test_utils import mock_git_config, project_env
+from tests.testfs import MOCK_BASE
 
 UPSTREAM_URL = "https://example.com/repo.git"
 DEFAULT_BRANCH = "main"
+_HOST_PODMAN = str(MOCK_BASE / "host-bin" / "podman")
 
 
 @contextmanager
@@ -62,7 +64,7 @@ def build_commands(
     commands: list[list[str]] = []
 
     def mock_run(cmd: list[str], **_kwargs: object) -> Mock:
-        if "podman" in cmd and "build" in cmd:
+        if cmd[0] == _HOST_PODMAN and "build" in cmd:
             commands.append(cmd)
         return Mock(returncode=0)
 
@@ -73,6 +75,7 @@ def build_commands(
     )
     with (
         patch("subprocess.run", side_effect=mock_run),
+        patch("terok_executor.container.build.require_host_tool", return_value=_HOST_PODMAN),
         patch(
             "terok_executor.container.build.build_base_images",
             return_value=_mock_base_images(),
@@ -227,7 +230,7 @@ def test_build_images_builds_l2() -> None:
 
     # L0+L1 are delegated to terok-executor (mocked); only L2 commands appear
     assert len(commands) == 1
-    assert commands[0][0] == "podman"
+    assert commands[0][0] == _HOST_PODMAN
     l2_dockerfile = next(p for p in commands[0] if p.endswith("L2.Dockerfile"))
     assert "L2.Dockerfile" in l2_dockerfile
 
@@ -430,6 +433,9 @@ class TestPackageFamily:
         with image_project_with("proj_rocky", base_image="rockylinux:9", family="rpm"):
             with (
                 patch("subprocess.run", return_value=Mock(returncode=0)),
+                patch(
+                    "terok_executor.container.build.require_host_tool", return_value=_HOST_PODMAN
+                ),
                 patch("terok.lib.orchestration.image._image_exists", return_value=True),
                 patch(
                     "terok_executor.container.build.build_base_images",
@@ -447,6 +453,9 @@ class TestPackageFamily:
         with image_project_with("proj_ubuntu", base_image="ubuntu:24.04"):
             with (
                 patch("subprocess.run", return_value=Mock(returncode=0)),
+                patch(
+                    "terok_executor.container.build.require_host_tool", return_value=_HOST_PODMAN
+                ),
                 patch("terok.lib.orchestration.image._image_exists", return_value=True),
                 patch(
                     "terok_executor.container.build.build_base_images",

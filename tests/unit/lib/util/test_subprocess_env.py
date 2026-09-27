@@ -22,12 +22,14 @@ subprocess patterns and assert the expected outcomes.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from terok.lib.core.version import installed_dist_version
 from terok.lib.util.subprocess_env import child_process_env
 
 _STUB_MODULE_NAME = "_terok_nix_regression_stub"
@@ -102,3 +104,33 @@ def test_child_process_env_fixes_wrapped_python_import(
         f"unexpected child stdout: {stdout!r} — the stub module rendered "
         "differently than expected; check the fixture."
     )
+
+
+def test_child_environment_excludes_cwd_and_relative_import_sources(tmp_path, monkeypatch):
+    """Forward wrapper-installed packages without reintroducing unsafe import roots."""
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    alias = tmp_path / "cwd-alias"
+    alias.symlink_to(cwd, target_is_directory=True)
+    wrapped = tmp_path / "wrapped-site"
+    wrapped.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr(sys, "path", ["", ".", "relative", str(cwd), str(alias), str(wrapped)])
+    monkeypatch.setenv("PATH", "operator-path")
+
+    env = child_process_env({"PYTHONPATH": "ignored"})
+
+    assert env["PYTHONPATH"].split(os.pathsep) == [str(wrapped)]
+    assert env["PATH"] == "operator-path"
+
+
+def test_installed_version_probe_preserves_wrapper_only_distribution(tmp_path, monkeypatch):
+    """Live-upgrade probing finds dist-info installed only on the parent's sys.path."""
+    wrapped = tmp_path / "wrapped-site"
+    metadata = wrapped / "terok-123.dist-info" / "METADATA"
+    metadata.parent.mkdir(parents=True)
+    metadata.write_text("Metadata-Version: 2.1\nName: terok\nVersion: 123\n")
+    monkeypatch.syspath_prepend(str(wrapped))
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+
+    assert installed_dist_version() == "123"

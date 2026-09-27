@@ -16,6 +16,8 @@ import os
 import shlex
 import subprocess
 
+from terok_util import require_host_tool
+
 from .tmux_session import TMUX_TIMEOUT_S, find_login_window, select_window, stamp_login_window
 
 
@@ -77,6 +79,7 @@ def _parent_process_has_name(*names: str) -> bool:
         pid = os.getppid()
         result = subprocess.run(
             ["ps", "-o", "comm=", "-p", str(pid)],
+            executable=require_host_tool("ps"),
             capture_output=True,
             text=True,
             timeout=1,
@@ -88,6 +91,7 @@ def _parent_process_has_name(*names: str) -> bool:
         for _ in range(3):
             result = subprocess.run(
                 ["ps", "-o", "ppid=", "-p", str(pid)],
+                executable=require_host_tool("ps"),
                 capture_output=True,
                 text=True,
                 timeout=1,
@@ -105,6 +109,7 @@ def _parent_process_has_name(*names: str) -> bool:
                 return False
             result = subprocess.run(
                 ["ps", "-o", "comm=", "-p", str(pid)],
+                executable=require_host_tool("ps"),
                 capture_output=True,
                 text=True,
                 timeout=1,
@@ -138,7 +143,12 @@ def tmux_new_window(command: list[str], title: str | None = None, stamp: str | N
     tmux_cmd.append(shell_cmd)
     try:
         result = subprocess.run(  # nosec B603 — fixed tmux verbs; command is shell-quoted above
-            tmux_cmd, check=True, capture_output=True, text=True, timeout=TMUX_TIMEOUT_S
+            tmux_cmd,
+            executable=require_host_tool("tmux"),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=TMUX_TIMEOUT_S,
         )
     except (subprocess.SubprocessError, FileNotFoundError):
         return False
@@ -163,9 +173,10 @@ def spawn_terminal_with_command(command: list[str], title: str | None = None) ->
             args = ["--tab"]
             if title:
                 args.extend(["--title", title])
-            args.extend(["--", "bash", "-c", shell_cmd])
+            args.extend(["--", require_host_tool("bash"), "-c", shell_cmd])
             subprocess.Popen(
                 ["gnome-terminal"] + args,
+                executable=require_host_tool("gnome-terminal"),
                 start_new_session=True,
             )
             return True
@@ -173,9 +184,10 @@ def spawn_terminal_with_command(command: list[str], title: str | None = None) ->
             args = ["--new-tab"]
             if title:
                 args.extend(["--title", title])
-            args.extend(["-e", "bash", "-c", shell_cmd])
+            args.extend(["-e", require_host_tool("bash"), "-c", shell_cmd])
             subprocess.Popen(
                 ["konsole"] + args,
+                executable=require_host_tool("konsole"),
                 start_new_session=True,
             )
             return True
@@ -183,9 +195,10 @@ def spawn_terminal_with_command(command: list[str], title: str | None = None) ->
             args = ["--tab"]
             if title:
                 args.extend(["--title", title])
-            args.extend(["--", "bash", "-c", shell_cmd])
+            args.extend(["--", require_host_tool("bash"), "-c", shell_cmd])
             subprocess.Popen(
                 ["ptyxis"] + args,
+                executable=require_host_tool("ptyxis"),
                 start_new_session=True,
             )
             return True

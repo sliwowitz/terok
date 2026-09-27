@@ -14,6 +14,10 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from terok_util import require_host_tool
+
+from ..util.subprocess_env import child_process_env
+
 _INSTALLED_VERSION_PROBE = "from importlib.metadata import version; print(version('terok'))"
 
 
@@ -29,7 +33,8 @@ def installed_dist_version(timeout: float = 5.0) -> str | None:
     """
     try:
         result = subprocess.run(  # nosec B603 — our own interpreter running a fixed probe
-            [sys.executable, "-c", _INSTALLED_VERSION_PROBE],
+            [sys.executable, "-P", "-c", _INSTALLED_VERSION_PROBE],
+            env=child_process_env(),
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -119,6 +124,7 @@ def get_version_info() -> tuple[str, str | None]:
             # Verify we're inside a git repository
             result = subprocess.run(
                 ["git", "rev-parse", "--is-inside-work-tree"],
+                executable=require_host_tool("git"),
                 capture_output=True,
                 text=True,
                 timeout=1,
@@ -128,6 +134,7 @@ def get_version_info() -> tuple[str, str | None]:
                 # Get current branch name
                 branch_result = subprocess.run(
                     ["git", "branch", "--show-current"],
+                    executable=require_host_tool("git"),
                     capture_output=True,
                     text=True,
                     timeout=1,
@@ -140,6 +147,7 @@ def get_version_info() -> tuple[str, str | None]:
                         # If so, suppress branch name - releases show version only
                         tag_result = subprocess.run(
                             ["git", "describe", "--exact-match", "--tags", "HEAD"],
+                            executable=require_host_tool("git"),
                             capture_output=True,
                             text=True,
                             timeout=1,

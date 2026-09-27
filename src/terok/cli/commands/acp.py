@@ -226,7 +226,7 @@ def _spawn_daemon(
     log_fd = open(log_path, "ab", buffering=0)  # noqa: SIM115 — handed to Popen
     try:
         proc = subprocess.Popen(  # nosec B603 — argv = [interpreter, -m, module, container, sock]
-            [sys.executable, "-m", "terok_executor.acp.daemon", cname, str(sock_path)],
+            [sys.executable, "-P", "-m", "terok_executor.acp.daemon", cname, str(sock_path)],
             env=child_process_env(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

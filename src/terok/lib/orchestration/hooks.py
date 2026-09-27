@@ -17,6 +17,8 @@ import subprocess  # nosec B404 — hooks execute user-configured commands by de
 from pathlib import Path
 from typing import Any
 
+from terok_util import require_host_tool
+
 logger = logging.getLogger(__name__)
 
 _STARTUP_HOOK_TIMEOUT = 120  # seconds for pre_start / post_start / post_ready
@@ -168,6 +170,7 @@ def run_hook(
     try:
         result = subprocess.run(  # nosec B603 B607
             ["sh", "-c", command],
+            executable=require_host_tool("sh"),
             env=env,
             timeout=timeout,
             check=False,

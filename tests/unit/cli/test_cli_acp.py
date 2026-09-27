@@ -15,6 +15,10 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -30,6 +34,30 @@ from tests.testfs import MOCK_BASE
 
 _TEST_LOG = MOCK_BASE / "terok-testing" / "test.log"
 _PROBE_LOG = MOCK_BASE / "terok-testing" / "probe.log"
+
+
+def test_daemon_spawn_excludes_cwd_imports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """ACP daemon re-exec keeps package paths without adding the caller's cwd."""
+    monkeypatch.setattr(
+        "terok.lib.orchestration.tasks.get_task_meta", lambda *_: SimpleNamespace(mode="cli")
+    )
+    monkeypatch.setattr("terok.lib.orchestration.tasks.container_name", lambda *_: "test-container")
+    popen = Mock()
+    monkeypatch.setattr(acp_mod.subprocess, "Popen", popen)
+    socket_path = tmp_path / "daemon.sock"
+    assert (
+        acp_mod._spawn_daemon("project", "task", socket_path, tmp_path / "daemon.log")
+        is popen.return_value
+    )
+    assert popen.call_args.args[0] == [
+        sys.executable,
+        "-P",
+        "-m",
+        "terok_executor.acp.daemon",
+        "test-container",
+        str(socket_path),
+    ]
+    assert popen.call_args.kwargs["env"] == acp_mod.child_process_env()
 
 
 @pytest.fixture

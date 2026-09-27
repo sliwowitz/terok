@@ -73,7 +73,7 @@ def worker_argv(ref: str, args: Sequence[object]) -> list[str]:
     (a pipe is block-buffered by default, which would stall the live
     log).
     """
-    return [sys.executable, "-u", "-m", _WORKER_ENTRY_MODULE, ref, json.dumps(list(args))]
+    return [sys.executable, "-P", "-u", "-m", _WORKER_ENTRY_MODULE, ref, json.dumps(list(args))]
 
 
 @dataclass(eq=False)

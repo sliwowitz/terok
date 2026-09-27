@@ -9,6 +9,7 @@ import asyncio
 import getpass
 import inspect
 import os
+import shlex
 import socket
 import sys
 from collections.abc import Iterator
@@ -2667,9 +2668,9 @@ if _HAS_TEXTUAL:
             _run_tui(restart_flags)
             return
 
-        from terok_util import find_host_tool
+        from terok_util import find_host_tool, require_host_tool
 
-        if not find_host_tool("tmux"):
+        if not (tmux := find_host_tool("tmux")):
             print(
                 "Error: tmux is not installed.\n"
                 "Install it (e.g. 'apt install tmux' or 'brew install tmux') "
@@ -2690,9 +2691,15 @@ if _HAS_TEXTUAL:
                 land_args = ["select-window", "-t", main_window]
             else:
                 revive = tmux_session.revive_window_args()
-                land_args = ["new-window", *revive, "-n", "terok", "terok-tui"]
+                land_args = [
+                    "new-window",
+                    *revive,
+                    "-n",
+                    "terok",
+                    shlex.quote(require_host_tool("terok-tui")),
+                ]
             os.execvp(  # nosec B606 B607 — tmux from PATH, argv of fixed verbs
-                "tmux", ["tmux", *land_args, ";", "attach-session", "-t", session]
+                tmux, ["tmux", *land_args, ";", "attach-session", "-t", session]
             )
 
         from importlib import resources as _res
@@ -2714,8 +2721,15 @@ if _HAS_TEXTUAL:
         marker_args = tmux_session.session_marker_args()
         with _res.as_file(tmux_conf) as conf_path:
             os.execvp(
-                "tmux",
-                ["tmux", "-f", str(conf_path), *session_args, *marker_args, "terok-tui"],
+                tmux,
+                [
+                    "tmux",
+                    "-f",
+                    str(conf_path),
+                    *session_args,
+                    *marker_args,
+                    shlex.quote(require_host_tool("terok-tui")),
+                ],
             )
 
     import argparse

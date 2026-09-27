@@ -26,6 +26,8 @@ import sys
 from contextlib import suppress
 from typing import TYPE_CHECKING
 
+from terok_util import require_host_tool
+
 from terok.lib.integrations.sandbox import ShieldManager
 
 from ...core import runtime as _rt
@@ -63,6 +65,7 @@ def resolve_container_uuid(cname: str) -> str:
     try:
         out = subprocess.check_output(  # noqa: S603 — argv is fixed verbs + caller-vetted name  # nosec B603 B607
             ["podman", "container", "inspect", "-f", "{{.Id}}", "--", cname],
+            executable=require_host_tool("podman"),
             stderr=subprocess.DEVNULL,
             text=True,
             timeout=5.0,

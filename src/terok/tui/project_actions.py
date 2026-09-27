@@ -21,6 +21,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from terok_util import require_host_tool
 from textual import work
 
 from ..lib.api import (
@@ -573,6 +574,7 @@ class ProjectActionsMixin(_MixinBase):
                 "container",
                 "exists",
                 session.container_name,
+                executable=require_host_tool("podman"),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -592,6 +594,7 @@ class ProjectActionsMixin(_MixinBase):
             "podman",
             "wait",
             session.container_name,
+            executable=require_host_tool("podman"),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )

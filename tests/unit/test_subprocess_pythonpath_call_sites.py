@@ -21,6 +21,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "terok"
 _SPAWN_CALLABLES = {
     ("subprocess", "run"),
@@ -32,7 +34,7 @@ _SPAWN_CALLABLES = {
 
 
 def _is_module_run(call: ast.Call) -> bool:
-    """Return True when *call*'s argv looks like ``[sys.executable, "-m", "<mod>", ...]``.
+    """Recognise ``sys.executable [flags] -m module`` before positional script arguments.
 
     Only ``python -m module`` invocations need the ``PYTHONPATH`` shim —
     they import the module and so depend on ``sys.path``.  Script-path
@@ -45,15 +47,40 @@ def _is_module_run(call: ast.Call) -> bool:
     argv = call.args[0]
     if not isinstance(argv, ast.List) or len(argv.elts) < 3:
         return False
-    first, second = argv.elts[0], argv.elts[1]
+    first = argv.elts[0]
     is_sys_executable = (
         isinstance(first, ast.Attribute)
         and isinstance(first.value, ast.Name)
         and first.value.id == "sys"
         and first.attr == "executable"
     )
-    is_dash_m = isinstance(second, ast.Constant) and second.value == "-m"
-    return is_sys_executable and is_dash_m
+    if not is_sys_executable:
+        return False
+    for arg in argv.elts[1:]:
+        if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
+            return False
+        if arg.value == "-m":
+            return True
+        if not arg.value.startswith("-") or arg.value in ("-c", "--"):
+            return False
+    return False
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected"),
+    [
+        ('sys.executable, "-m", "terok"', True),
+        ('sys.executable, "-P", "-u", "-m", "terok"', True),
+        ('sys.executable, "script.py", "-m", "terok"', False),
+        ('sys.executable, "-c", "print(1)", "-m", "terok"', False),
+        ('"python3", "-m", "terok"', False),
+    ],
+)
+def test_module_run_detection_handles_python_flags(arguments: str, expected: bool) -> None:
+    """Adding -P or -u cannot disable the wrapped-Python spawn guard."""
+    call = ast.parse(f"subprocess.run([{arguments}])", mode="eval").body
+    assert isinstance(call, ast.Call)
+    assert _is_module_run(call) is expected
 
 
 def _is_spawn_call(call: ast.Call) -> bool:

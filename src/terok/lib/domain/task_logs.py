@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from terok_util import require_host_tool
+
 from terok.lib.integrations.executor import AgentRunner
 
 from ..core import runtime as _rt
@@ -125,7 +127,7 @@ def task_logs(
         # this process — no executor-layer wrapping is appropriate.
         cmd = _build_raw_logs_cmd(cname, follow=options.follow, tail=options.tail)
         try:
-            os.execvp(cmd[0], cmd)
+            os.execvp(require_host_tool(cmd[0]), cmd)
         except FileNotFoundError:
             raise SystemExit("podman not found; please install podman")
 
