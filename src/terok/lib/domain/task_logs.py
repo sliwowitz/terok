@@ -127,7 +127,7 @@ def task_logs(
         # this process — no executor-layer wrapping is appropriate.
         cmd = _build_raw_logs_cmd(cname, follow=options.follow, tail=options.tail)
         try:
-            os.execvp(require_host_tool(cmd[0]), cmd)
+            os.execvp(require_host_tool(cmd[0]), cmd)  # nosec B606 — resolved Podman, argv built for the requested log view
         except FileNotFoundError:
             raise SystemExit("podman not found; please install podman")
 

@@ -204,7 +204,7 @@ def main(prog: str = "terok") -> None:
         import os
 
         try:
-            os.execlp(require_host_tool("terok-tui"), "terok-tui")
+            os.execlp(require_host_tool("terok-tui"), "terok-tui")  # nosec B606 — resolved host tool, fixed argv
             return  # type: ignore[unreachable]  # in tests os.execlp is mocked
         except FileNotFoundError:
             pass
@@ -313,7 +313,7 @@ def main(prog: str = "terok") -> None:
     if prog == "terok" and len(sys.argv) >= 2 and sys.argv[1] == "tui":
         import os
 
-        os.execlp(require_host_tool("terok-tui"), "terok-tui", *sys.argv[2:])
+        os.execlp(require_host_tool("terok-tui"), "terok-tui", *sys.argv[2:])  # nosec B606 — resolved host tool, user's own flags
         return  # type: ignore[unreachable]  # in tests os.execlp is mocked
 
     args = parser.parse_args()
@@ -329,7 +329,7 @@ def main(prog: str = "terok") -> None:
     if getattr(args, "cmd", None) == "tui":
         import os
 
-        os.execlp(
+        os.execlp(  # nosec B606 — resolved host tool, user's own flags
             require_host_tool("terok-tui"), "terok-tui", *sys.argv[sys.argv.index("tui") + 1 :]
         )
         return  # type: ignore[unreachable]  # in tests os.execlp is mocked

@@ -30,5 +30,5 @@ def dispatch(args: argparse.Namespace) -> bool:
 
     from terok_util import require_host_tool
 
-    os.execlp(require_host_tool("terok-clearance"), "terok-clearance")
+    os.execlp(require_host_tool("terok-clearance"), "terok-clearance")  # nosec B606 — resolved host tool, fixed argv
     return True  # type: ignore[unreachable]  # in tests os.execlp is mocked

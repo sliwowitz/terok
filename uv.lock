@@ -2494,8 +2494,8 @@ dependencies = [
 
 [[package]]
 name = "terok-executor"
-version = "0.5.0a2.dev500+g4997bd13a"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=fix%2Fhost-tool-completeness#4997bd13a755f7fe886f73883fa3ebd8ef10fdac" }
+version = "0.5.0a2.dev501+ged5f9dba8"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=fix%2Fhost-tool-completeness#ed5f9dba8ef2540b5e7bc88e54af91ce58718cd2" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2510,8 +2510,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.6.0a2.dev501+g1d5979498"
-source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=fix%2Fhost-tool-completeness#1d5979498cafe4bf7416d521a6a681b6bd4be602" }
+version = "0.6.0a2.dev502+g6d97c273e"
+source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=fix%2Fhost-tool-completeness#6d97c273e1c575ee7db28f983977ffd06cde1f13" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
