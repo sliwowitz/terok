@@ -11,6 +11,7 @@ Shield class with an injected ``MockRunner`` (no subprocess calls).
 Uses the per-task Shield class API (state_dir from ShieldConfig).
 """
 
+from pathlib import Path
 from unittest.mock import patch
 
 #: Stand-in for ``terok_util.podman_userns_args()``: since terok-util
@@ -197,6 +198,14 @@ class TestSandboxRunShieldIntegration:
     Now that _run_container() delegates to Sandbox.run(), these tests
     exercise the sandbox executor directly with real shield pre_start.
     """
+
+    @pytest.fixture(autouse=True)
+    def _isolated_podman_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Command capture must not depend on installed host tools."""
+        podman = tmp_path / "podman"
+        podman.touch()
+        podman.chmod(0o755)
+        monkeypatch.setenv("PATH", str(tmp_path))
 
     def test_sandbox_run_includes_shield_args(self, shield_env: TerokShieldIntegrationEnv) -> None:
         """Sandbox.run() injects real shield args into the podman command."""
