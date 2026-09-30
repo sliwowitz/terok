@@ -457,7 +457,7 @@ def terok_env(
     if "needs_vault" not in {m.name for m in request.node.iter_markers()}:
         config_lines.extend(["vault:", "  bypass_no_secret_protection: true"])
     # The plaintext config tier is gone; the blessed headless file recipe
-    # is a passphrase_command reading a mode-600 secret file.  Keyring is
+    # is a passphrase_command reading a mode-600 secret file. Desktop keyring is
     # forced off so a CI host's real Secret Service can never shadow the
     # fixture tier.
     secret_file = config_dir / "vault-passphrase"
@@ -467,7 +467,7 @@ def terok_env(
         [
             "credentials:",
             f"  passphrase_command: cat {secret_file}",
-            "  use_keyring: false",
+            "  use_desktop_keyring: false",
         ]
     )
     config_file.write_text("\n".join(config_lines) + "\n", encoding="utf-8")

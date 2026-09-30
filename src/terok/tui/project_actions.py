@@ -1151,7 +1151,7 @@ class ProjectActionsMixin(_MixinBase):
     # install / uninstall / start / stop.
 
     async def _action_vault_unlock(self) -> None:
-        """Prompt for the SQLCipher passphrase and cache it in the kernel-keyring tier.
+        """Prompt for the SQLCipher passphrase and store it in the session cache.
 
         Re-uses the same modal as the on-mount probe, then funnels the
         result through ``_on_vault_unlock_result`` so the write +
@@ -1232,17 +1232,17 @@ class ProjectActionsMixin(_MixinBase):
             refresh="vault_status",
         )
 
-    async def _action_vault_to_keyring(self) -> None:
+    async def _action_vault_to_desktop_keyring(self) -> None:
         """Move the currently resolved passphrase into the desktop keyring.
 
-        Defers to sandbox's ``handle_vault_to_keyring``: validates and
+        Defers to sandbox's ``handle_vault_to_desktop_keyring``: validates and
         stores the passphrase, verifies desktop-keyring readback, then
         enables that tier and removes the prior copies and helper wiring.
         The next container's supervisor resolves the desktop keyring afresh.
-        The shell-side equivalent of ``terok vault passphrase to-keyring``.
+        The shell-side equivalent of ``terok vault passphrase to-desktop-keyring``.
         """
         self._run_console_action(
-            "terok.tui.worker_actions:vault_to_keyring",
+            "terok.tui.worker_actions:vault_to_desktop_keyring",
             title="Moving vault passphrase to desktop keyring",
             refresh="vault_status",
         )

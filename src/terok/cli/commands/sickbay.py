@@ -753,7 +753,7 @@ def _check_kernel_keyring_quota() -> _CheckResult:
     """Warn when the per-uid kernel keyring is nearly full.
 
     A host-level gauge (the quota is per-uid, not per-task): the OCI
-    runtime leaks a session keyring per container, so a busy host drifts
+    runtime leaks a kernel session keyring per container, so a busy host drifts
     toward the key quota and then fails to launch with a misleading
     "Disk quota exceeded".  Sandbox owns the reading and the threshold;
     this row renders its verdict, quiet until near the edge.

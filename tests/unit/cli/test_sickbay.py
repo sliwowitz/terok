@@ -30,7 +30,7 @@ MOCK_BASE = Path("/tmp/terok-testing")
 
 
 class TestCheckKernelKeyringQuota:
-    """The sickbay row renders sandbox's keyring-quota verdict verbatim."""
+    """The sickbay row renders sandbox's kernel-keyring quota verdict verbatim."""
 
     def _patch(self, monkeypatch: pytest.MonkeyPatch, severity: str, detail: str) -> None:
         from types import SimpleNamespace
@@ -313,7 +313,7 @@ class TestCheckVault:
 
         defaults = {
             "state": VaultState.UNLOCKED,
-            "source": "keyring",
+            "source": "desktop-keyring",
             "providers": (),
             "warnings": (),
             "db_error": None,
@@ -329,7 +329,7 @@ class TestCheckVault:
             sev, _, detail = _check_vault()
         assert sev == "ok"
         assert "1 credential(s)" in detail
-        assert "keyring" in detail
+        assert "desktop keyring" in detail
 
     def test_unprovisioned_is_warn(self) -> None:
         """Fresh install → warn pointing at ``terok setup``, not an unlock prompt."""
@@ -369,7 +369,7 @@ class TestCheckVault:
 
         snap = self._snapshot(
             state=VaultState.LOCKED,
-            source="keyring",
+            source="desktop-keyring",
             lock_reason="the passphrase via desktop keyring does not open the DB",
         )
         with unittest.mock.patch("terok.cli.commands.sickbay.load_vault_status", return_value=snap):
@@ -1003,7 +1003,7 @@ class TestCheckRecoveryAcknowledged:
     ``sandbox_doctor_checks`` and rendered per-task; terok's host-level
     sickbay now owns its own row instead so the warning appears
     exactly once.  Severity escalates from ``warn`` to ``error`` when
-    the resolver lands on the volatile kernel-keyring cache and the
+    the resolver lands on the volatile session cache and the
     marker is missing — cache loss away from losing the vault.
     """
 
@@ -1024,7 +1024,7 @@ class TestCheckRecoveryAcknowledged:
         """Acknowledged → ``ok`` with a brief detail."""
         with unittest.mock.patch(
             "terok.lib.api.shield.RecoveryStatus.load",
-            return_value=self._status(acknowledged=True, source="keyring"),
+            return_value=self._status(acknowledged=True, source="desktop-keyring"),
         ):
             sev, label, detail = _check_recovery_acknowledged()
         assert sev == "ok"
@@ -1035,7 +1035,7 @@ class TestCheckRecoveryAcknowledged:
         """Unacked + durable tier → ``warn`` naming both remediation verbs."""
         with unittest.mock.patch(
             "terok.lib.api.shield.RecoveryStatus.load",
-            return_value=self._status(acknowledged=False, source="keyring"),
+            return_value=self._status(acknowledged=False, source="desktop-keyring"),
         ):
             sev, label, detail = _check_recovery_acknowledged()
         assert sev == "warn"
@@ -1047,10 +1047,10 @@ class TestCheckRecoveryAcknowledged:
         assert "UNRECOVERABLE" not in detail
 
     def test_error_when_marker_missing_volatile_only(self) -> None:
-        """Unacked + kernel-keyring source → ``error`` with the cache-loss wording."""
+        """Unacked + session-cache source → ``error`` with the cache-loss wording."""
         with unittest.mock.patch(
             "terok.lib.api.shield.RecoveryStatus.load",
-            return_value=self._status(acknowledged=False, source="kernel-keyring"),
+            return_value=self._status(acknowledged=False, source="session-cache"),
         ):
             sev, label, detail = _check_recovery_acknowledged()
         assert sev == "error"

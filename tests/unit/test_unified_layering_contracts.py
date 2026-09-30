@@ -461,8 +461,8 @@ def test_terok_doctor_checks_emits_port_drift_in_tcp_mode() -> None:
     [
         (None, False, None),
         ("", False, None),
-        ("keyring", False, "passphrase via desktop keyring"),
-        ("kernel-keyring", False, "passphrase via session cache"),
+        ("desktop-keyring", False, "passphrase via desktop keyring"),
+        ("session-cache", False, "passphrase via session cache"),
         ("systemd-creds", False, "passphrase via systemd-creds"),
         ("systemd-creds", True, "passphrase via systemd-creds (+TPM2)"),
     ],
