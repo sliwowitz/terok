@@ -1,50 +1,19 @@
 # Changelog
 
-## [Unreleased] — 0.9.1
-
-- Compose package-owned setup checks and stop unsafe launches before changing task state.
-- Resolve host tools consistently from the launching environment, including NixOS.
-- Rerun `terok setup` after upgrading; recreate containers prepared by the older Shield bundle.
-- Serialize setup and uninstall across the package stack.
-
-## [0.9.0] — Past Prologue — 2026-09-11
-
-### Added
-
-- DNS tiers: terok shows a degraded tier at launch, in the task details and in `terok sickbay`. `shield.dnsmasq_path` selects the dnsmasq binary.
-- Vault: set the passphrase on a new install, change it, keep it in the kernel keyring, and re-encrypt a locked database.
-- Git gate: a safe-sync report before destructive operations, backups that you can restore, and a warning when the gate branch is ahead of an open MR or PR.
-- Tasks: GPUs by vendor, `run.perf`, `run.podman_args`, `services.mode` per project, and `terok task run --debug`.
-- `terok setup apparmor` and `terok setup selinux` show the command and the rules before they install.
-- Agents resume their session after a restart, Codex too. `--terok-new-session` starts a new session.
-
-### Changed
-
-- **Breaking:** custom LLM provider files go in `~/.config/terok/providers/`. terok still reads `~/.config/terok/agent/providers/`.
-- **Breaking:** a task from an earlier terok does not resume. Re-create it. `terok task restart` stops before it changes anything, and `terok sickbay` lists these tasks.
-- **Breaking:** shield settings have new names: `shield.disable_firewall_no_protection` (was `shield.bypass_firewall_no_protection`), `shield.down_on_task_run` (was `shield.drop_on_task_run`), and `terok shield down --disengage` (was `--all`). An old name stops terok at startup.
-- **Breaking:** an allowlist entry for a vault-protected provider endpoint no longer opens direct access. Use `shield.override`, which now also accepts a CIDR.
-- The egress allowlist comes from the agent roster. terok computes the policy again on every restart.
-- Where a systemd user manager runs, the supervisor of each task is a user unit. Its log is in `journalctl --user`.
-- terok logs to the systemd journal when one is present.
-
-### Fixed
-
-- Codex through the vault: compressed responses, WebSockets and Codex Apps MCP authentication.
-- DNS on hosts where AppArmor confines dnsmasq. The lookup tier accepts `drill` as well as `dig`.
-- git over HTTPS in Ubuntu 24.04 images.
-- The git gate after an upstream default-branch rename.
-- A TUI that froze on a locked keyring, a vault probe or a suspended program.
-- `terok task restart --recreate` on a container that did not stop.
-
-### Security
-
-- A real credential in a shared mount is an error at task start.
-- The project wizard keeps the gatekeeping posture.
-
-[0.9.0]: https://github.com/terok-ai/terok/compare/v0.8.5...v0.9.0
+<!-- Release sections are prepended by the release chain
+     (terok-warden/terok-toolbox, scripts/terok-release-chain.py) from the notes
+     curated for that release.  Write release prose in those notes, not here: a
+     hand-kept section above the ledger is never promoted, and pushes the next
+     generated section out of order. -->
 
 ## v0.9.1 — At Your Service
+
+## Upgrading
+
+- Run `terok setup` again after upgrading, and re-create containers prepared by an
+  older Shield bundle.
+- Setup and uninstall are serialized across the package stack, and package-owned
+  setup checks stop an unsafe launch before it changes task state.
 
 ## What's Changed
 * Expose SSH key defaults and public keys in CLI and TUI in https://github.com/terok-ai/terok/pull/1297
