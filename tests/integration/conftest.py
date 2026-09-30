@@ -173,7 +173,6 @@ def _reset_layered_config_caches() -> None:
     _config._validated_config_cache = None
     _config._raw_config_cache = None
     for name in (
-        "_credentials_section",
         "_gate_server_section",
         "_network_section",
         "_paths_section",

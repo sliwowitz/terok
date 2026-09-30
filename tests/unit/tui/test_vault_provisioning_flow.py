@@ -151,12 +151,12 @@ class TestEnsureCredentialsProvisioned:
             patch("terok.lib.api.vault.plan_provisioning", return_value=_plan()),
             patch(
                 "terok.lib.api.vault.provision_passphrase_tier",
-                side_effect=RuntimeError("OS keyring is unreachable"),
+                side_effect=RuntimeError("desktop keyring is unreachable"),
             ),
         ):
             assert await TerokTUI._ensure_credentials_provisioned(flow_stub) is False
         messages = [str(c.args[0]) for c in flow_stub.notify.call_args_list]
-        assert any("OS keyring is unreachable" in m for m in messages)
+        assert any("desktop keyring is unreachable" in m for m in messages)
 
 
 class TestSetupSubprocessGating:
@@ -269,7 +269,7 @@ class TestTierChooserModalRouting:
         from terok.tui.screens import VaultTierChooserModal
 
         modal = VaultTierChooserModal(
-            unavailable={"keyring": "no OS keyring backend is reachable on this host"}
+            unavailable={"keyring": "no desktop keyring backend is reachable on this host"}
         )
         modal.dismiss = MagicMock()
         modal.action_cancel()
@@ -408,7 +408,7 @@ class TestTierChooserModalPilot:
         from terok.tui.screens import VaultTierChooserModal
 
         modal = VaultTierChooserModal(
-            unavailable={"keyring": "no OS keyring backend is reachable on this host"}
+            unavailable={"keyring": "no desktop keyring backend is reachable on this host"}
         )
         app = _modal_host(modal)
         async with app.run_test() as pilot:

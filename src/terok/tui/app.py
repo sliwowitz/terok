@@ -70,7 +70,7 @@ if _HAS_TEXTUAL:
         setup_status,
     )
     from terok.lib.api.shield import DnsTier, RecoveryStatus, ShieldManager
-    from terok.lib.api.vault import PassphraseChangeResult, RunningTask, VaultStatus
+    from terok.lib.api.vault import PassphraseChangeResult, PassphraseTier, RunningTask, VaultStatus
 
     from ..lib.api import (
         BrokenProject,
@@ -1065,7 +1065,9 @@ if _HAS_TEXTUAL:
         def _notify_change_outcome(self, result: "PassphraseChangeResult") -> None:
             """Report the change result — loud when any tier still needs attention."""
             if result.problems:
-                details = "\n".join(f"{p.tier}: {p.detail}" for p in result.problems)
+                details = "\n".join(
+                    f"{PassphraseTier(p.tier).display_name}: {p.detail}" for p in result.problems
+                )
                 self.notify(
                     "The vault now uses the new passphrase, but some tiers could"
                     f" not be rewritten:\n{details}",
@@ -2550,7 +2552,12 @@ if _HAS_TEXTUAL:
             suffix = "".join(
                 f" — {warning.brief}" for warning in status.warnings if warning.severity != "info"
             )
-            bar.set_message(f"Vault: unlocked ({status.source}){suffix}")
+            source = (
+                PassphraseTier(status.source).display_name
+                if status.source is not None
+                else "unknown"
+            )
+            bar.set_message(f"Vault: unlocked ({source}){suffix}")
 
         async def _on_vault_unlock_result(self, passphrase: "str | None") -> None:
             """Validate the typed passphrase and land it on the session-unlock tier.
@@ -2591,17 +2598,18 @@ if _HAS_TEXTUAL:
                 self.notify(str(exc), severity="error", timeout=10)
                 return
             if not result.written:
-                # A durable tier (systemd-creds / keyring / config) already
+                # A durable tier (systemd-creds / desktop keyring / passphrase-command) already
                 # unlocks the vault, so caching in the kernel keyring would be
                 # pointless — exactly what this guard prevents.  Inform, don't write.
                 self.notify(
-                    f"Vault already auto-unlocks via {result.shadowed_durable} — no cached"
+                    f"Vault already auto-unlocks via "
+                    f"{PassphraseTier(result.shadowed_durable).display_name} — no cached"
                     " passphrase needed.",
                     severity="information",
                     timeout=8,
                 )
                 return
-            self.notify("Vault unlocked for this session.", severity="information", timeout=5)
+            self.notify("Vault unlocked with a temporary cache.", severity="information", timeout=5)
             await self._refresh_vault_status()
 
         async def action_show_clearance(self) -> None:
