@@ -411,7 +411,7 @@ class AuthActionsScreen(screen.ModalScreen[str | None]):
     The modal loads a current auth-provider snapshot and lists each entry.
     Use the arrow keys to move through the list. Press Enter to select an
     entry. After a background vault query completes, the modal marks entries
-    that have a stored credential. The query does keyring and SQLCipher I/O.
+    that have a stored credential. The query does desktop-keyring and SQLCipher I/O.
     Thus, the query must not run on the UI thread.
 
     Use *project_name* to select the credential scope for the badge query.
@@ -2668,9 +2668,9 @@ def render_vault_status(status: VaultStatus | None) -> Text:
         lines.append(
             Text(f"Passphrase:  resolved via {PassphraseTier(status.source).display_name}")
         )
-        if status.source == PassphraseTier.KERNEL_KEYRING:
+        if status.source == PassphraseTier.SESSION_CACHE:
             for row in status.chain:
-                if row.tier == PassphraseTier.KERNEL_KEYRING:
+                if row.tier == PassphraseTier.SESSION_CACHE:
                     lines.append(Text(f"Cache:       {row.detail}"))
                     break
 
@@ -2719,7 +2719,7 @@ class VaultTierChooserModal(screen.ModalScreen[str | None]):
     (with it, the strongest tier picks itself and there is nothing to
     ask).
 
-    Dismisses with ``"keyring"`` / ``"kernel-keyring"`` or ``None`` on
+    Dismisses with ``"desktop-keyring"`` / ``"session-cache"`` or ``None`` on
     cancel. The operator-managed ``passphrase-command`` helper is
     configured separately, not provisioned by this chooser.
     """
@@ -2773,11 +2773,14 @@ class VaultTierChooserModal(screen.ModalScreen[str | None]):
         """Lay out the explainer and the per-tier buttons."""
         dialog = Vertical(id="vault-tier-dialog")
         dialog.border_title = "Set up vault encryption"
-        keyring_off = "keyring" in self._unavailable
-        kernel_off = "kernel-keyring" in self._unavailable
+        desktop_keyring_off = "desktop-keyring" in self._unavailable
+        session_cache_off = "session-cache" in self._unavailable
         notes = "".join(
             f"\n\nThe {name} is unavailable: {self._unavailable[tier]}."
-            for tier, name in (("keyring", "desktop keyring"), ("kernel-keyring", "kernel keyring"))
+            for tier, name in (
+                ("desktop-keyring", "desktop keyring"),
+                ("session-cache", "session cache"),
+            )
             if tier in self._unavailable
         )
         with dialog:
@@ -2786,8 +2789,8 @@ class VaultTierChooserModal(screen.ModalScreen[str | None]):
                 " where to keep it:\n\n"
                 "  • Desktop keyring — persistent storage managed by your desktop"
                 " (recommended)\n"
-                "  • Kernel keyring — temporary cache, lost at reboot or earlier;"
-                " uses a tmpfs session file when the kernel keyring is unavailable."
+                "  • Session cache — temporary kernel-keyring storage, or a tmpfs"
+                " session file when unavailable; lost at reboot or earlier."
                 " Keep a saved copy of the passphrase.\n\n"
                 "systemd-creds (the strongest, machine-bound tier) needs"
                 " systemd ≥ 257 and isn't available on this host."
@@ -2797,18 +2800,18 @@ class VaultTierChooserModal(screen.ModalScreen[str | None]):
             with Horizontal(id="vault-tier-buttons"):
                 yield Button("Cancel", id="vault-tier-cancel", variant="default")
                 yield Button(
-                    "Kernel keyring (unavailable)" if kernel_off else "Kernel keyring",
-                    id="vault-tier-kernel",
+                    "Session cache (unavailable)" if session_cache_off else "Session cache",
+                    id="vault-tier-session-cache",
                     variant="default",
-                    disabled=kernel_off,
+                    disabled=session_cache_off,
                 )
                 yield Button(
                     "Desktop keyring (unavailable)"
-                    if keyring_off
+                    if desktop_keyring_off
                     else "Desktop keyring (recommended)",
-                    id="vault-tier-keyring",
+                    id="vault-tier-desktop-keyring",
                     variant="primary",
-                    disabled=keyring_off,
+                    disabled=desktop_keyring_off,
                 )
 
     def action_cancel(self) -> None:
@@ -2818,10 +2821,10 @@ class VaultTierChooserModal(screen.ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Route the three buttons to their tier labels (or ``None``)."""
         match event.button.id:
-            case "vault-tier-keyring":
-                self.dismiss("keyring")
-            case "vault-tier-kernel":
-                self.dismiss("kernel-keyring")
+            case "vault-tier-desktop-keyring":
+                self.dismiss("desktop-keyring")
+            case "vault-tier-session-cache":
+                self.dismiss("session-cache")
             case _:
                 self.dismiss(None)
 
@@ -2958,7 +2961,7 @@ class VaultCreatePassphraseModal(screen.ModalScreen[str | None]):
 
 
 class VaultUnlockModal(screen.ModalScreen["str | None"]):
-    """Passphrase prompt that caches the passphrase in the kernel keyring.
+    """Passphrase prompt that populates the temporary session cache.
 
     Triggered when the vault snapshot reports ``LOCKED`` at TUI mount or after
     a manual ``Ctrl+L`` re-probe.  Mirrors the [`AskpassModal`][terok.tui.askpass_service.AskpassModal]
@@ -3190,7 +3193,7 @@ class VaultScreen(screen.Screen[str | None]):
         _modal_binding("n", "vault_unlock", "Unlock (temporary cache)"),
         _modal_binding("l", "vault_lock", "Lock (delete saved passphrases)"),
         _modal_binding("e", "vault_seal", "Seal into systemd-creds"),
-        _modal_binding("k", "vault_to_keyring", "Move passphrase to desktop keyring"),
+        _modal_binding("k", "vault_to_desktop_keyring", "Move passphrase to desktop keyring"),
         _modal_binding("v", "vault_reveal", "Reveal recovery passphrase"),
         _modal_binding("a", "vault_acknowledge", "Mark recovery key as saved"),
         _modal_binding("c", "vault_change", "Change the vault passphrase"),
@@ -3223,7 +3226,7 @@ class VaultScreen(screen.Screen[str | None]):
             Option("u\\[n]lock (temporary cache)", id="vault_unlock"),
             Option("\\[l]ock (delete saved passphrases)", id="vault_lock"),
             Option("s\\[e]al current passphrase into systemd-creds", id="vault_seal"),
-            Option("move passphrase to desktop \\[k]eyring", id="vault_to_keyring"),
+            Option("move passphrase to desktop \\[k]eyring", id="vault_to_desktop_keyring"),
             None,
             Option("re\\[v]eal recovery passphrase", id="vault_reveal"),
             Option("mark recovery key as s\\[a]ved", id="vault_acknowledge"),
@@ -3279,9 +3282,9 @@ class VaultScreen(screen.Screen[str | None]):
         """Seal the currently resolved passphrase into a systemd-creds credential."""
         self.dismiss("vault_seal")
 
-    def action_vault_to_keyring(self) -> None:
-        """Trigger the to-keyring relocation flow."""
-        self.dismiss("vault_to_keyring")
+    def action_vault_to_desktop_keyring(self) -> None:
+        """Trigger the to-desktop-keyring relocation flow."""
+        self.dismiss("vault_to_desktop_keyring")
 
     def action_vault_reveal(self) -> None:
         """Open the reveal modal — surfaces the passphrase + offers a save-ack."""

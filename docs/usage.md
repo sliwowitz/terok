@@ -736,16 +736,23 @@ which providers were unauthenticated when the container was created.
 
 The credentials DB itself is SQLCipher-encrypted; the passphrase
 travels through a five-tier resolver chain (systemd-creds → desktop
-keyring → temporary cache → `credentials.passphrase_command` helper →
+keyring → session cache → `credentials.passphrase_command` helper →
 interactive prompt). **Desktop keyring** means persistent desktop-managed
 storage, such as GNOME Keyring. **Kernel keyring** means Linux's in-memory
 cache (the per-UID user keyring, `@u`), not the desktop keyring.
-`terok vault unlock` caches a manually entered passphrase in the kernel
+`terok vault unlock` fills the temporary session cache: the kernel
 keyring, or a tmpfs session file when that backing is unavailable to the
 supervisor. This cache never survives reboot and may disappear earlier;
 logout alone does not guarantee clearing the kernel keyring. A working
 desktop keyring supplies the passphrase directly, without a redundant
-kernel-keyring copy.
+session-cache copy.
+
+After upgrading from the old terminology, rename `credentials.use_keyring`
+to `credentials.use_desktop_keyring`; use `desktop-keyring` / `session-cache`
+as tier IDs and `vault passphrase to-desktop-keyring` for transfers. Old names
+are rejected, not aliases. Existing passphrase entries keep their identity.
+Recreate existing task containers to regenerate their stored configuration;
+stopping and starting them preserves the old configuration.
 
 `terok vault lock` **deletes saved passphrases**, not just the temporary
 cache, and disconnects `passphrase_command` without deleting its external
@@ -763,7 +770,7 @@ supervisor orphaned by an earlier stop that still pins the DB is
 detected and offered for cleanup; a process outside terok holding it
 is named and never touched.  To move the
 *same* passphrase between backends, `terok vault passphrase
-to-keyring` / `seal` are the first-class paths — see
+to-desktop-keyring` / `seal` are the first-class paths — see
 [credentials-encryption](https://github.com/terok-ai/terok-sandbox/blob/master/docs/credentials-encryption.md)
 in terok-sandbox for the full tier guide.
 

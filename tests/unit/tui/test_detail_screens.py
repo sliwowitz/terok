@@ -1982,7 +1982,7 @@ MOCK_VAULT_DB = MOCK_BASE / "vault" / "credentials.db"
 def make_vault_status(
     *,
     state: object | None = None,
-    source: str | None = "keyring",
+    source: str | None = "desktop-keyring",
     providers: tuple[str, ...] | None = ("claude", "gh"),
     credential_types: dict[str, str] | None = None,
     ssh_keys: int | None = 0,
@@ -2060,7 +2060,11 @@ class TestVaultScreen:
             pytest.param("action_vault_unlock", "vault_unlock", id="unlock"),
             pytest.param("action_vault_lock", "vault_lock", id="lock"),
             pytest.param("action_vault_seal", "vault_seal", id="seal"),
-            pytest.param("action_vault_to_keyring", "vault_to_keyring", id="to-keyring"),
+            pytest.param(
+                "action_vault_to_desktop_keyring",
+                "vault_to_desktop_keyring",
+                id="to-desktop-keyring",
+            ),
             pytest.param("action_vault_change", "vault_change", id="change"),
         ],
     )
@@ -2122,8 +2126,8 @@ class TestRenderVaultStatus:
     def test_render_vault_status_names_cache_backing(self, backing: str) -> None:
         """The generic session-cache tier does not hide its actual storage backing."""
         screens, _ = import_screens()
-        status = make_vault_status(source="kernel-keyring")
-        status.chain = (mock.Mock(tier="kernel-keyring", detail=f"cached in the {backing}"),)
+        status = make_vault_status(source="session-cache")
+        status.chain = (mock.Mock(tier="session-cache", detail=f"cached in the {backing}"),)
         text = str(screens.render_vault_status(status))
         assert "resolved via session cache" in text
         assert f"cached in the {backing}" in text
@@ -2146,7 +2150,7 @@ class TestRenderVaultStatus:
         screens, _ = import_screens()
         status = make_vault_status(
             state=VaultState.LOCKED,
-            source="kernel-keyring",
+            source="session-cache",
             providers=None,
             lock_reason="the passphrase via session cache does not open the DB",
         )
@@ -2159,7 +2163,7 @@ class TestRenderVaultStatus:
     def test_render_vault_status_marks_unlocked_explicitly(self) -> None:
         """Resolved vault shows ``State: unlocked`` plus which tier did it."""
         screens, _ = import_screens()
-        status = make_vault_status(source="keyring")
+        status = make_vault_status(source="desktop-keyring")
         text_str = str(screens.render_vault_status(status))
         assert "State:       unlocked" in text_str
         assert "resolved via desktop keyring" in text_str
@@ -2319,7 +2323,7 @@ class TestVaultRevealModal:
 
     def _modal(self, screens, *, already_acked: bool = False):  # type: ignore[no-untyped-def]
         return screens.VaultRevealModal(
-            "correct-horse-battery-staple", "keyring", already_acked=already_acked
+            "correct-horse-battery-staple", "desktop-keyring", already_acked=already_acked
         )
 
     def test_action_cancel_dismisses_none(self) -> None:
@@ -2433,7 +2437,7 @@ class TestVaultActionDispatch:
             ("vault_unlock", "_action_vault_unlock"),
             ("vault_lock", "_action_vault_lock"),
             ("vault_seal", "_action_vault_seal"),
-            ("vault_to_keyring", "_action_vault_to_keyring"),
+            ("vault_to_desktop_keyring", "_action_vault_to_desktop_keyring"),
             ("vault_reveal", "_action_vault_reveal"),
             ("vault_acknowledge", "_action_vault_acknowledge"),
             ("vault_change", "_action_vault_change"),
@@ -2454,7 +2458,7 @@ class TestVaultActionDispatch:
         instance._action_vault_unlock.assert_not_called()
         instance._action_vault_lock.assert_not_called()
         instance._action_vault_seal.assert_not_called()
-        instance._action_vault_to_keyring.assert_not_called()
+        instance._action_vault_to_desktop_keyring.assert_not_called()
         instance._action_vault_reveal.assert_not_called()
         instance._action_vault_acknowledge.assert_not_called()
         instance._action_vault_change.assert_not_called()
@@ -2546,13 +2550,13 @@ class TestVaultActionImplementations:
             refresh="vault_status",
         )
 
-    def test_to_keyring_dispatches_vault_to_keyring(self) -> None:
-        """``_action_vault_to_keyring`` dispatches the worker action + refreshes status."""
+    def test_to_desktop_keyring_dispatches_vault_to_desktop_keyring(self) -> None:
+        """``_action_vault_to_desktop_keyring`` dispatches the worker action + refreshes status."""
         mixin = self._get_mixin()
         instance = mock.Mock(spec=mixin)
-        run(mixin._action_vault_to_keyring(instance))
+        run(mixin._action_vault_to_desktop_keyring(instance))
         instance._run_console_action.assert_called_once_with(
-            "terok.tui.worker_actions:vault_to_keyring",
+            "terok.tui.worker_actions:vault_to_desktop_keyring",
             title="Moving vault passphrase to desktop keyring",
             refresh="vault_status",
         )
@@ -2574,7 +2578,7 @@ class TestVaultRevealAction:
 
         return ProjectActionsMixin
 
-    def _make_cfg(self, *, passphrase: str | None = "p4ss", source: str | None = "keyring"):
+    def _make_cfg(self, *, passphrase: str | None = "p4ss", source: str | None = "desktop-keyring"):
         cfg = mock.Mock()
         cfg.resolve_passphrase_with_source.return_value = (passphrase, source)
         return cfg
@@ -2805,7 +2809,7 @@ class TestMaybeWarnRecoveryUnconfirmed:
         _, app_class = import_app()
         instance = self._make_instance(
             app_class,
-            make_vault_status(source="keyring", warnings=(self._unconfirmed_warning(),)),
+            make_vault_status(source="desktop-keyring", warnings=(self._unconfirmed_warning(),)),
         )
         app_class._maybe_warn_recovery_unconfirmed(instance)
         instance.notify.assert_called_once()
@@ -2817,7 +2821,7 @@ class TestMaybeWarnRecoveryUnconfirmed:
         _, app_class = import_app()
         instance = self._make_instance(
             app_class,
-            make_vault_status(source="kernel-keyring", warnings=(self._volatile_warning(),)),
+            make_vault_status(source="session-cache", warnings=(self._volatile_warning(),)),
         )
         app_class._maybe_warn_recovery_unconfirmed(instance)
         instance.notify.assert_called_once()
@@ -2829,7 +2833,9 @@ class TestMaybeWarnRecoveryUnconfirmed:
     def test_quiet_when_no_recovery_warning(self) -> None:
         """Marker already landed → no recovery entry in the catalog → silent."""
         _, app_class = import_app()
-        instance = self._make_instance(app_class, make_vault_status(source="keyring", warnings=()))
+        instance = self._make_instance(
+            app_class, make_vault_status(source="desktop-keyring", warnings=())
+        )
         app_class._maybe_warn_recovery_unconfirmed(instance)
         instance.notify.assert_not_called()
 
@@ -2854,7 +2860,7 @@ class TestMaybeWarnRecoveryUnconfirmed:
         _, app_class = import_app()
         instance = self._make_instance(
             app_class,
-            make_vault_status(source="keyring", warnings=(self._unconfirmed_warning(),)),
+            make_vault_status(source="desktop-keyring", warnings=(self._unconfirmed_warning(),)),
         )
         app_class._maybe_warn_recovery_unconfirmed(instance)
         app_class._maybe_warn_recovery_unconfirmed(instance)
@@ -3001,7 +3007,7 @@ class TestVaultStatusPill:
         instance = mock.Mock(spec=app_class)
         bar = mock.Mock()
         instance.query_one = mock.Mock(return_value=bar)
-        status = make_vault_status(source="keyring", warnings=())
+        status = make_vault_status(source="desktop-keyring", warnings=())
         app_class._render_status_pill(instance, status)
         bar.set_message.assert_called_once_with("Vault: unlocked (desktop keyring)")
 
@@ -3035,7 +3041,7 @@ class TestVaultStatusPill:
         bar = mock.Mock()
         instance.query_one = mock.Mock(return_value=bar)
         status = make_vault_status(
-            source="kernel-keyring",
+            source="session-cache",
             warnings=(
                 make_vault_warning(
                     kind="recovery-volatile",
@@ -3059,7 +3065,7 @@ class TestVaultStatusPill:
         bar = mock.Mock()
         instance.query_one = mock.Mock(return_value=bar)
         status = make_vault_status(
-            source="keyring",
+            source="desktop-keyring",
             warnings=(
                 make_vault_warning(
                     kind="recovery-unconfirmed",
@@ -3136,7 +3142,7 @@ class TestRefreshVaultStatus:
         """Fresh probe lands in ``_last_vault_status`` and feeds the pill."""
         _, app_class = import_app()
         instance = self._make_instance(app_class)
-        status = make_vault_status(source="keyring")
+        status = make_vault_status(source="desktop-keyring")
         with mock.patch("terok.lib.api.vault.load_vault_status", return_value=status):
             run(app_class._refresh_vault_status(instance))
         assert instance._last_vault_status is status
@@ -3200,7 +3206,7 @@ class TestOnVaultUnlockResult:
     """[`_on_vault_unlock_result`][terok.tui.app.TerokTUI._on_vault_unlock_result] short-circuit guard.
 
     The passphrase now lands via sandbox's validated
-    ``provision_session_passphrase`` (kernel-keyring cache) — the write,
+    ``provision_session_passphrase`` (temporary session cache) — the write,
     wrong-passphrase and durable-shadow paths are covered against the
     mocked writer in ``test_vault_unlock_flow.py``.  What remains
     terok-owned here is the pre-config empty-input guard.

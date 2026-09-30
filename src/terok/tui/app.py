@@ -115,8 +115,8 @@ if _HAS_TEXTUAL:
     _UPDATE_CHECK_INTERVAL_S = 600.0
 
     # How often to re-probe the vault so an external `vault unlock`/`lock`
-    # reflects in the pill.  The kernel-keyring tier has no watchable
-    # artifact (unlike the old session file), so — same philosophy as the
+    # reflects in the pill. The session cache can use the kernel keyring,
+    # which has no watchable file, so — same philosophy as the
     # upgrade check — focus-in probes immediately (the "operator just came
     # back after unlocking" moment) and this interval is *paused on blur*,
     # so on a focus-reporting terminal a backgrounded session does no work.
@@ -195,7 +195,7 @@ if _HAS_TEXTUAL:
         "vault_unlock": "_action_vault_unlock",
         "vault_lock": "_action_vault_lock",
         "vault_seal": "_action_vault_seal",
-        "vault_to_keyring": "_action_vault_to_keyring",
+        "vault_to_desktop_keyring": "_action_vault_to_desktop_keyring",
         "vault_reveal": "_action_vault_reveal",
         "vault_acknowledge": "_action_vault_acknowledge",
         "vault_change": "_action_vault_change",
@@ -787,7 +787,7 @@ if _HAS_TEXTUAL:
                 result = await asyncio.to_thread(
                     provision_passphrase_tier, cfg, tier=tier, passphrase=typed or None
                 )
-            except Exception as exc:  # noqa: BLE001 — surface keyring/seal failures verbatim
+            except Exception as exc:  # noqa: BLE001 — surface desktop-keyring/seal failures verbatim
                 self.notify(
                     f"Vault passphrase provisioning failed: {exc}",
                     severity="error",
@@ -2471,7 +2471,7 @@ if _HAS_TEXTUAL:
 
             The probe opens the credentials DB and walks the passphrase
             chain.  That is blocking I/O, and it can stall on host
-            facilities (a slow keyring, a wedged D-Bus).  The probe runs
+            facilities (a slow desktop keyring, a wedged D-Bus).  The probe runs
             on a thread, so the message pump keeps painting whatever the
             chain does.  The lock serializes concurrent probes, so a
             slower one cannot land a stale snapshot over a newer one.
@@ -2560,7 +2560,7 @@ if _HAS_TEXTUAL:
             bar.set_message(f"Vault: unlocked ({source}){suffix}")
 
         async def _on_vault_unlock_result(self, passphrase: "str | None") -> None:
-            """Validate the typed passphrase and land it on the session-unlock tier.
+            """Validate the typed passphrase and land it in the session cache.
 
             Funnels through sandbox's ``provision_session_passphrase`` —
             the same validated writer the CLI uses — so a wrong entry is
@@ -2599,7 +2599,7 @@ if _HAS_TEXTUAL:
                 return
             if not result.written:
                 # A durable tier (systemd-creds / desktop keyring / passphrase-command) already
-                # unlocks the vault, so caching in the kernel keyring would be
+                # unlocks the vault, so populating the session cache would be
                 # pointless — exactly what this guard prevents.  Inform, don't write.
                 self.notify(
                     f"Vault already auto-unlocks via "

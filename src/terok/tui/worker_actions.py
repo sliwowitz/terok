@@ -242,12 +242,12 @@ def vault_seal() -> None:
     handle_vault_seal(cfg=make_sandbox_config(), key="auto")
 
 
-def vault_to_keyring() -> None:
+def vault_to_desktop_keyring() -> None:
     """Move the resolved passphrase from its current tier into the desktop keyring."""
     from terok.lib.api import make_sandbox_config
-    from terok.lib.api.vault import handle_vault_to_keyring
+    from terok.lib.api.vault import handle_vault_to_desktop_keyring
 
-    handle_vault_to_keyring(cfg=make_sandbox_config())
+    handle_vault_to_desktop_keyring(cfg=make_sandbox_config())
 
 
 def vault_rekey_restart_tasks(tasks: list[list[str]]) -> None:

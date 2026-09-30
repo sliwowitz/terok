@@ -55,7 +55,7 @@ class TestOnVaultUnlockResult:
 
     @pytest.mark.parametrize(
         ("source", "label"),
-        [("systemd-creds", "systemd-creds"), ("keyring", "desktop keyring")],
+        [("systemd-creds", "systemd-creds"), ("desktop-keyring", "desktop keyring")],
     )
     async def test_durable_shadow_refused_informs_no_write(
         self, unlock_stub: SimpleNamespace, source: str, label: str
@@ -147,8 +147,8 @@ class TestStatusPillLockReason:
 class TestVaultPoll:
     """Focus-gated adaptive poll keeps the pill live across external unlock/lock.
 
-    The inotify session-dir watcher was removed with the volatile
-    session-file tier — the kernel-keyring cache has no watchable file.
+    The session cache can use the kernel keyring, which has no watchable
+    file. File watching alone therefore cannot cover every backing.
     A focus-driven interval poll replaces it: blur pauses the backstop
     timer, focus resumes it and fires an immediate re-probe, and each
     tick runs an exclusive ``vault-poll`` worker over
@@ -214,7 +214,7 @@ class TestVaultProbeOffTheLoop:
 
     ``load_vault_status`` opens the credentials DB and walks the
     passphrase chain, and the chain can stall on host facilities.  A
-    locked OS keyring's unlock prompt froze the whole TUI on a headless
+    locked desktop keyring's unlock prompt froze the whole TUI on a headless
     host.  The refresh must hand the probe to a thread, so the loop
     keeps painting whatever the chain does.
     """
