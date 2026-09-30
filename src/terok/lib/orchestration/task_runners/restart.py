@@ -12,6 +12,7 @@ not.
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
 
 from terok.lib.integrations.sandbox import BUNDLE_VERSION, resolve_container_shield_version
@@ -142,13 +143,11 @@ def _make_running(
         assign_web_port(project.name, task_id, preferred=meta["web_port"])
 
     if reason is None:
-        # The resume rung is the only path that replays the existing shield
-        # bundle, so it alone gates on the bundle version — a recreate
-        # builds a fresh bundle and must never be blocked by a stale one —
-        # and refreshes the bundle's policy from the current roster/config
-        # before anything is torn down.
-        _validate_shield_bundle_version(cname)
-        _refresh_shield_tiers(project, cname, project.tasks_root / str(task_id))
+        # The resume rung replays the existing shield bundle and sidecar, so
+        # it gates on the bundle version — a recreate builds a fresh bundle
+        # and must never be blocked by a stale one — and refreshes both from
+        # the current roster/config before anything is torn down.
+        _refresh_before_resume(project, cname, project.tasks_root / str(task_id))
         if container_state == "running":
             _stop_running_container(project, task_id, mode, cname, meta_path)
         try:
@@ -160,6 +159,55 @@ def _make_running(
     _recreate_in_place(
         project, task_id, mode, cname, meta, meta_path, reason, unrestricted=unrestricted
     )
+
+
+def _refresh_before_resume(project: ProjectConfig, cname: str, task_dir: Path) -> None:
+    """Bring an existing container's start-time inputs up to today's config, before it starts.
+
+    ``podman start`` replays what the container was created with: its shield
+    bundle (the tiers, the overrides and their expiry dates) and its
+    supervisor sidecar (the clearance mode).  So every path that starts an
+    existing container — the resume rung, a headless follow-up — runs this
+    first: the bundle-version gate (a stale bundle would fail closed at
+    start), the tier refresh (a shortened or deleted override must not be
+    replayed from the old bundle), and the clearance-mode refresh.  Raises
+    ``SystemExit`` from the gate or the tier refresh, with the container
+    untouched; the clearance refresh only warns.
+    """
+    _validate_shield_bundle_version(cname)
+    _refresh_shield_tiers(project, cname, task_dir)
+    _refresh_clearance_mode(project, cname)
+
+
+def _refresh_clearance_mode(project: ProjectConfig, cname: str) -> None:
+    """Set the clearance mode the resumed container starts under from current config.
+
+    ``services.clearance`` reaches the container's supervisor only through
+    its sidecar, which every start re-reads but nothing else rewrites — so
+    without this, a project switched to ``off`` would keep prompting, and
+    keep a verdict path that can widen the firewall, until the task is
+    re-created.  It sits beside the shield tier refresh for the same reason:
+    a plain restart applies today's config.  A runtime mute or unmute does
+    not survive it; the restart returns the task to the project's mode.
+
+    Advisory rather than fatal: the shield refuses what it refuses under
+    every mode, so a sidecar that cannot be rewritten (gone, foreign, not
+    JSON) costs the change, not the restart.  The task then starts in the
+    mode it last had, and the warning says how to apply the new one.
+    """
+    try:
+        _sandbox(project).clearance_refresh(cname, clearance=project.clearance)
+    except (OSError, ValueError) as exc:
+        print(
+            _yellow(
+                f"Warning: could not apply services.clearance {project.clearance!r} to "
+                f"{cname}: {exc}\n"
+                f"  The task keeps the clearance mode it last started with; recreate it "
+                f"to apply the new one (TUI: R;  CLI: terok task restart --recreate).",
+                _supports_color(),
+            ),
+            file=sys.stderr,
+        )
 
 
 def _recreate_reason(container_state: str | None, *, fresh: bool) -> str | None:

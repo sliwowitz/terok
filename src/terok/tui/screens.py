@@ -318,12 +318,21 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
         )
 
     def _on_shield_sets_modal_result(self, selection: tuple[str, ...] | None) -> None:
-        """Persist the new selection to ``project.yml``; ``None`` = no change."""
+        """Persist the new selection to ``project.yml``; ``None`` = no change.
+
+        A refused write — a user set whose file broke since the picker read
+        it, a ``project.yml`` that no longer loads — is a notice naming the
+        problem, never a crash: the files are the operator's to fix.
+        """
         if selection is None:
             return
         from terok.lib.api import describe_egress_sets, set_project_shield_sets
 
-        path = set_project_shield_sets(self._project.name, selection)
+        try:
+            path = set_project_shield_sets(self._project.name, selection)
+        except (SystemExit, OSError) as exc:
+            self.notify(f"shield.sets not written: {exc}", severity="error", markup=False)
+            return
         # Keep the cached config in sync so a re-open of the modal in
         # this same screen instance seeds from the freshly-saved value.
         # ``ProjectConfig`` is frozen, hence the model_copy.
@@ -2262,9 +2271,25 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             if not get_config().shield_disable_firewall_no_protection:
                 options.append(Option("\\[s]hield up (deny-all)", id="shield_up"))
             options.append(
+                Option(
+                    "shield \\[b]ypass window (accept what the allowlist refuses, briefly)",
+                    id="shield_bypass",
+                )
+            )
+            options.append(
+                Option(
+                    "shield \\[h]arvest and promote (what this task reached for)",
+                    id="shield_harvest",
+                )
+            )
+            options.append(
                 Option("shield \\[v]erdict interactive handler", id="shield_interactive")
             )
             options.append(Option("shield \\[W]atch (event stream)", id="shield_watch"))
+            options.append(
+                Option("clearance \\[m]ute (stop asking, keep refusing)", id="clearance_mute")
+            )
+            options.append(Option("clearance un\\[M]ute (ask again)", id="clearance_unmute"))
             options.append(Option("shield \\[C]learance (live D-Bus)", id="show_clearance"))
 
         yield OptionList(*options, id="actions-list")
@@ -2323,10 +2348,11 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             "X": "delete",
             "D": "shield_disengaged",
             "W": "shield_watch",
+            "M": "clearance_unmute",
             "C": "show_clearance",
         }
         if key in shift_map:
-            if key in ("R", "H", "P", "X", "D", "W", "C") and not self._has_tasks:
+            if key in ("R", "H", "P", "X", "D", "W", "C", "M") and not self._has_tasks:
                 return
             self.dismiss(shift_map[key])
             event.stop()
@@ -2349,6 +2375,9 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             "i": "login",
             "u": "followup",
             "n": "rename",
+            "b": "shield_bypass",
+            "h": "shield_harvest",
+            "m": "clearance_mute",
             "v": "shield_interactive",
             "d": "shield_down",
             "s": "shield_up",

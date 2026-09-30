@@ -25,9 +25,10 @@ class ShieldOverride(BaseModel):
 
     ``host`` is a host, an IP, or a CIDR (shield logs a range as a warning at
     launch); ``reason`` records why the punch-through exists; ``expires`` is an
-    optional date after which the override is dropped.  Expiry is evaluated
-    when the container is launched or restarted — an already-running container
-    keeps its overrides until its next start.
+    optional date the override stays valid *through*.  Shield enforces it in
+    the kernel: the override's t10 element times out at the end of that day,
+    host local time, on a running task too, and a task started after it is
+    not given the override at all.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -161,15 +162,29 @@ class ProjectConfig(BaseModel):
     per-container supervisor makes mixed modes on one host safe, so a
     ``krun`` project can pin ``tcp`` while the rest stay on ``socket``.
     """
+    clearance: Literal["prompt", "mute", "off"] = "prompt"
+    """Who is asked about a connection the shield refused, for this project's tasks.
+
+    Resolved at load time from the project's ``services.clearance``,
+    falling back to the global ``services.clearance`` in ``config.yml``,
+    which is ``prompt`` when unset.  The vocabulary mirrors sandbox's
+    ``ClearanceMode``: ``prompt`` puts each refusal to the operator,
+    ``mute`` starts the task's clearance hub with the task muted, ``off``
+    starts no hub (nor verdict server) at all.  The value reaches the
+    container's supervisor through its sidecar, written at creation and
+    rewritten by every restart, so a change applies at the task's next
+    start.
+    """
     task_name_categories: list[str] | None = None
     shield_down_on_task_run: bool = True
     shield_on_task_restart: str = "retain"
     shield_sets: tuple[str, ...] | None = None
-    """Curated egress sets granted to tasks (t40).
+    """Egress sets granted to tasks (t40) — built-in sets and the operator's own, by name.
 
-    ``None`` (unset) and an empty tuple grant no curated set;
+    ``None`` (unset) and an empty tuple grant no set;
     [`RECOMMENDED_SET`][terok.lib.core.egress_sets.RECOMMENDED_SET] grants
-    every set in [`EGRESS_SETS`][terok.lib.core.egress_sets.EGRESS_SETS]."""
+    every built-in set in [`EGRESS_SETS`][terok.lib.core.egress_sets.EGRESS_SETS]
+    — never a user set, which is granted only by naming it."""
     shield_allow: tuple[str, ...] = ()
     """Extra hosts allowed at egress — shield's t40 project-allow tier."""
     shield_override: tuple[ShieldOverride, ...] = ()

@@ -50,6 +50,16 @@ git:
 # Valid values: codex, claude, mistral
 # default_agent: claude
 
+# Per-container services (sandbox-owned; a project's own services: section
+# overrides these for its tasks).
+# services:
+#   # Host<->container IPC transport: socket (default) or tcp.
+#   # mode: socket
+#   # Who is asked about a connection the shield refused: prompt (default: the
+#   # operator, live), mute (tasks start muted) or off (no clearance hub at all).
+#   # Refusals stay enforced either way; the audit log is then their record.
+#   # clearance: prompt
+
 # TUI Configuration
 tui:
   # Default to launching the TUI in tmux mode (equivalent to always using --tmux).

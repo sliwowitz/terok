@@ -18,6 +18,34 @@ from unittest.mock import patch
 
 import pytest
 
+from terok.lib.integrations.executor import CLAUDE_OAUTH_UNROUTED_ENV, CLAUDE_OAUTH_UNROUTED_ON
+from tests.testnet import VAULT_LOOPBACK_URL
+
+
+def _roster() -> SimpleNamespace:
+    """A roster double: claude → anthropic, codex → openai, openrouter its own provider."""
+    return SimpleNamespace(
+        auth_providers={
+            "claude": SimpleNamespace(credential_provider="anthropic"),
+            "codex": SimpleNamespace(credential_provider="openai"),
+            "openrouter": SimpleNamespace(credential_provider=None),
+        },
+        agents={
+            "claude": SimpleNamespace(provider_binding=SimpleNamespace(default="anthropic")),
+            "codex": SimpleNamespace(provider_binding=SimpleNamespace(default="openai")),
+            "opencode": SimpleNamespace(provider_binding=None),
+        },
+    )
+
+
+_ANTHROPIC_HANDLE = {
+    "TEROK_PROVIDER_ANTHROPIC_TOKEN": "terok-p-abc",
+    "TEROK_PROVIDER_ANTHROPIC_LABEL": "Anthropic",
+    "TEROK_PROVIDER_ANTHROPIC_MODELS": "{}",
+    "TEROK_PROVIDER_ANTHROPIC_BASE_ANTHROPIC_MESSAGES": VAULT_LOOPBACK_URL,
+}
+"""The handle the executor materializes for a vault-routed anthropic login."""
+
 
 class TestClaudeOAuthOverrides:
     """Verify _apply_claude_oauth_overrides mode selection."""
@@ -31,15 +59,20 @@ class TestClaudeOAuthOverrides:
             "ANTHROPIC_BASE_URL": "http://host.containers.internal:18731",
             "ANTHROPIC_UNIX_SOCKET": "/tmp/terok-claude-proxy.sock",
             "TEROK_TOKEN_BROKER_PORT": "18731",
+            **_ANTHROPIC_HANDLE,
         }
         with patch("terok.lib.core.config.is_claude_oauth_proxied", return_value=True):
-            _apply_claude_oauth_overrides(env)
+            assert _apply_claude_oauth_overrides(env) is False
 
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
         assert "ANTHROPIC_BASE_URL" in env
         # Socket and proxy port are unrelated to Claude tier — untouched
         assert "ANTHROPIC_UNIX_SOCKET" in env
         assert "TEROK_TOKEN_BROKER_PORT" in env
+        # The login is routed, so the handle that says so stays — and claude
+        # is told nothing is wrong
+        assert _ANTHROPIC_HANDLE.items() <= env.items()
+        assert CLAUDE_OAUTH_UNROUTED_ENV not in env
 
     def test_skipped_removes_all_claude_vars(self) -> None:
         """Claude OAuth skipped (default) → remove all Claude proxy env vars."""
@@ -52,8 +85,11 @@ class TestClaudeOAuthOverrides:
             "TEROK_TOKEN_BROKER_PORT": "18731",
             "MISTRAL_API_KEY": "terok-p-vibe",
         }
-        with patch("terok.lib.core.config.is_claude_oauth_proxied", return_value=False):
-            _apply_claude_oauth_overrides(env)
+        with (
+            patch("terok.lib.core.config.is_claude_oauth_proxied", return_value=False),
+            patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
+        ):
+            assert _apply_claude_oauth_overrides(env) is True
 
         assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
         assert "ANTHROPIC_BASE_URL" not in env
@@ -61,6 +97,40 @@ class TestClaudeOAuthOverrides:
         # Non-Claude vars untouched
         assert "MISTRAL_API_KEY" in env
         assert "TEROK_TOKEN_BROKER_PORT" in env
+        # claude's wrapper learns that its login is not routed here
+        assert env[CLAUDE_OAUTH_UNROUTED_ENV] == CLAUDE_OAUTH_UNROUTED_ON
+
+    def test_skipped_keeps_the_tasks_provider_handle(self) -> None:
+        """The handle is the whole task's, not claude's: skipping claude's routing leaves it.
+
+        Every agent that reaches the provider through the vault reads the
+        handle, so stripping it for claude's sake would take the provider from
+        all of them.  claude learns of its own trouble from the claude-only
+        signal instead, which no other agent reads.
+        """
+        from terok.lib.orchestration.environment import _apply_claude_oauth_overrides
+
+        env = {"CLAUDE_CODE_OAUTH_TOKEN": "terok-p-abc", **_ANTHROPIC_HANDLE}
+        with (
+            patch("terok.lib.core.config.is_claude_oauth_proxied", return_value=False),
+            patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
+        ):
+            assert _apply_claude_oauth_overrides(env) is True
+
+        assert env == {**_ANTHROPIC_HANDLE, CLAUDE_OAUTH_UNROUTED_ENV: CLAUDE_OAUTH_UNROUTED_ON}
+
+    def test_exposed_keeps_the_handle(self) -> None:
+        """Exposed mode points the handle at the real upstream on purpose — it stays."""
+        from terok.lib.orchestration.environment import _apply_claude_oauth_overrides
+
+        env = {"CLAUDE_CODE_OAUTH_TOKEN": "terok-p-abc", **_ANTHROPIC_HANDLE}
+        with (
+            patch("terok.lib.core.config.is_claude_oauth_proxied", return_value=False),
+            patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=True),
+        ):
+            assert _apply_claude_oauth_overrides(env) is False
+
+        assert env == _ANTHROPIC_HANDLE
 
     def test_noop_when_no_claude_oauth(self) -> None:
         """No-op when executor didn't inject Claude OAuth token (API key or no Claude)."""
@@ -69,10 +139,126 @@ class TestClaudeOAuthOverrides:
         env = {
             "ANTHROPIC_API_KEY": "terok-p-abc",
             "ANTHROPIC_BASE_URL": "http://host.containers.internal:18731",
+            **_ANTHROPIC_HANDLE,
         }
         original = dict(env)
-        _apply_claude_oauth_overrides(env)
+        assert _apply_claude_oauth_overrides(env) is False
         assert env == original
+
+
+class TestUnreadyDefaultAgentHint:
+    """terok#1273: the launch says, on the host, when the default agent cannot authenticate."""
+
+    def _project(self, **overrides: object) -> SimpleNamespace:
+        """A shared-scope project defaulting to claude, with no provider override."""
+        fields: dict[str, object] = {
+            "name": "proj",
+            "default_agent": None,
+            "credentials_scope": "shared",
+        }
+        fields.update(overrides)
+        return SimpleNamespace(**fields)
+
+    def _warn(
+        self,
+        env: dict[str, str],
+        capsys: pytest.CaptureFixture[str],
+        *,
+        selected: str | None = None,
+        oauth_skipped: bool = False,
+        **project: object,
+    ) -> str:
+        """Run the hint and return what it printed to stderr."""
+        from terok.lib.orchestration.environment import _warn_unready_default_agent
+
+        _warn_unready_default_agent(
+            env, _roster(), self._project(**project), selected, oauth_skipped=oauth_skipped
+        )
+        return capsys.readouterr().err
+
+    def test_unauthenticated_default_agent_gets_the_auth_command(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """No anthropic handle → claude will refuse; the hint names ``terok auth claude``."""
+        err = self._warn({}, capsys)
+
+        assert "claude has no credential for its provider 'anthropic'" in err
+        assert "terok auth claude" in err
+        assert "egress firewall" in err
+
+    def test_a_ready_provider_prints_nothing(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """The handle token is what the wrapper checks, and its presence is enough."""
+        assert self._warn(dict(_ANTHROPIC_HANDLE), capsys) == ""
+
+    def test_a_selected_provider_wins_over_the_agents_default(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """With ``default_provider`` set, that provider's credential is the one needed."""
+        err = self._warn(dict(_ANTHROPIC_HANDLE), capsys, selected="openrouter")
+
+        assert "provider 'openrouter'" in err
+        assert "terok auth openrouter" in err
+
+    def test_project_scope_names_the_project_flag(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A project-scoped bucket is filled with ``--project``."""
+        err = self._warn({}, capsys, credentials_scope="project")
+
+        assert "terok auth claude --project proj" in err
+
+    def test_a_provider_no_auth_entry_stores_is_named_as_itself(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An agent with no auth entry, a provider no entry stores: the hint names the provider."""
+        err = self._warn({}, capsys, selected="mistral", default_agent="opencode")
+
+        assert "terok auth mistral" in err
+
+    def test_a_harness_without_a_default_provider_is_not_checked(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """An agent that picks its provider at run time has nothing to check up front."""
+        assert self._warn({}, capsys, default_agent="opencode") == ""
+
+    def test_a_skipped_oauth_login_is_named_although_the_handle_is_set(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The handle stays for the task's other agents, so it cannot speak for claude.
+
+        claude's wrapper passes its check on that handle and a bare ``claude``
+        fails to connect; the launch says why, and how to fix it on the host.
+        """
+        err = self._warn(dict(_ANTHROPIC_HANDLE), capsys, oauth_skipped=True)
+
+        assert "claude cannot use the Claude OAuth login" in err
+        assert "allow_oauth" in err
+        assert "terok auth claude" in err
+        assert "refuse to start" not in err  # the wrapper does not refuse: claude fails to connect
+
+    @pytest.mark.parametrize(
+        ("selected", "agent"),
+        [
+            pytest.param("anthropic", None, id="provider-selected"),
+            pytest.param(None, "codex", id="another-default-agent"),
+        ],
+    )
+    def test_a_skipped_oauth_login_concerns_claude_on_its_default_endpoint_only(
+        self, capsys: pytest.CaptureFixture[str], selected: str | None, agent: str | None
+    ) -> None:
+        """A selected provider routes claude through the vault, and other agents are not claude."""
+        env = {**_ANTHROPIC_HANDLE, "TEROK_PROVIDER_OPENAI_TOKEN": "terok-p-oai"}
+
+        err = self._warn(env, capsys, selected=selected, oauth_skipped=True, default_agent=agent)
+
+        assert err == ""
+
+    def test_a_skipped_oauth_login_without_a_handle_still_names_the_login(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """No handle at all and a skipped login: the login is the likelier story, and is told."""
+        err = self._warn({}, capsys, oauth_skipped=True)
+
+        assert "Claude OAuth login" in err
+        assert "terok auth claude" in err
 
 
 class TestVaultPatchProviderSets:
@@ -178,6 +364,51 @@ def test_materialize_uses_one_fresh_roster_snapshot(tmp_path: Path) -> None:
     assert patch_sets.call_args.args[0] is roster
     assert assemble.call_args.args[1] is roster
     assert actual_egress is egress
+
+
+def test_materialize_with_the_vault_on_warns_about_an_unrouted_claude_login(tmp_path: Path) -> None:
+    """With the vault in use, the OAuth overrides decide whether the launch names the login."""
+    from terok.lib.orchestration.environment import TaskEnvironment
+
+    project = SimpleNamespace(
+        name="example",
+        is_sealed=False,
+        tasks_root=tmp_path / "tasks",
+        services_mode="socket",
+        default_agent=None,
+        default_provider=None,
+        human_name="Example User",
+        human_email="user@example.com",
+        git_authorship="human",
+        credential_set="default",
+        credentials_scope="shared",
+        project_mounts_dir=tmp_path / "mounts",
+        shared_dir=tmp_path / "shared",
+        timezone=None,
+    )
+    roster = object()
+    assembled = SimpleNamespace(env={}, volumes=(), egress=object())
+    env_module = "terok.lib.orchestration.environment"
+
+    with (
+        patch(f"{env_module}.make_sandbox_config"),
+        patch(f"{env_module}._security_mode_env_and_volumes", return_value=({}, [])),
+        patch("terok.lib.core.config.get_vault_bypass", return_value=False),
+        patch(f"{env_module}._check_project_credentials_present"),
+        patch("terok.lib.integrations.executor.AgentRoster.load", return_value=roster),
+        patch(f"{env_module}._vault_patch_provider_sets", return_value=(frozenset(), frozenset())),
+        patch("terok.lib.integrations.executor.assemble_container_env", return_value=assembled),
+        patch(f"{env_module}.exposed_credential_providers", return_value=frozenset()),
+        patch(f"{env_module}._apply_claude_oauth_overrides", return_value=True),
+        patch(f"{env_module}._report_leaked_credentials") as leaked,
+        patch(f"{env_module}._warn_unready_default_agent") as warn,
+    ):
+        TaskEnvironment(project, "1").materialize()
+
+    leaked.assert_called_once()
+    (env, warned_roster, warned_project, selected), kwargs = warn.call_args
+    assert (warned_roster, warned_project, selected) == (roster, project, None)
+    assert kwargs == {"oauth_skipped": True}
 
 
 class TestLeakedCredentialsScan:

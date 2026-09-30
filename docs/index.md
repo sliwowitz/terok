@@ -42,14 +42,18 @@ Terok was started at the
 ### Hardening
 
 - **Rootless Podman** — no daemon, no privileged user namespace
-- **Default-deny egress firewall** with opt-in curated egress sets
+- **Default-deny egress firewall** with opt-in egress sets (curated, or your own)
   and per-container audit logs (via
-  [terok-shield](https://github.com/terok-ai/terok-shield))
+  [terok-shield](https://github.com/terok-ai/terok-shield)) — read back
+  what a task was refused and [promote](shield-security.md#promoting-what-a-task-needed)
+  what it needed into policy
 - **Credential vault** — secrets stay on the host
 - **Per-task git gate** — a git mirror that the agent pushes through,
   giving you a human-review point before changes leave your machine
 - **Live Allow / Deny prompts** — desktop notifications on blocked
-  outbound traffic, turned into immediate firewall rules
+  outbound traffic, turned into immediate firewall rules; they can be muted
+  or turned off, globally or per project (`services.clearance`), while the
+  firewall keeps refusing
 
 ### Workflow
 

@@ -37,7 +37,12 @@ from typing import Annotated, Any, ClassVar, Literal
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator, model_validator
 
 from terok.lib.integrations.executor import ExecutorConfigView, RawImageSection
-from terok.lib.integrations.sandbox import RawRunSection, RawSSHSection, ServicesMode
+from terok.lib.integrations.sandbox import (
+    ClearanceMode,
+    RawRunSection,
+    RawSSHSection,
+    ServicesMode,
+)
 
 # ---------------------------------------------------------------------------
 # Shared reusable validators / annotated types
@@ -337,9 +342,9 @@ class RawShieldOverride(BaseModel):
     expires: date | None = Field(
         default=None,
         description=(
-            "Optional ISO-8601 date after which the override is dropped.  "
-            "Evaluated when the container is launched or restarted — an "
-            "already-running container keeps its overrides until its next start"
+            "Optional ISO-8601 date the override stays valid through.  The "
+            "kernel ends it at the end of that day (host local time), on a "
+            "running task too; a task started later never gets it"
         ),
     )
 
@@ -365,9 +370,11 @@ class RawShieldProjectSection(BaseModel):
     sets: list[str] | None = Field(
         default=None,
         description=(
-            "Curated egress sets granted to this project's tasks (t40).  "
-            "``recommended`` grants every curated set; unset or an empty "
-            "list grants none.  "
+            "Egress sets granted to this project's tasks (t40): built-in sets, "
+            "and your own from ``~/.config/terok/egress-sets/<name>.txt``.  "
+            "``recommended`` grants every built-in set (never your own); unset "
+            "or an empty list grants none.  A named user set whose file is "
+            "missing or invalid fails the project's load.  "
             "See ``terok shield sets`` for the available names"
         ),
     )
@@ -389,6 +396,14 @@ class RawServicesProjectSection(BaseModel):
     IPC transport for this project's tasks regardless of the global
     choice.  Same vocabulary as the global section sandbox owns, so the
     documented opt-out snippet works at either level.
+
+    ``clearance`` works the same way for who is asked about a refusal:
+    unset inherits the global ``services.clearance`` (itself ``prompt``
+    when unset).  Unlike the global key, which sandbox reads leniently so
+    a typo cannot cost the rest of ``config.yml``, a value here outside
+    the three modes fails the project's load and names the key — the
+    project is the operator's to fix, and guessing a mode for it could
+    silence prompts nobody chose to silence.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -398,6 +413,18 @@ class RawServicesProjectSection(BaseModel):
         description=(
             "Host↔container IPC transport for this project's tasks: "
             "``tcp`` or ``socket``; unset inherits the global ``services.mode``"
+        ),
+    )
+    clearance: ClearanceMode | None = Field(
+        default=None,
+        description=(
+            "Who is asked about a connection the shield refused, for this project's "
+            "tasks: ``prompt`` (the operator, live), ``mute`` (nobody — the task "
+            "starts muted, and can be unmuted while it runs) or ``off`` (no clearance "
+            "hub at all — nothing prompts, and no prompt can allow anything).  The "
+            "shield refuses either way; under ``mute`` and ``off`` the audit log is a "
+            "refusal's only record.  Unset inherits the global ``services.clearance``.  "
+            "A change applies at the task's next start (a restart included)"
         ),
     )
 

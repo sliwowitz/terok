@@ -209,8 +209,25 @@ depends_on = [
 path = "terok.lib.api.shield"
 layer = "domain"
 depends_on = [
+    "terok.lib.domain.egress_promotion",
     "terok.lib.integrations.sandbox",
     "terok.lib.integrations.shield",
+    "terok.lib.orchestration.task_runners",
+]
+
+# Egress promotion — review a task's harvest, promote one target to the task,
+# the project, an egress set or a break-glass override; export for user groups.
+[[modules]]
+path = "terok.lib.domain.egress_promotion"
+layer = "domain"
+depends_on = [
+    "terok",
+    "terok.lib.core.egress_sets",
+    "terok.lib.core.projects",
+    "terok.lib.integrations.sandbox",
+    "terok.lib.orchestration.task_runners",
+    "terok.lib.orchestration.tasks",
+    "terok.lib.util.net",
 ]
 
 [[modules]]
@@ -228,7 +245,23 @@ depends_on = [
 path = "terok.lib.api.clearance"
 layer = "domain"
 depends_on = [
+    "terok.lib.domain.clearance",
     "terok.lib.integrations.clearance",
+    "terok.lib.integrations.sandbox",
+]
+
+# A task's clearance prompts — hub addressing by the recorded short id, mute.
+[[modules]]
+path = "terok.lib.domain.clearance"
+layer = "domain"
+depends_on = [
+    "terok.lib.core.config",
+    "terok.lib.core.paths",
+    "terok.lib.core.projects",
+    "terok.lib.integrations.clearance",
+    "terok.lib.integrations.sandbox",
+    "terok.lib.orchestration.task_runners",
+    "terok.lib.orchestration.tasks",
 ]
 
 [[modules]]
@@ -554,11 +587,15 @@ path = "terok.lib.core.project_model"
 layer = "core"
 depends_on = []
 
-# Curated egress allowlist sets (shield t40 content a project opts into)
+# Egress allowlist sets — built-in and the operator's own (shield t40 content a project opts into)
 [[modules]]
 path = "terok.lib.core.egress_sets"
 layer = "core"
-depends_on = ["terok.lib.integrations.executor"]
+depends_on = [
+    "terok.lib.core.config",
+    "terok.lib.integrations.executor",
+    "terok.lib.integrations.sandbox",
+]
 
 # Raw YAML schema models (Pydantic validation, no I/O)
 [[modules]]
@@ -575,6 +612,7 @@ depends_on = [
     "terok.lib.core.egress_sets",
     "terok.lib.core.project_model",
     "terok.lib.core.yaml_schema",
+    "terok.lib.util.net",
     "terok.lib.util.yaml",
 ]
 
@@ -679,6 +717,13 @@ layer = "core"
 depends_on = []
 utility = true
 
+# URL helpers — host formatting, git remote hosts
+[[modules]]
+path = "terok.lib.util.net"
+layer = "core"
+depends_on = []
+utility = true
+
 
 # ── INTEGRATIONS LAYER ────────────────────────────────────────────
 #
@@ -721,13 +766,29 @@ from = ["terok.lib.core.project_model"]
 
 [[interfaces]]
 expose = [
+    "BUILT_IN_ORIGIN",
     "EGRESS_SETS",
+    "EgressEdit",
+    "EgressSet",
+    "EgressSetOrigin",
+    "IgnoredSetFile",
+    "NO_SETS",
     "OS_PACKAGES_SET",
     "OS_PACKAGES_SUMMARY",
     "RECOMMENDED_SET",
+    "USER_ORIGIN",
+    "USER_SET_SUFFIX",
+    "add_host_to_user_set",
     "describe_egress_sets",
+    "egress_set_catalog",
+    "egress_set_hosts",
+    "granting_egress_set",
+    "ignored_user_set_files",
+    "normalize_egress_host",
     "resolve_egress_sets",
     "selected_egress_sets",
+    "user_egress_sets",
+    "user_set_path",
     "validate_egress_sets",
 ]
 from = ["terok.lib.core.egress_sets"]
@@ -744,6 +805,10 @@ expose = [
     "require_project_exists",
     "set_project_image_agents",
     "set_project_shield_sets",
+    "add_project_shield_allow",
+    "enable_project_shield_set",
+    "add_project_shield_override",
+    "egress_set_users",
     "validate_project_name",
 ]
 from = ["terok.lib.core.projects"]
@@ -869,7 +934,7 @@ expose = ["run_hook", "HOOK_NAMES"]
 from = ["terok.lib.orchestration.hooks"]
 
 [[interfaces]]
-expose = ["task_run_cli", "task_run_toad", "task_run_headless", "task_restart", "ensure_task_running", "task_followup_headless", "HeadlessRunRequest", "DetachedSummary", "resolve_container_uuid"]
+expose = ["task_run_cli", "task_run_toad", "task_run_headless", "task_restart", "ensure_task_running", "task_followup_headless", "HeadlessRunRequest", "DetachedSummary", "resolve_container_uuid", "task_shield_manager"]
 from = ["terok.lib.orchestration.task_runners"]
 
 [[interfaces]]
@@ -914,6 +979,7 @@ expose = [
     "build_dir",
     "archive_dir",
     "user_projects_dir",
+    "egress_sets_dir",
     "vault_dir",
     "get_logs_partial_streaming",
     "get_tui_default_tmux",
@@ -953,6 +1019,7 @@ expose = [
     "is_login_enabled_for",
     "get_vault_bypass",
     "get_services_mode",
+    "get_services_clearance",
     "vault_transport_for",
     "get_vault_token_broker_port",
     "get_vault_ssh_signer_port",
@@ -1053,6 +1120,40 @@ from = ["terok.lib.domain.ssh"]
 
 [[interfaces]]
 expose = [
+    "EXPORT_FORMAT",
+    "EXPORT_VERSION",
+    "PROMOTION_DESTINATIONS",
+    "EgressCandidate",
+    "EgressReview",
+    "PromotionRefused",
+    "PromotionResult",
+    "PromotionSeverity",
+    "SetSuggestion",
+    "export_egress",
+    "promote_egress",
+    "review_egress",
+    "tier_heading",
+]
+from = ["terok.lib.domain.egress_promotion"]
+
+[[interfaces]]
+expose = [
+    "MuteResult",
+    "MuteSeverity",
+    "PromptState",
+    "clearance_hub_socket",
+    "clearance_off_notice",
+    "container_prompt_state",
+    "container_prompts_muted",
+    "muted_notice",
+    "set_task_prompts_muted",
+    "started_clearance_mode",
+    "task_audit_enabled",
+]
+from = ["terok.lib.domain.clearance"]
+
+[[interfaces]]
+expose = [
     "auth_provider_aliases",
     "authenticate",
     "authenticated_entries",
@@ -1083,7 +1184,17 @@ expose = ["ContainerDoctor", "run_container_doctor"]
 from = ["terok.lib.orchestration.container_doctor"]
 
 [[interfaces]]
-expose = ["load", "dump", "YAMLError"]
+expose = [
+    "load",
+    "dump",
+    "YAMLError",
+    "dump_like",
+    "edit_in_place",
+    "append_section",
+    "append_entry",
+    "put_key",
+    "set_entries",
+]
 from = ["terok.lib.util.yaml"]
 
 [[interfaces]]
