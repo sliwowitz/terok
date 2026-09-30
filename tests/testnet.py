@@ -81,3 +81,25 @@ def gate_repo_url(project_name: str, token: str, *, port: int = GATE_PORT) -> st
     modes, so the URL points at ``localhost``.
     """
     return f"http://{token}@{GATE_HOST}:{port}/{project_name}.git"
+
+
+VAULT_LOOPBACK_PORT = 9419
+"""In-container port of the vault's loopback bridge, which provider handles point at."""
+
+VAULT_LOOPBACK_URL = f"http://{GATE_HOST}:{VAULT_LOOPBACK_PORT}"
+"""Base URL a vault-routed provider handle carries inside a task container."""
+
+TEST_NET_CIDR = "198.51.100.0/24"
+"""RFC 5737 TEST-NET-2 range — the CIDR form of an allowlist entry."""
+
+HTTPS_PORT = 443
+"""The HTTPS port — where most harvested egress goes."""
+
+ALT_HTTPS_PORT = 8443
+"""A second TLS port, so a merged harvest entry has more than one port to join."""
+
+PRIVATE_LAN_IP = "192.168.10.20"
+"""An RFC 1918 address standing in for a LAN host the shield refuses as private."""
+
+CLOUD_METADATA_IP = "169.254.169.254"
+"""The cloud metadata address — inside the link-local hard-deny floor."""

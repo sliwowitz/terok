@@ -13,6 +13,7 @@ import shlex
 import socket
 import sys
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 
@@ -69,7 +70,13 @@ if _HAS_TEXTUAL:
         check_setup,
         setup_status,
     )
-    from terok.lib.api.shield import DnsTier, RecoveryStatus, ShieldManager
+    from terok.lib.api.shield import (
+        DnsTier,
+        RecoveryStatus,
+        ShieldManager,
+        ShieldState,
+        task_shield_manager,
+    )
     from terok.lib.api.vault import PassphraseChangeResult, PassphraseTier, RunningTask, VaultStatus
 
     from ..lib.api import (
@@ -125,6 +132,12 @@ if _HAS_TEXTUAL:
     # rather than lazy: on those terminals focus-in never fires to cover it.
     _VAULT_POLL_INTERVAL_S = 2.0
 
+    # Worker groups that run an operator's keypress — a shield action, a
+    # mute — and must answer it either way.  Their workers fold failures
+    # into results; a worker that still ends in ERROR is announced, never
+    # dropped silently with the rest of the background noise.
+    _ANNOUNCED_GROUPS = frozenset({"shield-action", "clearance-mute"})
+
     @dataclass(frozen=True)
     class ProjectStateResult:
         """Result of loading project infrastructure state in a background thread."""
@@ -135,6 +148,30 @@ if _HAS_TEXTUAL:
         staleness: GateStalenessInfo | None = None
         shield_env: EnvironmentCheck | None = None
         error: str | None = None
+
+    @dataclass(frozen=True)
+    class ShieldPaneReading:
+        """Everything the task pane shows about one task's shield, read in one pass.
+
+        One worker reads it all, so the pane never pairs a posture with a
+        window or a mute read at another moment: the posture and the bypass
+        window's countdown come out of a single ``nft -T`` listing, the DNS
+        tier and the rotation warning out of the task's recorded bundle, the
+        prompt state out of its clearance hub.  Every field but the identity
+        keeps its default when the shield could not be read.
+        """
+
+        project_name: str
+        task_id: str
+        shield_state: str | None = None
+        """The posture's name (``UP``, ``DOWN``, …), as ``TaskMeta.shield_state`` holds it."""
+        dns_tier: DnsTier | None = None
+        bypass_closes_at: datetime | None = None
+        """The open window's close time by the wall clock; ``None`` when none is open."""
+        prompts: str | None = None
+        """``asking`` / ``muted`` / ``off`` / ``unknown``; ``None`` while the container is stopped."""
+        rotation_lines: tuple[str, ...] = ()
+        """The degraded-tier warning, worded for the posture just read."""
 
     from .askpass_service import AskpassService
     from .clipboard import get_clipboard_helper_status
@@ -220,6 +257,10 @@ if _HAS_TEXTUAL:
         "shield_down": "_action_shield_down",
         "shield_disengaged": "_action_shield_disengaged",
         "shield_up": "_action_shield_up",
+        "shield_bypass": "_action_shield_bypass",
+        "shield_harvest": "_action_shield_harvest",
+        "clearance_mute": "_action_clearance_mute",
+        "clearance_unmute": "_action_clearance_unmute",
         "shield_interactive": "_action_shield_interactive",
         "shield_watch": "_action_shield_watch",
         "show_clearance": "action_show_clearance",
@@ -368,6 +409,10 @@ if _HAS_TEXTUAL:
             self._gate_marker_watcher: TaskWatcher | None = None
             self._gate_watch_debounce: Timer | None = None
             self._last_shield_env: EnvironmentCheck | None = None
+            # Repaints the task pane once a second while the selected task's
+            # bypass window is open — from the anchored close time, never by
+            # asking the kernel again (see ``_sync_bypass_countdown``).
+            self._bypass_countdown: Timer | None = None
             self._last_vault_status: VaultStatus | None = None
             self._vault_poll_timer: Timer | None = None
             # Cached state for detail screens
@@ -1642,25 +1687,108 @@ if _HAS_TEXTUAL:
             )
 
         @staticmethod
-        def _load_shield_state(
-            project_name: str, task: TaskMeta
-        ) -> tuple[str, str, str | None, DnsTier | None]:
-            """Query shield state and recorded DNS tier for a task (runs in thread)."""
+        def _load_shield_state(project_name: str, task: TaskMeta) -> ShieldPaneReading:
+            """Read everything the task pane shows about the task's shield, in one pass (runs in thread).
+
+            One ``ShieldManager.inspect`` listing gives the posture and the
+            seconds left on a bypass window, anchored here to the wall clock
+            so the pane counts down without asking again.  The recorded DNS
+            tier and the rotation risk are file reads, the risk worded for the
+            posture just read; the prompt state asks the task's clearance hub,
+            and only that.  The manager comes with terok's config, like every
+            other shield surface.  A failure leaves the shield fields unknown
+            rather than failing the worker.
+            """
             try:
                 project = load_project(project_name)
-                mode = task.mode or "cli"
-                cname = container_name(project_name, mode, task.task_id)
-                task_dir = project.tasks_root / str(task.task_id)
-                manager = ShieldManager(task_dir)
-                st = manager.state(cname)
-                # ``ShieldManager.state`` returns an Any-annotated
-                # ShieldState (importlinter keeps terok_shield out of
-                # this layer); the runtime value is an enum whose
-                # ``.name`` is the display string.  ``dns_tier`` is the
-                # tier this task launched with (a cheap file read).
-                return project_name, task.task_id, st.name, manager.dns_tier
+                cname = container_name(project_name, task.mode or "cli", task.task_id)
+                manager = task_shield_manager(project.tasks_root / str(task.task_id))
+                reading = manager.inspect(cname)
+                dns_tier = manager.dns_tier
             except Exception:
-                return project_name, task.task_id, None, None
+                return ShieldPaneReading(project_name, task.task_id)
+            closes_at = None
+            if reading.bypass_remaining is not None:
+                closes_at = datetime.now() + timedelta(seconds=reading.bypass_remaining)
+            return ShieldPaneReading(
+                project_name,
+                task.task_id,
+                # ``inspect`` returns shield's ``ShieldState`` enum; its
+                # ``.name`` is the display string the pane keys on.
+                shield_state=reading.state.name,
+                dns_tier=dns_tier,
+                bypass_closes_at=closes_at,
+                prompts=TerokTUI._task_prompts(cname, manager, task),
+                rotation_lines=TerokTUI._task_rotation_lines(manager, reading.state),
+            )
+
+        def _sync_bypass_countdown(self) -> None:
+            """Run the pane's countdown exactly while the selected task shows an open window.
+
+            The window's only deadline is the kernel's; the shield-state worker
+            anchored it to the wall clock once, so each tick just repaints the
+            pane.  Started when an open window lands on screen, stopped as soon
+            as none is — a different task selected, the window closed, the
+            posture no longer UP.
+            """
+            task = self.current_task
+            counting = (
+                task is not None and task.shield_state == "UP" and task.bypass_closes_at is not None
+            )
+            if counting and self._bypass_countdown is None:
+                self._bypass_countdown = self.set_interval(1.0, self._tick_bypass_countdown)
+            elif not counting and self._bypass_countdown is not None:
+                self._bypass_countdown.stop()
+                self._bypass_countdown = None
+
+        def _tick_bypass_countdown(self) -> None:
+            """Repaint the countdown; when it runs out, ask the shield once whether the window closed.
+
+            The repaint costs nothing but the render: no netns entry, no
+            ``podman``.  Only the expiry triggers a real query, so a window
+            the kernel closed reads as closed from the shield itself, not from
+            this clock — and one a ``shield up`` closed early is caught by
+            that action's own re-query.
+            """
+            task = self.current_task
+            if task is None or task.bypass_closes_at is None:
+                self._sync_bypass_countdown()
+                return
+            expired = datetime.now() >= task.bypass_closes_at
+            if expired:
+                task.bypass_closes_at = None
+                self._sync_bypass_countdown()
+            details = self.query_one("#task-details", TaskDetails)
+            details.set_task(task, image_old=self._last_image_old)
+            if expired and self.current_project_name:
+                self._query_shield_state(self.current_project_name, task)
+
+        @staticmethod
+        def _task_prompts(cname: str, manager: ShieldManager, task: TaskMeta) -> str | None:
+            """Whether the task's refusals reach the operator: the pane's ``Prompts`` value.
+
+            ``None`` while the container is stopped — no hub runs, so no mute
+            exists to show.  Otherwise the running container answers, never
+            the config (which reaches it only at its next start): its hub,
+            addressed by the short id the shield recorded, or — when none
+            answers — the mode it started under, ``off`` meaning it runs no
+            hub.  A hub that should answer and does not reads as ``unknown``,
+            never as asking.
+            """
+            if task.container_state != "running":
+                return None
+            from terok.lib.api.clearance import container_prompt_state
+
+            return container_prompt_state(cname, manager.container_short_id)
+
+        @staticmethod
+        def _task_rotation_lines(manager: ShieldManager, posture: ShieldState) -> tuple[str, ...]:
+            """The degraded-tier warning lines that matter in *posture* — empty when none do."""
+            try:
+                risk = manager.rotation_risk
+            except Exception:  # a probe: no warning rather than no pane
+                return ()
+            return tuple(risk.lines(posture)) if risk is not None else ()
 
         # ---------- Selection handlers (from widgets) ----------
 
@@ -1701,6 +1829,9 @@ if _HAS_TEXTUAL:
                 self._save_selection_state()
 
             self._update_task_details()
+            # A countdown belongs to the task on screen: stop the previous
+            # one's, or resume this one's from what was last read for it.
+            self._sync_bypass_countdown()
 
             # Immediately check container state when task is selected
             if self.current_task and self.current_task.mode:
@@ -1715,6 +1846,13 @@ if _HAS_TEXTUAL:
                 if worker.group == "project-state" and event.state == WorkerState.ERROR:
                     state_widget = self.query_one("#project-state", ProjectState)
                     state_widget.update(f"Project state error: {worker.error}")
+                elif event.state == WorkerState.ERROR and worker.group in _ANNOUNCED_GROUPS:
+                    # Both workers fold their failures into a result, so this
+                    # is the belt to that brace: an operator who pressed a key
+                    # hears that it failed, whatever escaped the fold.
+                    self.notify(
+                        f"{worker.name or worker.group} failed: {worker.error}", severity="error"
+                    )
                 return
 
             if worker.group == "project-state":
@@ -1795,17 +1933,30 @@ if _HAS_TEXTUAL:
                 # flag synced to flip from "init" to "running".  Repaint only
                 # when a row's rendered status badge actually moves.
                 changed = False
+                # The selected task's shield lines (posture, window, prompts)
+                # describe one container run; when its container starts or
+                # stops they are stale, so they are read again.
+                moved: TaskMeta | None = None
                 for tm in task_list.tasks:
                     before = (tm.status, tm.work_status, tm.web_port)
+                    was = tm.container_state
                     tm.adopt_live_state(fresh_by_id[tm.task_id])
                     if (tm.status, tm.work_status, tm.web_port) != before:
                         changed = True
+                    if (
+                        self.current_task is not None
+                        and tm.task_id == self.current_task.task_id
+                        and tm.container_state != was
+                    ):
+                        moved = tm
                 if changed:
                     # Regenerate labels on visible list items so status badges update
                     task_list.refresh_labels()
                     if self.current_task:
                         details = self.query_one("#task-details", TaskDetails)
                         details.set_task(self.current_task)
+                if moved is not None:
+                    self._query_shield_state(project_name, moved)
                 return
 
             if worker.group == "task-delete":
@@ -1881,19 +2032,11 @@ if _HAS_TEXTUAL:
                 result = worker.result
                 if not result:
                     return
-                project_name, task_id, error = result
-                if error:
-                    self.notify(f"Shield action failed: {error}")
-                else:
-                    # Extract action from worker name ("shield-action:down:pid:tid")
-                    parts = (worker.name or "").split(":")
-                    action = parts[1] if len(parts) >= 2 else ""
-                    if action == "down":
-                        self.notify(
-                            f"Shield dropped for task {task_id}. {self._config.shield_security_hint}"
-                        )
-                    elif action == "up":
-                        self.notify(f"Shield up for task {task_id}")
+                project_name, task_id, error, detail = result
+                # Extract action from worker name ("shield-action:down:pid:tid")
+                parts = (worker.name or "").split(":")
+                action = parts[1] if len(parts) >= 2 else ""
+                self._report_shield_action(action, task_id, error, detail)
                 # Refresh shield state after action
                 if (
                     self.current_task
@@ -1903,19 +2046,39 @@ if _HAS_TEXTUAL:
                     self._query_shield_state(project_name, self.current_task)
                 return
 
+            if worker.group == "clearance-mute":
+                mute = worker.result
+                if mute is not None:
+                    self.notify(mute.message, severity=mute.severity)
+                # The pane's Prompts line is the hub's answer: ask it again,
+                # whichever way the mute went (``clearance-mute:<pid>:<tid>``).
+                _, _, target = (worker.name or "").partition(":")
+                pid, _, tid = target.partition(":")
+                if (
+                    self.current_task
+                    and pid == self.current_project_name
+                    and tid == self.current_task.task_id
+                ):
+                    self._query_shield_state(pid, self.current_task)
+                return
+
             if worker.group == "shield-state":
-                result = worker.result
-                if not result:
+                reading = worker.result
+                if not reading:
                     return
-                project_name, task_id, shield_st, dns_tier = result
-                if project_name != self.current_project_name:
+                if reading.project_name != self.current_project_name:
                     return
-                if not self.current_task or self.current_task.task_id != task_id:
+                if not self.current_task or self.current_task.task_id != reading.task_id:
                     return
-                self.current_task.shield_state = shield_st
-                self.current_task.dns_tier = dns_tier
+                task = self.current_task
+                task.shield_state = reading.shield_state
+                task.dns_tier = reading.dns_tier
+                task.bypass_closes_at = reading.bypass_closes_at
+                task.prompts = reading.prompts
+                task.rotation_lines = reading.rotation_lines
                 details = self.query_one("#task-details", TaskDetails)
-                details.set_task(self.current_task, image_old=self._last_image_old)
+                details.set_task(task, image_old=self._last_image_old)
+                self._sync_bypass_countdown()
                 return
 
             if worker.group == "panic":
@@ -2655,9 +2818,7 @@ if _HAS_TEXTUAL:
 
         async def action_show_clearance(self) -> None:
             """Open the live clearance screen for D-Bus shield notifications."""
-            from .clearance_screen import ClearanceScreen
-
-            await self.push_screen(ClearanceScreen())
+            await self._open_clearance_screen()
 
         async def action_show_clearance_from_main(self) -> None:
             """Open the clearance screen from the main screen."""

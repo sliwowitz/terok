@@ -3,6 +3,7 @@
 
 """Task detail rendering widget and helper."""
 
+from datetime import datetime
 from typing import Any
 
 from rich.style import Style
@@ -39,6 +40,40 @@ def _get_css_variables(widget: Static) -> dict[str, str]:
         return {}
 
 
+_INDENT = " " * 11
+"""Continuation indent: under the value column of the ``Label:    value`` lines."""
+
+_PROMPT_LINES: dict[str, tuple[str, str]] = {
+    "asking": ("asking", ""),
+    "muted": ("muted", " — refusals are still enforced, but nobody is asked"),
+    "off": ("clearance off", " — nobody is asked: it started with services.clearance: off"),
+    "unknown": ("unknown", " — the task's clearance hub did not say"),
+}
+"""How each ``TaskMeta.prompts`` value reads: the state, then what it means."""
+
+
+def _bypass_line(closes_at: datetime, now: datetime, warning: Style) -> Text:
+    """The open window: when it closes by the clock, and how long that is from *now*."""
+    left = max(0, int((closes_at - now).total_seconds()))
+    minutes, seconds = divmod(left, 60)
+    countdown = f"{minutes}m {seconds:02d}s" if minutes else f"{seconds}s"
+    return Text.assemble(
+        "Bypass:    ",
+        Text(
+            f"open until {closes_at:%H:%M:%S} ({countdown} left) — what the allowlist "
+            "refuses is accepted and logged",
+            style=warning,
+        ),
+    )
+
+
+def _prompts_line(prompts: str, warning: Style) -> Text:
+    """The ``Prompts:`` line — loud when muted or unknown, since nobody is then asked."""
+    state, meaning = _PROMPT_LINES.get(prompts, (prompts, ""))
+    style = warning if prompts in ("muted", "unknown") else Style()
+    return Text.assemble("Prompts:   ", Text(state + meaning, style=style))
+
+
 def render_task_details(
     task: TaskMeta | None,
     project_name: str | None = None,
@@ -49,6 +84,7 @@ def render_task_details(
     shield_hooks_ok: bool | None = None,
     is_web: bool = False,
     width: int = 0,
+    now: datetime | None = None,
 ) -> Text:
     """Render task details as a Rich Text object.
 
@@ -58,6 +94,11 @@ def render_task_details(
     because xterm.js's link handler shows a "could be dangerous"
     confirmation dialog for every click; the ``@click`` meta below
     keeps that path working without the dialog.
+
+    *now* is the clock the bypass countdown reads against — the local
+    wall clock by default.  The window's close time was anchored to that
+    clock when the shield was read, so re-rendering counts it down without
+    asking the shield again.
     """
     if task is None:
         return Text(empty_message or "")
@@ -143,7 +184,8 @@ def render_task_details(
                 )
             )
         else:
-            # UP (enforcing): primary/blue — the normal, trusted state.
+            # UP (enforcing): primary/blue — the normal, trusted state;
+            # warning/yellow while a bypass window is open (below).
             # DOWN (relaxed): success/green — operator-chosen, safe by
             # virtue of private-range protection still in place.
             # DISENGAGED (nothing enforced — deny sets and private ranges
@@ -160,6 +202,16 @@ def render_task_details(
                 "DISABLED": error_color,
             }
             shield_color = shield_colors.get(task.shield_state, error_color)
+            # An open bypass window is UP accepting what the allowlist
+            # refuses — not the trusted blue state, so it is not drawn as one.
+            now = now or datetime.now()
+            window_open = (
+                task.shield_state == "UP"
+                and task.bypass_closes_at is not None
+                and task.bypass_closes_at > now
+            )
+            if window_open:
+                shield_color = warning_color
             lines.append(
                 Text.assemble(
                     "Shield:    ",
@@ -173,6 +225,10 @@ def render_task_details(
                         style=Style(color=error_color),
                     )
                 )
+            if window_open and task.bypass_closes_at is not None:
+                lines.append(_bypass_line(task.bypass_closes_at, now, warning_style))
+    if task.prompts is not None:
+        lines.append(_prompts_line(task.prompts, warning_style))
     if task.dns_tier is not None and not task.dns_tier.live:
         dns_error_color = variables.get("error", "red")
         lines.append(
@@ -182,6 +238,13 @@ def render_task_details(
             )
         )
         lines.append(Text(f"           {task.dns_tier.hint}", style=Style(color=dns_error_color)))
+    # The rotation warning stands on its own: break-glass names are pinned on
+    # every DNS tier, the live one included.  Shield words each line for the
+    # posture it was read in; long ones wrap under the value column.
+    for index, line in enumerate(task.rotation_lines):
+        prefix = "Pinned:    " if index == 0 else _INDENT
+        wrapped = wrap_with_hanging_indent(prefix, line, "", width)
+        lines.append(Text.assemble(prefix, Text(wrapped[len(prefix) :], style=warning_style)))
     if task.mode == "run":
         if task.exit_code is not None:
             lines.append(Text(f"Exit code: {task.exit_code}"))

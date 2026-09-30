@@ -76,7 +76,8 @@ class TestShieldEndToEnd:
         with a logged reason.
         """
         allowed = real_shield.allow(shielded_container, TEST_IP_RFC5737)
-        assert TEST_IP_RFC5737 in allowed
+        assert allowed.live, "a running container takes the grant live, not at its next start"
+        assert TEST_IP_RFC5737 in allowed.ips
         rules_after_allow = real_shield.rules(shielded_container)
         assert TEST_IP_RFC5737 in _nft_set(rules_after_allow, _ALLOW_SET)
 

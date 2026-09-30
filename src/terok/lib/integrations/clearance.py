@@ -14,6 +14,12 @@ per container) and operator UIs multiplex across the per-container
 sockets via
 [`MultiSocketSubscriber`][terok_clearance.MultiSocketSubscriber].
 There is no host-side ``HubService`` / ``NotifierService`` daemon.
+
+``set_container_mute`` and ``container_mutes`` are the one-shot pair a
+caller with no live subscription uses to mute a container's prompts and to
+read the mutes back.  Both address the hub by the 12-character short
+container id its events carry, and both raise when the hub cannot be
+reached — an unknown state is never reported as audible.
 """
 
 from __future__ import annotations
@@ -31,7 +37,9 @@ if TYPE_CHECKING:
         EventSubscriber as EventSubscriber,
         MultiSocketSubscriber as MultiSocketSubscriber,
         Notification as Notification,
+        container_mutes as container_mutes,
         create_notifier as create_notifier,
+        set_container_mute as set_container_mute,
     )
 
 #: Public name -> defining module (PEP 562 lazy resolution).
@@ -44,7 +52,9 @@ _LAZY: dict[str, str] = {
     "NOTIFY_BLOCKED": "terok_clearance",
     "NOTIFY_VERDICT": "terok_clearance",
     "Notification": "terok_clearance",
+    "container_mutes": "terok_clearance",
     "create_notifier": "terok_clearance",
+    "set_container_mute": "terok_clearance",
 }
 
 __all__ = [
@@ -56,7 +66,9 @@ __all__ = [
     "NOTIFY_BLOCKED",
     "NOTIFY_VERDICT",
     "Notification",
+    "container_mutes",
     "create_notifier",
+    "set_container_mute",
 ]
 
 

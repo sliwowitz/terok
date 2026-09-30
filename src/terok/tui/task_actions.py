@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from terok.lib.api.setup import validate_host_setup
-from terok.lib.api.shield import ShieldManager
+from terok.lib.api.shield import task_shield_manager
 
 from ..lib.api import (
     HeadlessRunRequest,
@@ -48,6 +48,9 @@ from .widgets import TaskList
 
 if TYPE_CHECKING:
     from textual.app import App
+
+    from terok.lib.api.clearance import MuteResult
+    from terok.lib.api.shield import ShieldManager, ShieldState
 
     from .console_log import ConsoleLogEntry
 
@@ -84,27 +87,88 @@ def _login_title(project_name: str, task_id: str, task_name: str) -> str:
     return f"{project_name}:{task_id}:{task_name}"
 
 
-def _shield_up(cname: str, task_dir: Path) -> None:
-    """Bring this task's shield up.
+def _shield_up(cname: str, task_dir: Path) -> str | None:
+    """Bring this task's shield up; return the rotation warning UP now carries, if any.
 
     Resolves the container UUID first because shield's per-container
     hub socket is keyed on it — see
-    [`ShieldManager.up`][terok_sandbox.ShieldManager.up].
+    [`ShieldManager.up`][terok_sandbox.ShieldManager.up].  The warning is
+    the degraded-DNS-tier one, worded for UP: names the task's tier pinned
+    to the addresses they resolved to, refused (or, for a vault host,
+    escaping its deny) once the provider moves them.  The toast confirming
+    the posture carries it, since shield's own log never reaches the TUI.
     """
+    from terok.lib.api.shield import ShieldState
+
     from ..lib.orchestration.task_runners import resolve_container_uuid
 
-    ShieldManager(task_dir).up(cname, resolve_container_uuid(cname))
+    manager = task_shield_manager(task_dir)
+    manager.up(cname, resolve_container_uuid(cname))
+    return _rotation_warning(manager, ShieldState.UP)
 
 
-def _shield_down(cname: str, task_dir: Path, *, disengaged: bool = False) -> None:
-    """Drop this task's shield.
+def _shield_down(cname: str, task_dir: Path, *, disengaged: bool = False) -> str | None:
+    """Drop this task's shield; return the rotation warning the new posture carries, if any.
 
     See [`_shield_up`][terok.tui.task_actions._shield_up] for the
-    container-UUID rationale.
+    container-UUID rationale.  In DOWN only the deny side of the warning
+    still matters — a vault host's rotated address is accepted — and a
+    disengaged shield enforces nothing, so it carries none.
     """
+    from terok.lib.api.shield import ShieldState
+
     from ..lib.orchestration.task_runners import resolve_container_uuid
 
-    ShieldManager(task_dir).down(cname, resolve_container_uuid(cname), disengaged=disengaged)
+    manager = task_shield_manager(task_dir)
+    manager.down(cname, resolve_container_uuid(cname), disengaged=disengaged)
+    return _rotation_warning(manager, ShieldState.DISENGAGED if disengaged else ShieldState.DOWN)
+
+
+def _rotation_warning(manager: "ShieldManager", posture: "ShieldState") -> str | None:
+    """The degraded-tier warning lines that matter in *posture*, one per line; ``None`` if none do.
+
+    A file read of the task's recorded tier and policy.  It never fails the
+    action it follows: the posture already changed, so a warning that cannot
+    be read is left out rather than reported as the action failing.
+    """
+    try:
+        risk = manager.rotation_risk
+        lines = risk.lines(posture) if risk is not None else []
+    except Exception:  # noqa: BLE001 — advisory: the posture change already landed
+        return None
+    return "\n".join(lines) or None
+
+
+def _shield_bypass(cname: str, task_dir: Path, *, duration: str | None = None) -> str:
+    """Open this task's timed allow-all window for *duration*; return the duration granted.
+
+    No container UUID: the window is an nft element, not a posture, so nothing
+    is announced to the hub.  The manager comes with terok's config, so the
+    kill switch refuses the window here rather than letting it open on a
+    container started before the switch was thrown.
+    """
+    return task_shield_manager(task_dir).bypass(cname, duration)
+
+
+def _shield_bypass_off(cname: str, task_dir: Path) -> None:
+    """Close this task's timed allow-all window before its timeout runs out."""
+    task_shield_manager(task_dir).bypass_off(cname)
+
+
+_ROTATION_NOTICE_TIMEOUT_S = 20.0
+"""How long a posture notice carrying the degraded-tier warning stays up.
+
+Several long lines of names — four times a plain notice's default — so they
+can be read before the toast goes; the task pane keeps them afterwards."""
+
+#: How a shield action reads in its success and failure notices, by the
+#: action name its worker carries.
+_SHIELD_ACTION_PHRASES: dict[str, str] = {
+    "down": "drop the shield",
+    "up": "raise the shield",
+    "bypass": "open the bypass window",
+    "bypass-off": "close the bypass window",
+}
 
 
 class TaskActionsMixin(_MixinBase):
@@ -822,9 +886,16 @@ class TaskActionsMixin(_MixinBase):
     def _action_shield_toggle(
         self,
         action: str,
-        shield_fn: Callable[[str, Path], None],
+        shield_fn: Callable[[str, Path], str | None],
     ) -> None:
-        """Run a shield action (down/up) for the current task in a background worker."""
+        """Run a shield action for the current task in a background worker.
+
+        The worker hands back ``(project, task, error, detail)``: *error* is
+        the failure text (``None`` on success), *detail* whatever the action
+        returned — the duration a bypass window was granted for, the
+        degraded-tier warning a posture change carries — so the result
+        handler can say what actually happened either way.
+        """
         if not self.current_project_name or not self.current_task:
             self.notify("No task selected.")
             return
@@ -833,16 +904,16 @@ class TaskActionsMixin(_MixinBase):
         tid = task.task_id
         cname = container_name(pid, task.mode or "cli", tid)
 
-        def work() -> tuple[str, str, str | None]:
+        def work() -> tuple[str, str, str | None, str | None]:
             """Execute shield action in background thread."""
             try:
                 task_dir = load_project(pid).tasks_root / str(tid)
-                shield_fn(cname, task_dir)
-                return pid, tid, None
+                detail = shield_fn(cname, task_dir)
+                return pid, tid, None, detail
             except SystemExit as e:
-                return pid, tid, str(e)
+                return pid, tid, str(e), None
             except Exception as e:
-                return pid, tid, str(e)
+                return pid, tid, str(e), None
 
         self.run_worker(
             work,
@@ -857,6 +928,47 @@ class TaskActionsMixin(_MixinBase):
         if self._notify_shield_disabled():
             return
         self._action_shield_toggle("down", _shield_down)
+
+    def _report_shield_action(
+        self, action: str, task_id: str, error: str | None, detail: str | None
+    ) -> None:
+        """Announce how a shield action on *task_id* went — the failure as loudly as the success.
+
+        *action* is the name the worker was started under; *detail* is what the
+        action returned: for an opened bypass window, the duration the shield
+        granted; for a posture change, the degraded-DNS-tier warning that
+        posture carries.  That warning turns the posture's confirmation into a
+        warning toast with its lines, held longer than a plain notice — shield
+        logs it too, but nothing it logs reaches the TUI.  The window notice
+        says what the window does and does not do: what the allowlist refuses
+        is accepted and logged, while the security tier and the private ranges
+        sit above it and stay refused.
+        """
+        if error:
+            phrase = _SHIELD_ACTION_PHRASES.get(action, f"run shield {action}")
+            self.notify(f"Could not {phrase} for task {task_id}: {error}", severity="error")
+        elif action in ("down", "up"):
+            if action == "down":
+                done = f"Shield dropped for task {task_id}. {get_config().shield_security_hint}"
+            else:
+                done = f"Shield up for task {task_id}"
+            if detail:
+                self.notify(
+                    f"{done}\n{detail}",
+                    severity="warning",
+                    timeout=_ROTATION_NOTICE_TIMEOUT_S,
+                    markup=False,
+                )
+            else:
+                self.notify(done)
+        elif action == "bypass":
+            granted = f" for {detail}" if detail else ""
+            self.notify(
+                f"Bypass window open for task {task_id}{granted} — what the allowlist refuses "
+                "is accepted and logged; the security tier and private ranges stay refused"
+            )
+        elif action == "bypass-off":
+            self.notify(f"Bypass window closed for task {task_id}")
 
     def _notify_shield_disabled(self) -> bool:
         """Warn the user and return ``True`` if the shield kill-switch is active."""
@@ -880,6 +992,100 @@ class TaskActionsMixin(_MixinBase):
             return
         self._action_shield_toggle("down", lambda c, d: _shield_down(c, d, disengaged=True))
 
+    async def _action_shield_bypass(self) -> None:
+        """Ask for a duration, then open (or close) the timed allow-all window."""
+        if self._notify_shield_disabled():
+            return
+        if not self.current_project_name or not self.current_task:
+            self.notify("No task selected.")
+            return
+        from .shield_bypass_screen import ShieldBypassScreen
+
+        await self.push_screen(
+            ShieldBypassScreen(get_config().shield_bypass_duration),
+            self._on_shield_bypass_result,
+        )
+
+    def _on_shield_bypass_result(self, duration: str | None) -> None:
+        """Open the window for *duration*, or close it when the field came back empty."""
+        if duration is None:
+            return
+        if duration:
+            self._action_shield_toggle(
+                "bypass", lambda c, d: _shield_bypass(c, d, duration=duration)
+            )
+        else:
+            self._action_shield_toggle("bypass-off", _shield_bypass_off)
+
+    async def _action_shield_harvest(self) -> None:
+        """Open the harvest screen: what this task reached for, and promoting what it needed.
+
+        The screen reads the review itself, in a worker — the audit log is
+        read whole, which has no place on the UI thread — so all it is handed
+        is what no file says: the task's posture and open window as the last
+        shield-state read found them, and whether its container runs.
+        """
+        if not self.current_project_name or not self.current_task:
+            self.notify("No task selected.")
+            return
+        from .shield_harvest_screen import ShieldHarvestScreen
+
+        task = self.current_task
+        await self.push_screen(
+            ShieldHarvestScreen(
+                self.current_project_name,
+                task.task_id,
+                posture=task.shield_state,
+                running=task.container_state == "running",
+                bypass_closes_at=task.bypass_closes_at,
+            )
+        )
+
+    def _action_clearance_mute(self) -> None:
+        """Stop prompting for this task's refusals; they stay refused and logged."""
+        self._set_clearance_mute(True)
+
+    def _action_clearance_unmute(self) -> None:
+        """Ask again about this task's refusals."""
+        self._set_clearance_mute(False)
+
+    def _set_clearance_mute(self, muted: bool) -> None:
+        """Mute or unmute this task's clearance prompts in a worker; the result is announced.
+
+        Explicit rather than a toggle: the hub holds the mute in memory and
+        every container start rebuilds it in the project's
+        ``services.clearance`` mode, so saying which state you want always
+        lands.  The library addresses the hub by the short container id the
+        shield recorded — the hub the task started with, whatever its
+        project's ``services.clearance`` says now — says so when the task
+        never started or started with clearance ``off``, and warns when the
+        task's audit is off; the worker returns its ``MuteResult``, which the
+        app's worker handler shows — success and failure alike.
+        """
+        if not self.current_project_name or not self.current_task:
+            self.notify("No task selected.")
+            return
+        pid = self.current_project_name
+        tid = self.current_task.task_id
+
+        def work() -> "MuteResult":
+            """Ask the task's hub, folding any failure into a result the handler can show."""
+            from terok.lib.api.clearance import MuteResult, set_task_prompts_muted
+
+            try:
+                return set_task_prompts_muted(pid, tid, muted=muted)
+            except (SystemExit, Exception) as exc:
+                verb = "mute" if muted else "unmute"
+                return MuteResult(None, f"Could not {verb} task {pid}/{tid}: {exc}", "error")
+
+        self.run_worker(
+            work,
+            name=f"clearance-mute:{pid}:{tid}",
+            group="clearance-mute",
+            thread=True,
+            exit_on_error=False,
+        )
+
     async def _action_shield_interactive(self) -> None:
         """Open the native shield clearance screen for live verdict handling.
 
@@ -889,9 +1095,7 @@ class TaskActionsMixin(_MixinBase):
         [`ClearanceScreen`][terok.tui.clearance_screen.ClearanceScreen] *is*
         the interactive verdict handler.
         """
-        from .clearance_screen import ClearanceScreen
-
-        await self.push_screen(ClearanceScreen())
+        await self._open_clearance_screen()
 
     async def _action_shield_watch(self) -> None:
         """Open the native shield clearance screen — its event log streams blocked access.
@@ -901,6 +1105,24 @@ class TaskActionsMixin(_MixinBase):
         already renders the same blocked-access events in its scrolling
         event log, alongside the interactive pending list.
         """
+        await self._open_clearance_screen()
+
+    async def _open_clearance_screen(self) -> None:
+        """Push the live clearance screen — unless it could only ever wait for nothing.
+
+        With ``services.clearance: off`` (globally, and for the selected
+        project) and no task running a hub, no refusal is put to anyone; an
+        empty screen that never fills would read as broken, so the notice
+        says why instead.  Any hub still listening — a task started before
+        the switch keeps its mode — opens the screen as usual.  Every entry
+        point (``C``, the palette, the task menu, ``v`` / ``W``) comes here.
+        """
+        from terok.lib.api.clearance import clearance_off_notice
+
+        notice = clearance_off_notice(self.current_project_name)
+        if notice is not None:
+            self.notify(notice, severity="warning", timeout=10)
+            return
         from .clearance_screen import ClearanceScreen
 
         await self.push_screen(ClearanceScreen())

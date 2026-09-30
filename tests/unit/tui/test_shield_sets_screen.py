@@ -5,17 +5,19 @@
 
 Pins the dismissal contract the Project Details caller relies on:
 ``("recommended",)`` for the master "Recommended" state, an explicit tuple
-otherwise (empty = no curated sets), ``None`` on cancel — plus the
-master/item cascade.
+otherwise (empty = no sets), ``None`` on cancel — plus the master/item
+cascade, and the operator's own sets in a group of their own, outside it.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from textual.app import App
 from textual.widgets import Checkbox
 
-from terok.lib.api import EGRESS_SETS, RECOMMENDED_SET
+from terok.lib.api import EGRESS_SETS, RECOMMENDED_SET, egress_sets_dir
 from terok.tui.shield_sets_screen import ShieldSetsScreen
 
 _SENTINEL_PENDING = object()
@@ -48,6 +50,20 @@ def _master(screen: ShieldSetsScreen) -> Checkbox:
 
 def _item(screen: ShieldSetsScreen, slug: str) -> Checkbox:
     return screen.query_one(f"#shield-sets-item-{slug}", Checkbox)
+
+
+def _user(screen: ShieldSetsScreen, name: str) -> Checkbox:
+    return screen.query_one(f"#shield-sets-user-{name}", Checkbox)
+
+
+@pytest.fixture
+def user_sets() -> Path:
+    """Two of the operator's own sets — ``corp`` valid, ``broken`` not — in the isolated dir."""
+    directory = egress_sets_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "corp.txt").write_text("artifactory.corp.example\n", encoding="utf-8")
+    (directory / "broken.txt").write_text("*.corp.example\n", encoding="utf-8")
+    return directory
 
 
 @pytest.mark.asyncio
@@ -160,7 +176,7 @@ async def test_save_with_subset_emits_tuple() -> None:
 
 @pytest.mark.asyncio
 async def test_save_with_nothing_selected_emits_empty_tuple() -> None:
-    """Unlike agents, an empty selection is valid: explicitly no curated sets."""
+    """Unlike agents, an empty selection is valid: explicitly no sets."""
     app = _Host(ShieldSetsScreen(initial=None))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -178,3 +194,110 @@ async def test_cancel_dismisses_with_none() -> None:
         await pilot.click("#shield-sets-cancel")
         await pilot.pause()
     assert app.result is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("user_sets")
+async def test_user_sets_get_their_own_group_with_broken_ones_disabled() -> None:
+    """A valid user set is a choice; one whose file does not parse is shown, but disabled."""
+    app = _Host(ShieldSetsScreen(initial=("corp", "broken")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        assert _user(screen, "corp").value is True
+        assert _user(screen, "corp").disabled is False
+        assert _user(screen, "broken").disabled is True
+        assert _user(screen, "broken").value is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("user_sets")
+@pytest.mark.parametrize("checked", [True, False], ids=["checked", "unchecked"])
+async def test_master_cascade_leaves_user_sets_alone(checked: bool) -> None:
+    """``recommended`` never covers a user set, so master neither checks nor clears one."""
+    initial = ("corp",) if checked else None
+    app = _Host(ShieldSetsScreen(initial=initial))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        _master(screen).value = True
+        await pilot.pause()
+        assert _user(screen, "corp").value is checked
+        _master(screen).value = False
+        await pilot.pause()
+        assert _user(screen, "corp").value is checked
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("user_sets")
+async def test_unchecking_a_user_set_keeps_master_armed() -> None:
+    """Dropping one of your sets says nothing about the built-in selection."""
+    app = _Host(ShieldSetsScreen(initial=(RECOMMENDED_SET, "corp")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        _user(screen, "corp").value = False
+        await pilot.pause()
+        assert _master(screen).value is True
+        await pilot.click("#shield-sets-save")
+        await pilot.pause()
+    assert app.result == (RECOMMENDED_SET,)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("user_sets")
+@pytest.mark.parametrize(
+    ("initial", "expected"),
+    [
+        pytest.param((RECOMMENDED_SET, "corp"), (RECOMMENDED_SET, "corp"), id="with-master"),
+        pytest.param(("corp", _SLUGS[0]), (_SLUGS[0], "corp"), id="explicit"),
+        pytest.param(
+            ("broken", RECOMMENDED_SET), (RECOMMENDED_SET, "broken"), id="broken-kept-to-refuse"
+        ),
+        pytest.param(
+            (RECOMMENDED_SET, "ghost"), (RECOMMENDED_SET, "ghost"), id="missing-kept-to-refuse"
+        ),
+    ],
+)
+async def test_save_returns_the_built_in_choice_then_the_users_sets(
+    initial: tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    """Master (or the checked built-in sets) first, then the checked user sets."""
+    app = _Host(ShieldSetsScreen(initial=initial))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#shield-sets-save")
+        await pilot.pause()
+    assert app.result == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("user_sets")
+async def test_save_keeps_the_names_the_picker_cannot_show_after_the_shown_ones() -> None:
+    """A broken and a missing user set survive a save, once each, in their original order."""
+    initial = ("ghost", "broken", _SLUGS[0], "ghost", "corp")
+    app = _Host(ShieldSetsScreen(initial=initial))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        _item(screen, _SLUGS[1]).value = True
+        await pilot.pause()
+        await pilot.click("#shield-sets-save")
+        await pilot.pause()
+    assert app.result == (_SLUGS[0], _SLUGS[1], "corp", "ghost", "broken")
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("user_sets")
+async def test_save_does_not_resurrect_a_set_the_operator_unchecked() -> None:
+    """Only names with no checkbox are carried over: an unchecked, shown choice stays dropped."""
+    app = _Host(ShieldSetsScreen(initial=("corp", _SLUGS[0], "ghost")))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = app.screen
+        _user(screen, "corp").value = False
+        _item(screen, _SLUGS[0]).value = False
+        await pilot.pause()
+        await pilot.click("#shield-sets-save")
+        await pilot.pause()
+    assert app.result == ("ghost",)

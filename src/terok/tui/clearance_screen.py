@@ -24,6 +24,7 @@ Dual use:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -72,6 +73,15 @@ class _PendingRequest:
     nid: int
     summary: str
     body: str
+    container_id: str = ""
+    """The 12-char short container id the event carried — the key the hub mutes by,
+    and the name of the directory its socket sits in."""
+    container_name: str = ""
+    """The container's display name, for notices only: the hub has never seen it."""
+    project: str = ""
+    """The task's project, from the dossier the event carried; empty outside terok."""
+    task_id: str = ""
+    """The task's id, from the same dossier; empty outside terok."""
 
 
 class NotificationPosted(Message):
@@ -155,6 +165,7 @@ class ClearanceScreen(screen.Screen[None]):
         _footer_binding("q", "dismiss_screen", "Back"),
         _footer_binding("a", "allow_selected", "Allow"),
         _footer_binding("x", "deny_selected", "Deny"),
+        _footer_binding("m", "mute_selected", "Mute task"),
     ]
 
     CSS = """
@@ -307,7 +318,15 @@ class ClearanceScreen(screen.Screen[None]):
             log.write(Text(rendered, style=style))
         elif message.actions:
             # New blocked connection — add to pending
-            req = _PendingRequest(nid=message.nid, summary=message.summary, body=message.body)
+            req = _PendingRequest(
+                nid=message.nid,
+                summary=message.summary,
+                body=message.body,
+                container_id=message.container_id,
+                container_name=message.container_name,
+                project=message.project,
+                task_id=message.task_id,
+            )
             self._pending[message.nid] = req
             label = Static(rendered, markup=False)
             item = ListItem(label)
@@ -361,6 +380,73 @@ class ClearanceScreen(screen.Screen[None]):
     def action_deny_selected(self) -> None:
         """Send a ``deny`` verdict for the highlighted pending request."""
         self._send_verdict("deny")
+
+    def action_mute_selected(self) -> None:
+        """Stop prompting for the highlighted request's task.
+
+        Mute silences the question, not the shield: this connection stays
+        refused, later ones stay refused, and every one of them is still
+        recorded in the task's audit log.  Unmute from the task's action list.
+        """
+        request = self._highlighted_request()
+        if request is None:
+            return
+        if self._subscriber is None or not request.container_id:
+            self.app.notify("Clearance hub not connected — cannot mute.")
+            return
+        self.run_worker(
+            self._mute(request),
+            name=f"clearance-mute:{request.container_id}",
+            group="clearance-mute",
+            exit_on_error=False,
+        )
+
+    async def _mute(self, request: _PendingRequest) -> None:
+        """Ask the request's hub to stop prompting, and say what happened.
+
+        The hub is addressed by the short id the event carried — the only key
+        it mutes by; the container name is for the notice alone.  ``None``
+        from the subscriber means the call did not land (the hub is gone, or
+        refused), so the notice says the state is unknown rather than guess.
+        A mute that lands is checked against the task's audit flag, off the
+        event loop: with audit off, nothing will record what it is refused.
+        """
+        from terok.lib.api.clearance import muted_notice, task_audit_enabled
+
+        name = request.container_name or request.container_id
+        muted = await self._subscriber.set_mute(request.container_id, True)
+        if muted is None:
+            self.app.notify(
+                f"Could not mute {name}: its clearance hub did not answer, so whether it "
+                "prompts is unknown",
+                severity="error",
+            )
+            return
+        if not muted:
+            self.app.notify(
+                f"The clearance hub of {name} still reports it unmuted", severity="error"
+            )
+            return
+        audit_enabled = None
+        if request.project and request.task_id:
+            audit_enabled = await asyncio.to_thread(
+                task_audit_enabled, request.project, request.task_id
+            )
+        notice = muted_notice(name, audit_enabled=audit_enabled)
+        self.app.notify(notice.message, severity=notice.severity)
+
+    def _highlighted_request(self) -> _PendingRequest | None:
+        """Return the highlighted pending request, or ``None`` with a notice."""
+        try:
+            pending_list = self.query_one(_ID_PENDING, ListView)
+        except NoMatches:
+            return None
+        item = pending_list.highlighted_child
+        if item is None:
+            self.app.notify("No pending request selected.")
+            return None
+        nid = getattr(item, "clearance_nid", None)
+        return self._pending.get(nid) if nid is not None else None
 
     def _send_verdict(self, action: str) -> None:
         """Invoke the notifier callback for the currently highlighted item."""

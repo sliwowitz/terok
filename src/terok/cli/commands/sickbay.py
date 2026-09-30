@@ -11,8 +11,8 @@ Scoping:
 - ``terok sickbay <project>`` — single project
 - ``terok sickbay <project> <task>`` — single task
 - ``terok sickbay --system`` — host-wide checks only (shield, vault,
-  recovery, ssh signer, selinux, default agents); skips the slow
-  per-container walk.  Mutually exclusive with a project/task scope.
+  agent credentials, recovery, ssh signer, selinux, default agents); skips
+  the slow per-container walk.  Mutually exclusive with a project/task scope.
 
 ``--fix`` is orthogonal to scope and auto-remediates (e.g. unfired
 post_stop hooks); it has no effect under ``--system``, which runs no
@@ -166,12 +166,16 @@ def _check_shield() -> _CheckResult:
         return ("warn", label, f"unexpected health: {ec.health}")
     dns = getattr(ec, "dns_tier", "unknown")
     detail = f"active ({ec.hooks}, {dns} DNS)"
-    # On a degraded tier surface shield's own reason: dnsmasq missing and
-    # dnsmasq AppArmor-confined need different fixes, and shield reports
+    # A degraded tier is a warning, not a pass: allowlisted names are pinned
+    # to the addresses they resolved to, so a provider moving its host breaks
+    # them — and on tiers without dnsmasq a vault host's new address escapes
+    # the security deny.  Surface shield's own reason with it: dnsmasq missing
+    # and dnsmasq AppArmor-confined need different fixes, and shield reports
     # the precise one (with any docs pointer) in ec.issues.
     tier = DnsTier.parse(dns)
     if tier is not None and not tier.live:
         detail += f" — {ec.issues[0] if ec.issues else tier.hint}"
+        return ("warn", label, detail)
     return ("ok", label, detail)
 
 
@@ -720,7 +724,7 @@ def _check_recovery_acknowledged() -> _CheckResult:
         from terok.lib.api.shield import RecoveryStatus
 
         status = RecoveryStatus.load()
-    except Exception as exc:  # noqa: BLE001 — best-effort probe, never block sickbay
+    except Exception as exc:  # noqa: BLE001 — best-effort probe that never blocks sickbay
         return ("warn", label, f"check failed — {exc}")
     if status.acknowledged:
         return ("ok", label, "recovery key acknowledged")
@@ -817,9 +821,152 @@ def _check_default_agents() -> _CheckResult:
     )
 
 
+#: How many unauthenticated agents the credentials row names before it counts the rest.
+_AGENT_CREDENTIALS_SHOWN = 3
+
+#: The type the vault records for a credential captured by a vendor login.
+_OAUTH_CREDENTIAL_TYPE = "oauth"
+
+
+def _check_agent_credentials() -> _CheckResult:
+    """Warn when a project's default agent has no credential the vault could relay.
+
+    In-container login is no fallback: the egress firewall keeps every
+    vault-relayed provider host (``api.anthropic.com`` and the like) for the
+    vault, so an agent started without a stored credential cannot connect —
+    the bare ConnectionRefused of terok-ai/terok#1273, which the agent's
+    wrapper now turns into a refusal naming ``terok auth``.  This row finds
+    it before a task does.
+
+    Checks what each project launches by default — its ``default_provider``
+    when one is set, else its default agent's own credential — against the
+    credential set that project reads (host-wide, or its own under
+    ``credentials.scope: project``); with no project yet, the global default
+    agent against the host-wide set.  Agents with no auth entry (harnesses
+    that pick a provider at run time) are skipped.  A vault that cannot be
+    read makes the answer unknown, reported as ``info`` — the Vault row
+    already says why.  A stored Claude OAuth login that this configuration
+    does not route is no credential claude can use, so it warns too.
+    """
+    label = "Agent credentials"
+    try:
+        missing = _missing_credentials()
+        unrouted = missing == [] and _claude_login_unrouted()
+    except Exception as exc:  # noqa: BLE001 — a probe; never crash sickbay
+        return ("warn", label, f"check failed — {exc}")
+
+    if missing is None:
+        return ("info", label, "unknown — the vault cannot be read (see Vault)")
+    if unrouted:
+        return (
+            "warn",
+            label,
+            "claude's stored credential is an OAuth login this configuration does not route — "
+            "set experimental: true and agent.claude.allow_oauth: true, "
+            "or store an API key with 'terok auth claude'",
+        )
+    if not missing:
+        return ("ok", label, "every default agent has a stored credential")
+    names = [shown for _, _, shown in missing]
+    if len(names) > _AGENT_CREDENTIALS_SHOWN:
+        names = [
+            *names[:_AGENT_CREDENTIALS_SHOWN],
+            f"{len(missing) - _AGENT_CREDENTIALS_SHOWN} more",
+        ]
+    scoped, entry, _ = missing[0]
+    command = f"terok auth {entry}" + (f" --project {scoped}" if scoped else "")
+    return (
+        "warn",
+        label,
+        f"no stored credential: {', '.join(names)} — run '{command}' on the host "
+        "(in-container login is blocked by the egress firewall)",
+    )
+
+
+def _missing_credentials() -> list[tuple[str | None, str, str]] | None:
+    """Each needed credential the vault does not hold, or ``None`` when the vault cannot be read.
+
+    A gap comes as (scope, entry, shown): the project whose own set lacks it
+    (``None`` for the host-wide set), its auth entry, and how the row names it.
+    """
+    from terok.lib.api.agents import authenticated_entries, load_auth_providers
+
+    entries = load_auth_providers()
+    authed: dict[str | None, frozenset[str] | None] = {}
+    missing: list[tuple[str | None, str, str]] = []
+    for (scoped, entry), shown in _credential_needs().items():
+        if entry not in entries:
+            continue
+        if scoped not in authed:
+            authed[scoped] = authenticated_entries(scoped)
+        stored = authed[scoped]
+        if stored is None:
+            return None
+        if entry not in stored:
+            missing.append((scoped, entry, shown))
+    return missing
+
+
+def _claude_login_unrouted() -> bool:
+    """Whether a default launch needs claude, whose stored OAuth login nothing routes to it.
+
+    The launch's own test (``_apply_claude_oauth_overrides``): a login is
+    routed under ``experimental`` with ``allow_oauth`` or ``expose_oauth_token``,
+    and otherwise a bare ``claude`` refuses to start.  The vault reports one
+    credential type per provider across its credential sets, so a project-scoped
+    API key beside a host-wide login can raise this in error.
+    """
+    from terok.lib.api.agents import load_auth_providers
+
+    from ...lib.core.config import is_claude_oauth_exposed, is_claude_oauth_proxied
+
+    if is_claude_oauth_proxied() or is_claude_oauth_exposed():
+        return False
+    claude = load_auth_providers().get("claude")
+    if claude is None or all(entry != "claude" for _, entry in _credential_needs()):
+        return False
+    types = load_vault_status().credential_types or {}
+    return types.get(claude.credential_provider or "claude") == _OAUTH_CREDENTIAL_TYPE
+
+
+def _credential_needs() -> dict[tuple[str | None, str], str]:
+    """The credential each default launch needs, keyed by (scope, entry), as the row names it.
+
+    With no project yet, the global default agent is what a task would run,
+    against the host-wide set.
+    """
+    from ...lib.core.config import get_global_default_agent
+    from ...lib.core.projects import discover_projects
+
+    needs: dict[tuple[str | None, str], str] = {}
+    # ``discover_projects``, not ``list_projects``: broken projects are
+    # another row's news, and this one must not print their warnings again.
+    projects, _broken = discover_projects()
+    for project in projects:
+        entry = _default_auth_entry(project)
+        # Shared-scope projects read one host-wide bucket, so a credential
+        # missing there is one finding however many projects need it.
+        scoped = project.name if project.credentials_scope == "project" else None
+        needs.setdefault((scoped, entry), f"{entry} (project {scoped})" if scoped else entry)
+    if not needs:
+        entry = get_global_default_agent() or "claude"
+        needs[(None, entry)] = entry
+    return needs
+
+
+def _default_auth_entry(project: ProjectConfig) -> str:
+    """The auth entry *project* launches with: its provider's when one is set, else its agent's."""
+    from terok.lib.api.agents import resolve_auth_provider
+
+    if project.default_provider:
+        return resolve_auth_provider(project.default_provider)
+    return project.default_agent or "claude"
+
+
 _GLOBAL_CHECKS = [
     ("Shield", _check_shield),
     ("Vault", _check_vault),
+    ("Agent credentials", _check_agent_credentials),
     ("Recovery key acknowledged", _check_recovery_acknowledged),
     ("Kernel keyring quota", _check_kernel_keyring_quota),
     ("SSH signer", _check_ssh_signer),

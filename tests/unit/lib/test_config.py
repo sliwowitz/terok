@@ -544,9 +544,45 @@ def test_make_sandbox_config_project_overlay_pins_services_mode(
     from types import SimpleNamespace
 
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
-    project = SimpleNamespace(services_mode="tcp", aslr_control=False)
+    project = SimpleNamespace(services_mode="tcp", clearance="prompt", aslr_control=False)
     assert cfg.make_sandbox_config(project).services_mode == "tcp"  # type: ignore[arg-type]
     assert cfg.make_sandbox_config().services_mode == "socket"
+
+
+def test_make_sandbox_config_carries_the_clearance_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The project's resolved ``services.clearance`` rides to the sidecar; else the global one."""
+    from types import SimpleNamespace
+
+    monkeypatch.setenv(
+        "TEROK_CONFIG_FILE", str(write_config(tmp_path, "services:\n  clearance: mute\n"))
+    )
+    project = SimpleNamespace(services_mode="socket", clearance="off", aslr_control=False)
+    assert cfg.make_sandbox_config(project).clearance == "off"  # type: ignore[arg-type]
+    assert cfg.make_sandbox_config().clearance == "mute"
+    assert cfg.get_services_clearance() == "mute"
+
+
+def test_global_clearance_defaults_to_prompt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Unset, the operator is asked — today's behaviour."""
+    monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, "")))
+    assert cfg.get_services_clearance() == "prompt"
+    assert cfg.make_sandbox_config().clearance == "prompt"
+
+
+def test_a_global_clearance_section_no_longer_costs_the_config_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``services.clearance`` is a legal global key: the rest of config.yml still applies."""
+    monkeypatch.setenv(
+        "TEROK_CONFIG_FILE",
+        str(write_config(tmp_path, "services:\n  mode: tcp\n  clearance: 'off'\n")),
+    )
+    assert cfg.get_services_mode() == "tcp"
+    assert cfg.get_services_clearance() == "off"
 
 
 def test_make_sandbox_config_from_config_file(

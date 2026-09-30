@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,14 +70,20 @@ def project_mounts_dir(project: ProjectConfig) -> Path:
 def _check_project_credentials_present(project: ProjectConfig) -> None:
     """Fail fast when a project-scope project has an empty vault row.
 
-    The shared-scope flow tolerates a missing credential — the agent
-    prompts for login on first turn and the user might prefer that.  But
-    a project that opted into ``credentials_scope: project`` has just
-    explicitly *isolated* its bucket: silent fallback would defeat the
-    isolation, and an empty bucket is almost always a user oversight
-    (they edited project.yml but forgot ``terok auth --project <name>``).
-    Surface it before the container starts so the error message names
-    the recovery command instead of bubbling up from inside the agent.
+    The shared-scope flow tolerates a missing credential at launch: the
+    host-wide bucket serves every project, a project may hold agents its
+    user never runs, and the bucket can be filled later.  It does not
+    tolerate it *inside* the task, though — in-container login is no
+    fallback, because the egress firewall reserves every vault-relayed
+    provider host (``api.anthropic.com`` and the like) for the vault, so an
+    agent started without a stored credential fails to connect.  The
+    launch therefore warns instead (see
+    [`_warn_unready_default_agent`][terok.lib.orchestration.environment._warn_unready_default_agent]).
+    A project that opted into ``credentials_scope: project`` has
+    explicitly *isolated* its bucket: an empty one is almost always an
+    oversight (they edited project.yml but forgot
+    ``terok auth --project <name>``), so it fails before the container
+    starts, naming the recovery command.
     """
     if project.credentials_scope != "project":
         return
@@ -338,7 +345,32 @@ def apply_git_identity_env(
 # the container's first egress, so there is no host-side step here.
 
 
-def _apply_claude_oauth_overrides(env: dict[str, str]) -> None:
+_PROVIDER_HANDLE_PREFIX = "TEROK_PROVIDER_"
+"""Leading fragment of the executor's per-provider handle variables.
+
+The executor materializes ``TEROK_PROVIDER_<NAME>_TOKEN`` (plus label,
+models and one ``_BASE_<PROTOCOL>`` per served protocol) for every provider
+a task can reach; the in-container wrappers and the ``providers`` view read
+a provider as ready exactly when its token variable is set."""
+
+_CLAUDE_ENTRY = "claude"
+"""The auth entry whose vault login the Claude OAuth modes govern."""
+
+
+def _provider_handle_prefix(provider: str) -> str:
+    """The shared prefix of *provider*'s handle variables (``TEROK_PROVIDER_<NAME>_``)."""
+    return f"{_PROVIDER_HANDLE_PREFIX}{provider.upper()}_"
+
+
+def _credential_provider(roster: AgentRoster, entry: str) -> str | None:
+    """The provider *entry*'s stored credential authenticates, or ``None`` for no such entry."""
+    info = roster.auth_providers.get(entry)
+    if info is None:
+        return None
+    return info.credential_provider or entry
+
+
+def _apply_claude_oauth_overrides(env: dict[str, str]) -> bool:
     """Adjust Claude OAuth env vars based on the experimental proxy config.
 
     Executor handles all generic proxy plumbing (phantom tokens, transport,
@@ -348,24 +380,132 @@ def _apply_claude_oauth_overrides(env: dict[str, str]) -> None:
       ``ANTHROPIC_BASE_URL`` — the container uses the mounted
       ``.credentials.json`` marker directly with the proxy.
     - **Skipped** (default): remove all Claude proxy env vars — Claude Code's
-      hardcoded ``BASE_API_URL`` bypasses the proxy anyway.
-    - **Exposed** (``expose_oauth_token``): also removes vars — the real
-      OAuth token is mounted directly for Claude Code subscription features.
+      hardcoded ``BASE_API_URL`` bypasses the proxy anyway.  The provider
+      handle the executor materialized for the same login
+      (``TEROK_PROVIDER_<NAME>_*``) stays: it belongs to the whole task,
+      and every agent that reaches the provider through the vault reads it.
+      claude alone cannot use the login here, so the task also carries the
+      executor's claude-only "OAuth login not routed" signal: a bare
+      ``claude`` refuses up front with the cause and its remedies instead of
+      running into the firewall's refusal of the provider's hosts
+      (terok-ai/terok#1273), and the launch names it on the host too
+      ([`_warn_unready_default_agent`][terok.lib.orchestration.environment._warn_unready_default_agent]).
+    - **Exposed** (``expose_oauth_token``): also removes the vars — the real
+      OAuth token is mounted directly for Claude Code subscription features;
+      the handle, which the executor points at the real upstream, stays too.
+
+    Returns ``True`` when the vault holds a Claude OAuth login this
+    configuration does not route to claude (the skipped mode), so the launch
+    can say why claude cannot connect.
     """
-    from ..core.config import is_claude_oauth_proxied
+    from ..core.config import is_claude_oauth_exposed, is_claude_oauth_proxied
 
     # Only act when executor injected Claude OAuth vars
     if "CLAUDE_CODE_OAUTH_TOKEN" not in env:
-        return
+        return False
 
     if is_claude_oauth_proxied():
         # Proxied: remove phantom token (the mounted .credentials.json
         # marker is used for auth), keep ANTHROPIC_BASE_URL for routing
         env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        return False
+
+    # Skipped or exposed: remove all Claude proxy env vars
+    for key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"):
+        env.pop(key, None)
+    if is_claude_oauth_exposed():
+        return False
+    # Skipped: the login is OAuth and nothing routes it to claude.  Say so to
+    # claude's own wrapper, which would otherwise pass on the task-wide handle.
+    from terok.lib.integrations.executor import CLAUDE_OAUTH_UNROUTED_ENV, CLAUDE_OAUTH_UNROUTED_ON
+
+    env[CLAUDE_OAUTH_UNROUTED_ENV] = CLAUDE_OAUTH_UNROUTED_ON
+    return True
+
+
+def _auth_entry_for(roster: AgentRoster, agent: str, provider: str) -> str:
+    """The ``terok auth`` entry that stores *provider*'s credential, preferring *agent*'s own."""
+    if _credential_provider(roster, agent) == provider:
+        return agent
+    for entry in roster.auth_providers:
+        if _credential_provider(roster, entry) == provider:
+            return entry
+    return provider
+
+
+def _warn_unready_default_agent(
+    env: dict[str, str],
+    roster: AgentRoster,
+    project: ProjectConfig,
+    selected_provider: str | None,
+    *,
+    oauth_skipped: bool,
+) -> None:
+    """Warn on stderr when the task's default agent cannot authenticate.
+
+    The fresh-install trap of terok-ai/terok#1273: ``claude`` launched
+    before ``terok auth claude`` cannot log in from inside the task —
+    the egress firewall keeps every vault-relayed provider host for the
+    vault — and used to fail with a bare ConnectionRefused.  The agent's
+    wrapper now refuses with a hint, but only once someone runs it; this
+    says so at launch, on the host, where the fix is.
+
+    The check reads the task's own environment, the way the in-container
+    one does: a provider is ready when its handle token
+    (``TEROK_PROVIDER_<NAME>_TOKEN``) is set — stored in the vault, or
+    exposed — after the OAuth overrides have had their say.
+    *selected_provider* (the run's or the project's) wins over the agent's
+    default provider, as it does in the wrapper.  An agent with neither —
+    a harness that picks its provider at run time — is not checked.
+
+    One case the handle cannot tell: with *oauth_skipped*, the vault holds a
+    Claude OAuth login this configuration does not route to claude.  The
+    handle stays — it is the task's, read by every agent that reaches the
+    provider through the vault — so claude learns it from the executor's
+    claude-only signal instead, and its wrapper refuses a bare ``claude``
+    up front.  That gets its own warning here too, whatever the handle says,
+    so the operator hears it on the host before anyone runs the agent.  Advisory only: a task
+    may run other agents, and its user may authenticate and recreate it.
+    """
+    from ..util.ansi import supports_color, yellow
+
+    agent = project.default_agent or _CLAUDE_ENTRY
+    provider = selected_provider
+    if not provider:
+        binding = getattr(roster.agents.get(agent), "provider_binding", None)
+        provider = getattr(binding, "default", None)
+    if not provider:
+        return
+    unrouted = (
+        oauth_skipped
+        and agent == _CLAUDE_ENTRY
+        and not selected_provider
+        and provider == _credential_provider(roster, _CLAUDE_ENTRY)
+    )
+    if not unrouted and f"{_provider_handle_prefix(provider)}TOKEN" in env:
+        return
+    command = f"terok auth {_auth_entry_for(roster, agent, provider)}"
+    if project.credentials_scope == "project":
+        command += f" --project {project.name}"
+    if unrouted:
+        lines = [
+            "Warning: claude cannot use the Claude OAuth login the vault holds: this "
+            "configuration does not route it (that needs experimental: true and "
+            "agent.claude.allow_oauth: true), so claude will fail to connect.",
+            f"  Store an API key on the host instead:  {command}  (or turn OAuth routing on)",
+        ]
     else:
-        # Skipped or exposed: remove all Claude proxy env vars
-        for key in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_UNIX_SOCKET"):
-            env.pop(key, None)
+        lines = [
+            f"Warning: {agent} has no credential for its provider {provider!r} in this task, "
+            "so it will refuse to start.",
+            f"  Authenticate on the host:  {command}",
+        ]
+    lines += [
+        "  In-container login cannot stand in: the egress firewall keeps the provider's hosts "
+        "for the vault.",
+        "  A task created before you authenticate needs recreating to pick the credential up.",
+    ]
+    print(yellow("\n".join(lines), supports_color()), file=sys.stderr)
 
 
 def _shared_config_patch_providers(roster: AgentRoster) -> frozenset[str]:
@@ -651,10 +791,18 @@ class TaskEnvironment:
         # added by AgentRunner.launch_prepared — it knows the container
         # name (the per-container dir key), this layer does not.
 
-        # Claude OAuth env override + leaked-cred scan with exposed-token filtering
+        # Claude OAuth env override + leaked-cred scan with exposed-token filtering,
+        # then the launch-time hint for a default agent the task cannot authenticate.
         if not vault_bypass:
-            _apply_claude_oauth_overrides(env)
+            oauth_skipped = _apply_claude_oauth_overrides(env)
             _report_leaked_credentials(mounts_dir)
+            _warn_unready_default_agent(
+                env,
+                roster,
+                project,
+                self.provider_override or project.default_provider,
+                oauth_skipped=oauth_skipped,
+            )
 
         # Executor's roster egress projection (shield's generated t20 / t30 tiers)
         # rides alongside env/volumes to the launch path — terok forwards it
