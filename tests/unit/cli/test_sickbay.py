@@ -370,12 +370,12 @@ class TestCheckVault:
         snap = self._snapshot(
             state=VaultState.LOCKED,
             source="keyring",
-            lock_reason="the passphrase via keyring does not open the DB",
+            lock_reason="the passphrase via desktop keyring does not open the DB",
         )
         with unittest.mock.patch("terok.cli.commands.sickbay.load_vault_status", return_value=snap):
             sev, _, detail = _check_vault()
         assert sev == "warn"
-        assert "via keyring does not open the DB" in detail
+        assert "via desktop keyring does not open the DB" in detail
 
     def test_noninfo_warning_rides_detail_and_warns(self) -> None:
         """A non-info catalog warning turns the row into a warn carrying its brief."""
@@ -1004,7 +1004,7 @@ class TestCheckRecoveryAcknowledged:
     sickbay now owns its own row instead so the warning appears
     exactly once.  Severity escalates from ``warn`` to ``error`` when
     the resolver lands on the volatile kernel-keyring cache and the
-    marker is missing — one logout away from losing the vault.
+    marker is missing — cache loss away from losing the vault.
     """
 
     @staticmethod
@@ -1047,7 +1047,7 @@ class TestCheckRecoveryAcknowledged:
         assert "UNRECOVERABLE" not in detail
 
     def test_error_when_marker_missing_volatile_only(self) -> None:
-        """Unacked + kernel-keyring source → ``error`` with the logout-loss wording."""
+        """Unacked + kernel-keyring source → ``error`` with the cache-loss wording."""
         with unittest.mock.patch(
             "terok.lib.api.shield.RecoveryStatus.load",
             return_value=self._status(acknowledged=False, source="kernel-keyring"),
@@ -1056,8 +1056,8 @@ class TestCheckRecoveryAcknowledged:
         assert sev == "error"
         assert label == "Recovery key acknowledged"
         # Explicit operator-facing breadcrumbs of the asymmetry.
-        assert "kernel-keyring" in detail
-        assert "logout" in detail.lower()
+        assert "kernel keyring" in detail
+        assert "reboot" in detail.lower()
         assert "UNRECOVERABLE" in detail
         # Both remediation verbs still surface.
         assert "terok vault passphrase reveal" in detail

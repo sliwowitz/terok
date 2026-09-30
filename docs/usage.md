@@ -735,11 +735,22 @@ which providers were unauthenticated when the container was created.
 ### Vault passphrase backend
 
 The credentials DB itself is SQLCipher-encrypted; the passphrase
-travels through a five-tier resolver chain (session-unlock file →
-systemd-creds → OS keyring → `credentials.passphrase_command` helper →
-interactive prompt).  `terok vault unlock` writes to the session tier,
-`terok vault lock` clears every stored copy, and setup picks the
-persistent tier at install time.
+travels through a five-tier resolver chain (systemd-creds → desktop
+keyring → temporary cache → `credentials.passphrase_command` helper →
+interactive prompt). **Desktop keyring** means persistent desktop-managed
+storage, such as GNOME Keyring. **Kernel keyring** means Linux's in-memory
+cache (the per-UID user keyring, `@u`), not the desktop keyring.
+`terok vault unlock` caches a manually entered passphrase in the kernel
+keyring, or a tmpfs session file when that backing is unavailable to the
+supervisor. This cache never survives reboot and may disappear earlier;
+logout alone does not guarantee clearing the kernel keyring. A working
+desktop keyring supplies the passphrase directly, without a redundant
+kernel-keyring copy.
+
+`terok vault lock` **deletes saved passphrases**, not just the temporary
+cache, and disconnects `passphrase_command` without deleting its external
+secret. It does not close already-running services or revoke their access.
+Keep a saved recovery passphrase before using it.
 
 To **change the passphrase**, run `terok vault passphrase change`
 (or the `[c]hange` action on the TUI's Vault screen): it re-encrypts
@@ -757,7 +768,7 @@ to-keyring` / `seal` are the first-class paths — see
 in terok-sandbox for the full tier guide.
 
 Pressing PANIC hard-locks the vault: it destroys **every** stored
-passphrase tier (session file *and* persistent tiers), so nothing can
+passphrase tier (temporary cache *and* persistent tiers), so nothing can
 auto-unlock the vault afterwards.  Recovery means re-supplying the
 escrowed recovery passphrase.
 

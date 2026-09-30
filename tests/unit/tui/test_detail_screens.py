@@ -2003,6 +2003,7 @@ def make_vault_status(
     status = mock.Mock()
     status.state = VaultState.UNLOCKED if state is None else state
     status.source = source
+    status.chain = ()
     status.providers = providers
     status.credential_types = credential_types or {}
     status.ssh_keys = ssh_keys
@@ -2090,7 +2091,7 @@ class TestRenderVaultStatus:
         assert "claude" in text_str
         assert "State:" in text_str
         assert "unlocked" in text_str
-        assert "resolved via keyring" in text_str
+        assert "resolved via desktop keyring" in text_str
 
     def test_render_vault_status_locked_shows_help_block(self) -> None:
         """Locked snapshot ends with the supervisor-aware unlock-hint block."""
@@ -2117,6 +2118,16 @@ class TestRenderVaultStatus:
         assert "resolved via systemd-creds" in text_str
         assert "SSH keys:    3" in text_str
 
+    @pytest.mark.parametrize("backing", ["kernel keyring", "tmpfs session file"])
+    def test_render_vault_status_names_cache_backing(self, backing: str) -> None:
+        """The generic session-cache tier does not hide its actual storage backing."""
+        screens, _ = import_screens()
+        status = make_vault_status(source="kernel-keyring")
+        status.chain = (mock.Mock(tier="kernel-keyring", detail=f"cached in the {backing}"),)
+        text = str(screens.render_vault_status(status))
+        assert "resolved via session cache" in text
+        assert f"cached in the {backing}" in text
+
     def test_render_vault_status_announces_locked(self) -> None:
         """Locked vault prints an explicit ``State: LOCKED`` line with the no-tier reason."""
         from terok.lib.api.vault import VaultState
@@ -2137,10 +2148,10 @@ class TestRenderVaultStatus:
             state=VaultState.LOCKED,
             source="kernel-keyring",
             providers=None,
-            lock_reason="the passphrase via kernel-keyring does not open the DB",
+            lock_reason="the passphrase via session cache does not open the DB",
         )
         text_str = str(screens.render_vault_status(status))
-        assert "via kernel-keyring does not open the DB" in text_str
+        assert "via session cache does not open the DB" in text_str
         assert "no tier resolved" not in text_str
         # And when locked, the Passphrase: line is suppressed (no tier to name).
         assert "resolved via" not in text_str
@@ -2151,7 +2162,7 @@ class TestRenderVaultStatus:
         status = make_vault_status(source="keyring")
         text_str = str(screens.render_vault_status(status))
         assert "State:       unlocked" in text_str
-        assert "resolved via keyring" in text_str
+        assert "resolved via desktop keyring" in text_str
 
     def test_render_vault_status_unprovisioned_points_at_setup(self) -> None:
         """A fresh install names the remedy — setup, not an unlock prompt."""
@@ -2212,6 +2223,17 @@ class TestRenderVaultStatus:
 
 class TestVaultUnlockModal:
     """Behaviour of the [`VaultUnlockModal`][terok.tui.screens.VaultUnlockModal] passphrase prompt."""
+
+    def test_prompt_distinguishes_temporary_and_persistent_storage(self) -> None:
+        """Manual unlock does not imply a saved desktop secret or logout expiry."""
+        screens, _ = import_screens()
+        modal = screens.VaultUnlockModal()
+        assert "kernel keyring" in modal._prompt
+        assert "tmpfs session file" in modal._prompt
+        assert "not saved to the desktop keyring" in modal._prompt
+        assert "reboot or earlier" in modal._prompt
+        assert "logout" not in modal._prompt
+        assert modal._confirm_label == "Unlock temporarily"
 
     def test_action_cancel_dismisses_none(self) -> None:
         """``escape`` / Cancel binding hands ``None`` to the result callback."""
@@ -2489,6 +2511,10 @@ class TestVaultActionImplementations:
         instance.push_screen.assert_awaited_once()
         modal_arg, callback_arg = instance.push_screen.call_args[0]
         assert type(modal_arg).__name__ == "ConfirmDestructiveScreen"
+        assert "desktop keyring entry" in modal_arg._message
+        assert "kernel keyring / tmpfs session cache" in modal_arg._message
+        assert "Running services stay open" in modal_arg._message
+        assert modal_arg._confirm_label == "Delete saved passphrases"
         assert callback_arg is instance._on_vault_lock_confirmed
 
     def test_lock_confirmed_dispatches_worker(self) -> None:
@@ -2527,7 +2553,7 @@ class TestVaultActionImplementations:
         run(mixin._action_vault_to_keyring(instance))
         instance._run_console_action.assert_called_once_with(
             "terok.tui.worker_actions:vault_to_keyring",
-            title="Moving vault passphrase to OS keyring",
+            title="Moving vault passphrase to desktop keyring",
             refresh="vault_status",
         )
 
@@ -2738,7 +2764,7 @@ class TestMaybeWarnRecoveryUnconfirmed:
 
     Three severity bands — silent / yellow warning / red error — read
     straight from the snapshot's shared warning catalog so the message
-    escalates when the operator is one logout away from losing the
+    escalates when the operator is at risk of cache loss and losing the
     vault.
     """
 
@@ -2758,11 +2784,11 @@ class TestMaybeWarnRecoveryUnconfirmed:
         return make_vault_warning(
             kind="recovery-volatile",
             severity="error",
-            brief="recovery key UNSAVED, vault dies at logout",
+            brief="recovery key UNSAVED, only a temporary cache",
             message=(
-                "the only copy of the vault passphrase is the kernel-keyring cache, which is"
-                " cleared at logout — save it off-host now or the vault becomes"
-                " unrecoverable the next time you log out"
+                "the only available copy is the temporary cache (kernel keyring or tmpfs "
+                "session file), lost at reboot or earlier — save it off-host now or cache "
+                "loss makes the vault unrecoverable"
             ),
         )
 
@@ -2787,7 +2813,7 @@ class TestMaybeWarnRecoveryUnconfirmed:
         assert instance.notify.call_args.kwargs["title"] == "Vault: recovery key UNCONFIRMED"
 
     def test_errors_when_volatile_only(self) -> None:
-        """The RECOVERY_VOLATILE entry → red ``error`` (one logout away from loss)."""
+        """The RECOVERY_VOLATILE entry → red ``error`` (at risk of cache loss)."""
         _, app_class = import_app()
         instance = self._make_instance(
             app_class,
@@ -2798,7 +2824,7 @@ class TestMaybeWarnRecoveryUnconfirmed:
         assert instance.notify.call_args.kwargs["severity"] == "error"
         body = instance.notify.call_args[0][0]
         assert "unrecoverable" in body.lower()
-        assert "logout" in body.lower()
+        assert "reboot" in body.lower()
 
     def test_quiet_when_no_recovery_warning(self) -> None:
         """Marker already landed → no recovery entry in the catalog → silent."""
@@ -2977,7 +3003,7 @@ class TestVaultStatusPill:
         instance.query_one = mock.Mock(return_value=bar)
         status = make_vault_status(source="keyring", warnings=())
         app_class._render_status_pill(instance, status)
-        bar.set_message.assert_called_once_with("Vault: unlocked (keyring)")
+        bar.set_message.assert_called_once_with("Vault: unlocked (desktop keyring)")
 
     def test_render_pill_unlocked_appends_unconfirmed_recovery(self) -> None:
         """A warning-severity catalog entry rides the pill as a suffix."""
@@ -3000,7 +3026,7 @@ class TestVaultStatusPill:
         assert "systemd-creds" in message
         assert "recovery key UNCONFIRMED" in message
         # The volatile-only escalation must not bleed into the durable branch.
-        assert "vault dies at logout" not in message
+        assert "only a temporary cache" not in message
 
     def test_render_pill_volatile_only_escalates_pill_text(self) -> None:
         """The RECOVERY_VOLATILE brief → louder pill text."""
@@ -3014,17 +3040,17 @@ class TestVaultStatusPill:
                 make_vault_warning(
                     kind="recovery-volatile",
                     severity="error",
-                    brief="recovery key UNSAVED, vault dies at logout",
+                    brief="recovery key UNSAVED, only a temporary cache",
                 ),
             ),
         )
         app_class._render_status_pill(instance, status)
         message = bar.set_message.call_args[0][0]
-        assert "kernel-keyring" in message
-        # The escalation explicitly names the logout-loss risk so the
+        assert "session cache" in message
+        # The escalation explicitly names the cache-loss risk so the
         # operator sees the asymmetry against durable tiers at a glance.
         assert "UNSAVED" in message
-        assert "vault dies at logout" in message
+        assert "only a temporary cache" in message
 
     def test_render_pill_info_warning_stays_quiet(self) -> None:
         """Info-severity catalog entries never suffix the pill."""
@@ -3043,7 +3069,7 @@ class TestVaultStatusPill:
             ),
         )
         app_class._render_status_pill(instance, status)
-        bar.set_message.assert_called_once_with("Vault: unlocked (keyring)")
+        bar.set_message.assert_called_once_with("Vault: unlocked (desktop keyring)")
 
     def test_render_pill_unprovisioned_points_at_setup(self) -> None:
         """A fresh install renders the setup pointer, not an unlock nag."""
