@@ -135,6 +135,12 @@ Run `terok config paths` to check whether completions are detected as installed.
 | User | `~/.config/terok/projects` |
 | Override | `TEROK_CONFIG_DIR=/path/to/config` |
 
+When terok writes a config file (`config.yml`, `project.yml`, an
+`instructions.md`, a Docker snippet), it changes an existing file in
+place: a symlink stays a symlink, and the file keeps its mode and owner.
+A file that terok creates gets mode `0600`, and a directory that terok
+creates for it gets `0700`.
+
 ### State (writable: tasks, build, gate)
 
 | Install Type | Path |

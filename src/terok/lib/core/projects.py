@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
-from terok_util import ConfigStack, require_host_tool
+from terok_util import ConfigStack, require_host_tool, write_config_file
 from terok_util.config_stack import ConfigScope
 
 from terok.lib.integrations.sandbox import gate_use_personal_ssh_default
@@ -377,11 +377,7 @@ def derive_project(source_id: str, new_id: str) -> Path:
     source_cfg.pop("agent", None)
     _pin_shared_infra(source_cfg, source)
 
-    target_root.mkdir(parents=True, exist_ok=True)
-    (target_root / _PROJECT_YML).write_text(
-        _yaml_dump(source_cfg),
-        encoding="utf-8",
-    )
+    write_config_file(target_root / _PROJECT_YML, _yaml_dump(source_cfg))
 
     instructions_src = source.root / _INSTRUCTIONS_MD
     if instructions_src.is_file():
@@ -481,7 +477,7 @@ def normalize_project_name(project_name: str) -> Path:
     if not isinstance(cfg, dict):
         raise SystemExit(f"Invalid {_PROJECT_YML} ({cfg_path}): expected a mapping")
     _rewrite_project_identity(cfg, project_name)
-    cfg_path.write_text(_yaml_dump(cfg), encoding="utf-8")
+    write_config_file(cfg_path, _yaml_dump(cfg))
     return cfg_path
 
 

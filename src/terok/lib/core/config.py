@@ -505,9 +505,10 @@ def save_tui_theme(theme: str) -> None:
     A surgical round-trip update of
     [`global_config_path`][terok.lib.core.config.global_config_path]:
     only the one key changes — everything else in the file, comments
-    included, survives via ruamel's round-trip mode.  Creates the file
-    (and its parent directory) when missing, and invalidates the
-    in-process config caches so subsequent reads observe the new value.
+    included, survives via ruamel's round-trip mode.  The file is
+    written as operator-owned config: in place when it exists, created
+    private when it does not.  Invalidates the in-process config caches
+    so subsequent reads observe the new value.
 
     Raises:
         OSError: The config file or its directory cannot be read or written.
@@ -515,6 +516,8 @@ def save_tui_theme(theme: str) -> None:
             not a mapping — the file is left untouched rather than
             clobbered with a theme-only stump.
     """
+    from terok_util import write_config_file
+
     global _validated_config_cache, _raw_config_cache  # noqa: PLW0603
     path = global_config_path()
     data: dict[str, Any] = {}
@@ -528,8 +531,7 @@ def save_tui_theme(theme: str) -> None:
         tui = {}
         data["tui"] = tui
     tui["theme"] = theme
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_yaml_dump(data), encoding="utf-8")
+    write_config_file(path, _yaml_dump(data))
     _validated_config_cache = None
     _raw_config_cache = None
 

@@ -1229,6 +1229,30 @@ class TestTuiThemePersistence:
             cfg.save_tui_theme("ansi-dark")
         assert path.read_text(encoding="utf-8") == original
 
+    def test_new_config_file_is_private(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A config file terok creates gets 0600, in a directory created 0700."""
+        path = tmp_path / "terok" / "config.yml"
+        monkeypatch.setenv("TEROK_CONFIG_FILE", str(path))
+        cfg.save_tui_theme("ansi-dark")
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert path.parent.stat().st_mode & 0o777 == 0o700
+
+    def test_symlinked_config_file_stays_a_link_with_its_mode(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A dotfiles-managed config.yml is edited through its link; its mode stays."""
+        target = write_config(tmp_path, "tui:\n  default_tmux: true\n")
+        target.chmod(0o644)
+        link = tmp_path / "linked-config.yml"
+        link.symlink_to(target)
+        monkeypatch.setenv("TEROK_CONFIG_FILE", str(link))
+        cfg.save_tui_theme("ansi-dark")
+        assert link.is_symlink()
+        assert "theme: ansi-dark" in target.read_text(encoding="utf-8")
+        assert target.stat().st_mode & 0o777 == 0o644
+
     def test_scalar_tui_section_is_replaced(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -1269,6 +1293,7 @@ def test_validate_global_config_accepts_a_partial_file_and_writes_nothing(
     ("text", "expected"),
     [
         pytest.param("tui:\n  bogus: 1\n", "tui.bogus: Extra inputs", id="schema"),
+        pytest.param("image:\n  user_snippet_inline: RUN true\n", "set per project", id="snippet"),
         pytest.param("tui: [\n", "Malformed YAML", id="yaml-syntax"),
         pytest.param("- a\n", "top level must be a mapping", id="not-a-mapping"),
     ],

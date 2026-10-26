@@ -25,7 +25,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from terok_util import require_host_tool
+from terok_util import require_host_tool, write_config_file
 from textual import work
 
 from ..lib.api import (
@@ -126,16 +126,10 @@ class EditableText:
             title=title,
             draft_name=path.name,
             load=lambda: path.read_text(encoding="utf-8") if path.is_file() else "",
-            save=partial(_write_text_file, path),
+            save=partial(write_config_file, path),
             validate=validate,
             language=language,
         )
-
-
-def _write_text_file(path: Path, text: str) -> None:
-    """Write *text* to *path*, creating missing parent directories."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
 
 
 def _read_draft(
@@ -1156,7 +1150,7 @@ class ProjectActionsMixin(_MixinBase):
                 )
                 return
 
-            project_yml.write_text(_yaml_dump(raw), encoding="utf-8")
+            write_config_file(project_yml, _yaml_dump(raw))
             self.notify(f"Instructions: {mode_label}")
         except Exception as e:
             self.notify(f"Toggle failed: {e}")

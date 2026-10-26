@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Literal
 
 import jinja2
-from terok_util import ensure_dir_writable
+from terok_util import ensure_dir_writable, write_config_file
 
 from terok.lib.integrations.sandbox import (
     detect_gpu_vendors,
@@ -756,7 +756,7 @@ def generate_config(values: dict) -> Path:
     rendered = render_project_yaml(values)
 
     project_dir = user_projects_dir() / values["project_name"]
-    ensure_dir_writable(project_dir, "Project")
+    ensure_dir_writable(project_dir, "Project", private=True)
 
     config_path = project_dir / "project.yml"
 
@@ -781,7 +781,7 @@ def generate_config(values: dict) -> Path:
             print("\nKeeping existing configuration; no file was overwritten.")
             return config_path
 
-    config_path.write_text(rendered, encoding="utf-8")
+    write_config_file(config_path, rendered)
     return config_path
 
 
@@ -833,11 +833,11 @@ def write_project_yaml(project_name: str, rendered: str, *, overwrite: bool = Fa
     pass tweaked content without re-rendering the template.
     """
     project_dir = user_projects_dir() / project_name
-    ensure_dir_writable(project_dir, "Project")
+    ensure_dir_writable(project_dir, "Project", private=True)
     config_path = project_dir / "project.yml"
     if config_path.exists() and not overwrite:
         return config_path
-    config_path.write_text(rendered, encoding="utf-8")
+    write_config_file(config_path, rendered)
     return config_path
 
 

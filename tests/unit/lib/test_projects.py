@@ -1182,6 +1182,20 @@ class TestProjectYamlEditing:
         assert "# keep me" in written
         assert loaded == "RUN one\nRUN two\n"
 
+    def test_inline_snippet_write_keeps_a_symlinked_project_yml(self) -> None:
+        """The setters edit project.yml in place: a link stays a link, the mode stays."""
+        with project_env(project_yaml("demo"), project_name="demo") as ctx:
+            project_yml = ctx.config_root / "demo" / "project.yml"
+            target = ctx.base / "dotfiles-project.yml"
+            target.write_text(project_yml.read_text(encoding="utf-8"), encoding="utf-8")
+            target.chmod(0o644)
+            project_yml.unlink()
+            project_yml.symlink_to(target)
+            set_project_snippet_inline("demo", "RUN true\n")
+            assert project_yml.is_symlink()
+            assert target.stat().st_mode & 0o777 == 0o644
+            assert load_project("demo").snippet_inline == "RUN true\n"
+
     def test_inline_snippet_with_control_characters_keeps_the_project_loadable(self) -> None:
         """Pasted terminal colours must not leave a project.yml that no longer parses."""
         snippet = "RUN echo \x1b[1mready\x1b[0m\n"

@@ -359,6 +359,20 @@ class TestEditableTextFromFile:
         text.save("new body")
         assert path.read_text(encoding="utf-8") == "new body"
         assert text.load() == "new body"
+        assert path.stat().st_mode & 0o777 == 0o600
+        assert path.parent.stat().st_mode & 0o777 == 0o700
+
+    def test_save_keeps_an_existing_file_mode_and_link(self, tmp_path: Path) -> None:
+        target = tmp_path / "dotfiles" / "project.yml"
+        target.parent.mkdir()
+        target.write_text("old\n", encoding="utf-8")
+        target.chmod(0o644)
+        link = tmp_path / "project.yml"
+        link.symlink_to(target)
+        EditableText.from_file(link, title="T").save("new\n")
+        assert link.is_symlink()
+        assert target.read_text(encoding="utf-8") == "new\n"
+        assert target.stat().st_mode & 0o777 == 0o644
 
 
 class TestSnippetTexts:
