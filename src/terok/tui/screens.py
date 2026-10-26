@@ -2233,7 +2233,7 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             )
         )
         if self._has_tasks:
-            options.append(Option("\\[l]ogin to container", id="login"))
+            options.append(Option("log\\[i]n to container", id="login"))
             if self._task_meta and self._task_meta.mode:
                 options.append(Option("view \\[f]ormatted logs", id="follow_logs"))
             options.append(None)
@@ -2262,7 +2262,7 @@ class TaskDetailsScreen(screen.Screen[str | None]):
             if not get_config().shield_disable_firewall_no_protection:
                 options.append(Option("\\[s]hield up (deny-all)", id="shield_up"))
             options.append(
-                Option("shield \\[i]nteractive (verdict handler)", id="shield_interactive")
+                Option("shield \\[v]erdict interactive handler", id="shield_interactive")
             )
             options.append(Option("shield \\[W]atch (event stream)", id="shield_watch"))
             options.append(Option("shield \\[C]learance (live D-Bus)", id="show_clearance"))
@@ -2346,10 +2346,10 @@ class TaskDetailsScreen(screen.Screen[str | None]):
         lower_map: dict[str, str] = {
             "r": "restart",
             "t": "stop",
-            "l": "login",
+            "i": "login",
             "u": "followup",
             "n": "rename",
-            "i": "shield_interactive",
+            "v": "shield_interactive",
             "d": "shield_down",
             "s": "shield_up",
         }
