@@ -980,11 +980,11 @@ class InitProgressScreen(ModalScreen[InitOutcome]):
             summarize_ssh_init,
         )
 
-        project = get_project(self._project_name)
         log = self.query_one("#wizard-init-log", RichLog)
         self._ssh_continue = asyncio.Event()
 
         try:
+            project = get_project(self._project_name)
             # Step 1: SSH
             self._mark("ssh", "running")
             suggestion = await asyncio.to_thread(project.suggested_ssh_key_comment)

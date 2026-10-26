@@ -1318,7 +1318,12 @@ if _HAS_TEXTUAL:
         # ---------- Helpers ----------
 
         async def refresh_projects(self) -> None:
-            """Reload projects from disk and rebuild every dependent pane."""
+            """Reload projects from disk, rebuild the list, and select a project again.
+
+            The selection posts ``ProjectSelected``, whose handler refreshes
+            every dependent pane and poller — the one path every project
+            selection takes.
+            """
             projects, broken = discover_projects()
             self._projects_by_id = {p.name: p for p in projects}
             self._broken_by_id = {bp.name: bp for bp in broken}
@@ -1331,17 +1336,9 @@ if _HAS_TEXTUAL:
                 self._render_empty_project_state()
                 return
 
-            self._restore_or_default_project_selection(proj_widget, projects, broken)
             self._last_project_state = None
             self._last_image_old = None
-
-            if self.current_project_name in self._broken_by_id:
-                # Broken projects have no loadable config; ``refresh_tasks`` and
-                # the polling loop would raise inside ``load_project``.
-                self._render_broken_selection(self.current_project_name)
-            else:
-                await self.refresh_tasks()
-                self._start_upstream_polling()
+            self._restore_or_default_project_selection(proj_widget, projects, broken)
 
         def _announce_newly_broken(self, broken: list[BrokenProject]) -> None:
             """Toast once when the set of broken-project names changes.
@@ -1373,15 +1370,17 @@ if _HAS_TEXTUAL:
             projects: list[ProjectConfig],
             broken: list[BrokenProject],
         ) -> None:
-            """Restore the previously-selected project, or fall back to the first row."""
+            """Select the last selected project again, else the current one, else the first row."""
             candidate_ids = [bp.name for bp in broken] + [p.name for p in projects]
-            last_project = self._last_selected_project
-            if last_project and last_project in candidate_ids:
-                self.current_project_name = last_project
-                proj_widget.select_project(self.current_project_name)
-            elif self.current_project_name is None:
-                self.current_project_name = candidate_ids[0]
-                proj_widget.select_project(self.current_project_name)
+            self.current_project_name = next(
+                (
+                    name
+                    for name in (self._last_selected_project, self.current_project_name)
+                    if name in candidate_ids
+                ),
+                candidate_ids[0],
+            )
+            proj_widget.select_project(self.current_project_name)
 
         def _render_empty_project_state(self) -> None:
             """Clear every pane when no projects exist on disk at all."""
@@ -2404,7 +2403,13 @@ if _HAS_TEXTUAL:
                 return
             from terok.lib.api.agents import ExecutorConfigView
 
-            path = ExecutorConfigView.set_image_agents(result)
+            try:
+                path = ExecutorConfigView.set_image_agents(result)
+            except (OSError, ValueError, YAMLError) as exc:
+                # A config.yml that does not parse, or is not a mapping, is
+                # left untouched; say why instead of ending the TUI.
+                self.notify(f"Cannot write image.agents: {exc}", severity="error", markup=False)
+                return
             self.notify(
                 f"Wrote image.agents = {result!r} to {path}",
                 severity="information",

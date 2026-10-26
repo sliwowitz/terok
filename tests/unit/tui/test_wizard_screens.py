@@ -693,6 +693,24 @@ async def test_failed_step_is_marked_without_widget_readback() -> None:
             assert "⋯" not in step
 
 
+@pytest.mark.asyncio
+async def test_init_reports_a_project_that_does_not_load() -> None:
+    """A project.yml that fails to load is logged; the SystemExit must not end the TUI."""
+    from terok.tui.wizard_screens import InitProgressScreen
+
+    with patch.object(InitProgressScreen, "on_mount", new=AsyncMock()):
+        app = _WizardHost(InitProgressScreen("demo"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, InitProgressScreen)
+            with patch("terok.lib.api.get_project", side_effect=SystemExit("Invalid project.yml")):
+                await screen._run_init()
+            await pilot.pause()
+            log_text = "\n".join(str(line) for line in screen.query_one("#wizard-init-log").lines)
+            assert "Invalid project.yml" in log_text
+
+
 # ── Form prefill (Back round-trip preservation) ──────────────────────
 
 

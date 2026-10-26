@@ -1128,7 +1128,7 @@ Command palette (`Ctrl+P`) actions:
 
 #### Theme
 
-Pick a theme from the command palette (`Ctrl+P` → "Change theme"); the choice
+Pick a theme from the command palette (`Ctrl+P` → "Theme"); the choice
 is saved to `tui.theme` in your global `config.yml` and applied on the next
 launch. The built-in `ansi-dark` theme renders with your terminal's own
 palette and default background — console output (image builds, gate syncs)

@@ -883,6 +883,38 @@ class TestProjectConfigEditors:
         instance.notify.assert_not_called()
 
 
+class TestProjectReselection:
+    """A re-scan selects one project again; its selection message refreshes the panes."""
+
+    def _restore(self, *, last: str | None, current: str | None) -> tuple[mock.Mock, mock.Mock]:
+        _, app_class = import_app()
+        instance = mock.Mock(spec=app_class)
+        instance._last_selected_project = last
+        instance.current_project_name = current
+        proj_widget = mock.Mock()
+        projects = [SimpleNamespace(name="alpha"), SimpleNamespace(name="beta")]
+        broken = [SimpleNamespace(name="damaged")]
+        app_class._restore_or_default_project_selection(instance, proj_widget, projects, broken)
+        return instance, proj_widget
+
+    @pytest.mark.parametrize(
+        ("last", "current", "expected"),
+        [
+            pytest.param("beta", "alpha", "beta", id="last-selected-wins"),
+            pytest.param("gone", "alpha", "alpha", id="current-when-last-is-gone"),
+            pytest.param("gone", "deleted", "damaged", id="first-row-when-both-are-gone"),
+            pytest.param(None, None, "damaged", id="first-row-on-startup"),
+        ],
+    )
+    def test_selects_an_existing_project(
+        self, last: str | None, current: str | None, expected: str
+    ) -> None:
+        """Broken rows come first, as the list shows them; a vanished project is never kept."""
+        instance, proj_widget = self._restore(last=last, current=current)
+        assert instance.current_project_name == expected
+        proj_widget.select_project.assert_called_once_with(expected)
+
+
 class TestTaskMenuShieldOptions:
     """The task menu names what each accept posture still blocks."""
 
@@ -1674,6 +1706,25 @@ class TestDefaultAgentsAction:
         write_mock.assert_called_once_with("claude,vibe")
         instance.notify.assert_called_once()
         assert "claude,vibe" in instance.notify.call_args.args[0]
+
+    @pytest.mark.parametrize(
+        "error",
+        [ValueError("top-level is CommentedSeq"), OSError("read-only file system")],
+        ids=["not-a-mapping", "unwritable"],
+    )
+    def test_on_default_agents_result_reports_a_failed_write(self, error: Exception) -> None:
+        """A config.yml that cannot be updated is reported, not raised into the TUI."""
+        _, app_class = import_app()
+        instance = mock.MagicMock()
+        instance.notify = mock.Mock()
+        with mock.patch(
+            "terok.lib.integrations.executor.ExecutorConfigView.set_image_agents",
+            side_effect=error,
+        ):
+            run(app_class._on_default_agents_result(instance, "claude"))
+        message = instance.notify.call_args.args[0]
+        assert "Cannot write image.agents" in message
+        assert instance.notify.call_args.kwargs == {"severity": "error", "markup": False}
 
     def test_on_default_agents_result_cancel_is_noop(self) -> None:
         """``None`` from the modal must NOT touch config.yml."""
