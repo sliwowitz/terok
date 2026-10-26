@@ -35,6 +35,22 @@ Built `FROM` L0.
 - Installs the agent CLIs and supporting tools selected from the roster (`terok agents list` shows what is available; defaults come from `image.agents`).
 - The unsuffixed tag (`terok-l1-cli:<base-tag>`) is a **default alias**: it points at whichever L1 was last built with the user's configured default agent selection, so host-wide flows (`terok auth <provider>`) can rely on it containing every configured agent. Explicit selections get only their suffixed tag.
 
+#### Vibe installation and upgrades
+
+Vibe is installed as `dev` through uv with GIL-enabled Python 3.14, separate
+from system Python. In containers built with this roster, run
+`uv tool upgrade mistral-vibe` without sudo, then restart Vibe. The bulk
+`sudo update-all-the-things` helper targets the same installation.
+
+To replace the older root-owned pipx installation, run
+`terok project build <project> --refresh-agents` and create a new task.
+Rebuilding images does not change existing task containers. An in-container
+upgrade affects only that container, not the image or other tasks.
+
+The old `vibe-readable-colors.dockerinclude` example patched Vibe's Python TUI.
+[Vibe 3 removed that TUI](https://github.com/mistralai/mistral-vibe/releases/tag/v3.0.0),
+so the example has been removed. Use Vibe's `/theme` command instead.
+
 ### L2 — Project Image (`<project>:l2-cli`)
 
 Built `FROM` the L1 image.

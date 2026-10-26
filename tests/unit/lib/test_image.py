@@ -211,15 +211,17 @@ def test_l2_missing_snippet_file_exits() -> None:
             generate_dockerfiles("proj_bad_snippet")
 
 
-def test_l1_cli_pipx_inject_has_env_vars() -> None:
-    """The CLI image sets the expected pipx env vars and package installation lines."""
-    with image_project("proj_pipx_test"):
-        generate_dockerfiles("proj_pipx_test")
-        content = (build_dir() / "proj_pipx_test" / "L1.cli.Dockerfile").read_text(encoding="utf-8")
-        assert "PIPX_HOME=/opt/pipx" in content
-        assert "PIPX_BIN_DIR=/usr/local/bin" in content
-        assert "pipx install mistral-vibe" in content
-        assert "pipx inject mistral-vibe mistralai" in content
+def test_l1_cli_installs_vibe_with_user_owned_uv() -> None:
+    """Project generation preserves the roster's user-writable Vibe installation."""
+    project_name = "proj_vibe_install"
+    with image_project(project_name):
+        generate_dockerfiles(project_name)
+        content = (build_dir() / project_name / "L1.cli.Dockerfile").read_text(encoding="utf-8")
+        before_install, _, after_install = content.partition("uv python install cpython-3.14")
+        assert before_install.split("USER ")[-1].startswith("dev\n")
+        assert "uv tool install --python cpython-3.14+gil mistral-vibe" in after_install
+        assert "pipx" not in content.lower()
+        assert "PIPX_" not in content
 
 
 def test_build_images_builds_l2() -> None:
