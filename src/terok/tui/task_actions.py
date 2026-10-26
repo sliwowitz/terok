@@ -43,6 +43,7 @@ from .screens import (
     TaskNameScreen,
     UnattendedPromptScreen,
 )
+from .tmux_session import rename_login_window
 from .widgets import TaskList
 
 if TYPE_CHECKING:
@@ -771,6 +772,8 @@ class TaskActionsMixin(_MixinBase):
         except SystemExit as e:
             self.notify(str(e))
             return
+        cname = container_name(pid, self.current_task.mode or "cli", tid)
+        await asyncio.to_thread(rename_login_window, cname, _login_title(pid, tid, name))
         self.notify(f"Task {tid} renamed.")
         await self.refresh_tasks()
 

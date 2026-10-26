@@ -659,6 +659,10 @@ Inside a terok-managed tmux, a few extra conveniences apply:
   back to the TUI — re-attaching the session or switching back to its
   window — or within ten minutes if you stay put.
 
+Renaming a task in the TUI also updates its already-open login window's
+host tmux title, without switching windows or interrupting the task. This
+also works in user-managed tmux sessions for login windows opened by terok.
+
 #### tmux Quick Reference
 
 | Context | Prefix | Status bar color | Common keys |

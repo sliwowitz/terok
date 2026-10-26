@@ -240,6 +240,55 @@ class TestLoginWindows:
         assert fake.calls == [["tmux", "select-window", "-t", "@7"]]
 
 
+class TestRenameLoginWindow:
+    """Task renames target only their stamped login window in the current session."""
+
+    @pytest.mark.parametrize("managed", [True, False], ids=["terok", "user"])
+    def test_renames_matching_window_without_selecting_it(
+        self, inside_terok_tmux: None, monkeypatch: pytest.MonkeyPatch, managed: bool
+    ) -> None:
+        """Stable window IDs identify the task even in user-managed tmux sessions."""
+        if not managed:
+            monkeypatch.delenv(tmux_session.TEROK_TMUX_ENV)
+        fake = FakeTmux(outputs={"list-windows": "@1 \n@3 terok-p1-t1\n@7 terok-p1-t2\n"}).install(
+            monkeypatch
+        )
+
+        tmux_session.rename_login_window("terok-p1-t2", "p1:t2:new-name")
+
+        assert fake.calls == [
+            ["tmux", "list-windows", "-F", "#{window_id} #{@terok-login}"],
+            ["tmux", "rename-window", "-t", "@7", "p1:t2:new-name"],
+        ]
+
+    def test_noop_outside_tmux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A TUI outside tmux must not touch another session on the host."""
+        fake = FakeTmux().install(monkeypatch)
+        tmux_session.rename_login_window("terok-p1-t2", "p1:t2:new-name")
+        assert fake.calls == []
+
+    @pytest.mark.parametrize("fail", [False, True], ids=["absent-window", "dead-server"])
+    def test_noop_when_window_unavailable(
+        self, inside_terok_tmux: None, monkeypatch: pytest.MonkeyPatch, fail: bool
+    ) -> None:
+        """Unstamped and other-task windows are never renamed, nor is a new one opened."""
+        fake = FakeTmux(outputs={"list-windows": "@1 \n@3 terok-p1-t1\n"}, fail=fail).install(
+            monkeypatch
+        )
+        tmux_session.rename_login_window("terok-p1-t2", "p1:t2:new-name")
+        assert len(fake.calls) == 1
+        assert fake.calls[0][1] == "list-windows"
+
+    def test_window_closing_during_rename_is_harmless(
+        self, inside_terok_tmux: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A window disappearing after lookup is a quiet best-effort failure."""
+        fake = FakeTmux(fail=True).install(monkeypatch)
+        monkeypatch.setattr(tmux_session, "find_login_window", lambda _cname: "@7")
+        tmux_session.rename_login_window("terok-p1-t2", "p1:t2:new-name")
+        assert fake.calls == [["tmux", "rename-window", "-t", "@7", "p1:t2:new-name"]]
+
+
 class TestQuitLandsInOtherWindow:
     """Quit guidance fires only for the root command with sibling windows."""
 

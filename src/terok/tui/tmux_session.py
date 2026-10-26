@@ -207,6 +207,16 @@ def stamp_login_window(window_id: str, cname: str) -> None:
     _tmux("set-option", "-w", "-t", window_id, LOGIN_WINDOW_OPTION, cname)
 
 
+def rename_login_window(cname: str, title: str) -> None:
+    """Update a task's existing login window title without switching windows.
+
+    Only terok-stamped windows in the current tmux session are eligible,
+    including in user-managed sessions. Outside tmux this is a no-op.
+    """
+    if os.environ.get("TMUX") and (window_id := find_login_window(cname)):
+        _tmux("rename-window", "-t", window_id, title)
+
+
 def select_window(window_id: str) -> bool:
     """Make *window_id* the current window; True when tmux accepted it."""
     return _tmux("select-window", "-t", window_id) is not None
