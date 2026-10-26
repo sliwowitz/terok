@@ -704,6 +704,8 @@ class TestTaskScreenKeyBinding:
             pytest.param("X", True, "delete", None, None, id="shift-x"),
             pytest.param("r", True, "restart", None, None, id="lower-r"),
             pytest.param("t", True, "stop", None, None, id="lower-t"),
+            pytest.param("i", True, "login", "cli", True, id="lower-i-login"),
+            pytest.param("v", True, "shield_interactive", "cli", True, id="lower-v-verdict"),
             pytest.param("d", True, "shield_down", None, None, id="lower-d"),
             pytest.param("D", True, "shield_disengaged", None, None, id="shift-d"),
             pytest.param("s", True, "shield_up", None, None, id="lower-s"),
@@ -730,16 +732,17 @@ class TestTaskScreenKeyBinding:
         elif should_stop is False:
             event.stop.assert_not_called()
 
-    @pytest.mark.parametrize("key", ["H", "d", "D", "s", "f"])
+    @pytest.mark.parametrize("key", ["H", "d", "D", "s", "f", "i", "v"])
     def test_task_only_keys_are_blocked_without_tasks(self, key: str) -> None:
         screen = make_task_screen(has_tasks=False)
         event = make_key_event(key)
         screen.on_key(event)
         screen.dismiss.assert_not_called()
 
-    def test_unmapped_key_does_nothing(self) -> None:
+    @pytest.mark.parametrize("key", ["x", "l"])
+    def test_unmapped_key_does_nothing(self, key: str) -> None:
         screen = make_task_screen(has_tasks=True)
-        event = make_key_event("x")
+        event = make_key_event(key)
         screen.on_key(event)
         screen.dismiss.assert_not_called()
         event.stop.assert_not_called()
@@ -835,6 +838,25 @@ class TestAuthScreenOptions:
 
 class TestTaskMenuShieldOptions:
     """The task menu names what each accept posture still blocks."""
+
+    def test_login_and_verdict_labels_match_main_shortcuts(self) -> None:
+        """Task details advertise the same login and verdict keys as the task list."""
+        screen = make_task_screen(has_tasks=True, mode="cli")
+        option_list = next(
+            w for w in screen.compose() if w._stub_kwargs.get("id") == "actions-list"
+        )
+        labels = {
+            opt._stub_kwargs.get("id"): opt._stub_args[0]
+            for opt in option_list._stub_args
+            if opt is not None
+        }
+        assert labels["login"] == "log\\[i]n to container"
+        assert labels["shield_interactive"] == "shield \\[v]erdict interactive handler"
+        bindings = dict(
+            _binding_key_action(binding) for binding in import_widgets().TaskList.BINDINGS
+        )
+        assert bindings["i"] == "app.login_from_main"
+        assert bindings["v"] == "app.shield_interactive_from_main"
 
     def test_task_menu_names_both_accept_postures(self) -> None:
         """Plain down says private ranges stay blocked; disengage says nothing is enforced."""
