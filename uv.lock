@@ -2479,8 +2479,8 @@ wheels = [
 
 [[package]]
 name = "terok-executor"
-version = "0.5.1a7.dev522+gad84d09bd"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=fix%2Fvibe-task-sessions#ad84d09bdca0cbe49422959d798da93cff0eb913" }
+version = "0.5.1a7.dev523+g35d39f4f4"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=fix%2Fvibe-task-sessions#35d39f4f47dfa5b0a35529fd445244dc12f90a99" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
