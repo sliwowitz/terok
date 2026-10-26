@@ -51,6 +51,17 @@ The old `vibe-readable-colors.dockerinclude` example patched Vibe's Python TUI.
 [Vibe 3 removed that TUI](https://github.com/mistralai/mistral-vibe/releases/tag/v3.0.0),
 so the example has been removed. Use Vibe's `/theme` command instead.
 
+Vibe's native experimental model catalog is enabled in the image for CLI,
+headless, and ACP sessions. The Mistral backend fetches the catalog through
+the vault; fetch failures fall back to local model definitions. Set
+`VIBE_EXPERIMENTAL_ENABLE_MODEL_CATALOG=false` to disable it. The old
+`vibe-model-sync` helper is no longer used. Rebuild with `--refresh-agents`
+and create a new task to adopt the image default and updated launcher.
+
+When defining a model manually, specify both `max_context_length` (total
+context window) and `max_output_tokens` (per-response cap). A large context
+window does not imply an equally large allowed completion.
+
 ### L2 — Project Image (`<project>:l2-cli`)
 
 Built `FROM` the L1 image.
