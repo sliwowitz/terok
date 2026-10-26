@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12, <3.15"
 
 [[package]]
@@ -2355,6 +2355,7 @@ wheels = [
 [[package]]
 name = "terok"
 source = { editable = "." }
+default-groups = ["dev", "test"]
 dependencies = [
     { name = "argcomplete" },
     { name = "jinja2" },
@@ -2479,8 +2480,8 @@ wheels = [
 
 [[package]]
 name = "terok-executor"
-version = "0.5.1a2.dev506+g5a592ca89"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=fix%2Fdesktop-keyring-transfer#5a592ca89b81e73eb457c594630f97bee70fc66e" }
+version = "0.5.1a6.dev523+g9a41782e4"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=fix%2Fdesktop-keyring-transfer#9a41782e464d87663667cd1b23539b0b58b367f2" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2495,8 +2496,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.7.0a2.dev506+g083a6df24"
-source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=fix%2Fdesktop-keyring-transfer#083a6df24b752d9156ccd6463ac27a28c4f0a3b1" }
+version = "0.7.0a4.dev524+g60dfc7356"
+source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=fix%2Fdesktop-keyring-transfer#60dfc7356995d43ededd9d8feae9203308c82561" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
