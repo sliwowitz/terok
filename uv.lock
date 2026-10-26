@@ -2420,7 +2420,7 @@ requires-dist = [
     { name = "rich", specifier = "~=15.0" },
     { name = "ruamel-yaml", specifier = "==0.19.1" },
     { name = "terok-clearance", specifier = ">=0.8.1,<0.9.0" },
-    { name = "terok-executor", git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Ftask-agent-history" },
+    { name = "terok-executor", url = "https://github.com/terok-ai/terok-executor/releases/download/v0.5.1a3/terok_executor-0.5.1a3-py3-none-any.whl" },
     { name = "terok-sandbox", url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.7.0a2/terok_sandbox-0.7.0a2-py3-none-any.whl" },
     { name = "terok-shield", url = "https://github.com/terok-ai/terok-shield/releases/download/v0.10.0a1/terok_shield-0.10.0a1-py3-none-any.whl" },
     { name = "terok-util", specifier = ">=0.4.0,<0.5.0" },
@@ -2479,8 +2479,8 @@ wheels = [
 
 [[package]]
 name = "terok-executor"
-version = "0.5.1a3.dev518+ge2a676daf"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Ftask-agent-history#e2a676daf909be63982bde880f156ce213e814a0" }
+version = "0.5.1a3"
+source = { url = "https://github.com/terok-ai/terok-executor/releases/download/v0.5.1a3/terok_executor-0.5.1a3-py3-none-any.whl" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2491,6 +2491,22 @@ dependencies = [
     { name = "terok-sandbox" },
     { name = "terok-util" },
     { name = "tomli-w" },
+]
+wheels = [
+    { url = "https://github.com/terok-ai/terok-executor/releases/download/v0.5.1a3/terok_executor-0.5.1a3-py3-none-any.whl", hash = "sha256:c05415d2aa238b9d26a0b5cbdfce46e2aff9359bd42c7839769bb9ebebba26ef" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-client-protocol", specifier = "==0.12.1" },
+    { name = "jinja2", specifier = "~=3.1" },
+    { name = "prompt-toolkit", specifier = "~=3.0" },
+    { name = "pydantic", specifier = "~=2.13" },
+    { name = "rich", specifier = "~=15.0" },
+    { name = "ruamel-yaml", specifier = "==0.19.1" },
+    { name = "terok-sandbox", url = "https://github.com/terok-ai/terok-sandbox/releases/download/v0.7.0a2/terok_sandbox-0.7.0a2-py3-none-any.whl" },
+    { name = "terok-util", specifier = ">=0.4.0,<0.5.0" },
+    { name = "tomli-w", specifier = "~=1.2" },
 ]
 
 [[package]]
