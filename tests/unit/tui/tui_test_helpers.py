@@ -60,9 +60,13 @@ def build_textual_stubs() -> dict[str, types.ModuleType]:
     class DescendantFocus:
         pass
 
+    class DescendantBlur:
+        pass
+
     events_mod.Key = Key
     events_mod.Resize = Resize
     events_mod.DescendantFocus = DescendantFocus
+    events_mod.DescendantBlur = DescendantBlur
 
     screen_mod = types.ModuleType("textual.screen")
 

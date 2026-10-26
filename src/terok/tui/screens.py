@@ -72,7 +72,7 @@ from terok.lib.api.gate import BackupRef, GateStalenessInfo
 from terok.lib.api.setup import EnvironmentCheck
 from terok.lib.api.vault import VaultState, VaultStatus, load_vault_status
 
-from ..lib.api import ProjectConfig, sanitize_task_name, validate_task_name
+from ..lib.api import ProjectConfig, sanitize_task_name, task_rename, validate_task_name
 from .widgets import TaskMeta, render_project_details, render_project_loading, render_task_details
 
 
@@ -1399,7 +1399,10 @@ else:  # pragma: no cover - stub Select in test envs
 class TaskLaunchScreen(
     screen.ModalScreen["tuple[str, str, str, str, str | None, str | None] | None"]
 ):
-    """Post-creation modal for CLI tasks: agent selection + optional prompt.
+    """CLI task startup with an editable name, agent selection, and optional prompt.
+
+    The task already exists and its container starts in the background.
+    Leaving the name field saves a rename; empty input restores the last name.
 
     Dismisses with ``(project_name, task_id, task_name, container_name,
     agent, prompt)``.  ``agent`` is the chosen shell/agent on Login and
@@ -1420,8 +1423,8 @@ class TaskLaunchScreen(
 
     #launch-dialog {
         width: 70;
-        height: auto;
-        max-height: 80%;
+        height: 28;
+        max-height: 100%;
         border: heavy $primary;
         border-title-align: right;
         border-subtitle-align: left;
@@ -1433,13 +1436,18 @@ class TaskLaunchScreen(
         margin-bottom: 1;
     }
 
+    #launch-name {
+        margin-bottom: 1;
+    }
+
     #login-agent {
         margin-bottom: 1;
     }
 
     #launch-prompt {
         margin-bottom: 1;
-        height: 10;
+        height: 1fr;
+        min-height: 3;
     }
 
     #launch-buttons {
@@ -1491,11 +1499,11 @@ class TaskLaunchScreen(
         self._start_time = 0.0
 
     def compose(self) -> ComposeResult:
-        """Build prompt input, agent selector, status, and action buttons."""
+        """Build name and prompt inputs, agent selector, status, and action buttons."""
         with Vertical(id="launch-dialog") as dialog:
+            yield Input(value=self._task_name, placeholder="Task name", id="launch-name")
             yield Static("Status: Starting container\u2026", id="launch-status")
 
-            # Prompt input first (multiline TextArea with Ctrl+Enter for newline)
             yield _SubmittablePromptArea(
                 placeholder="Initial prompt (optional)", id="launch-prompt"
             )
@@ -1520,7 +1528,7 @@ class TaskLaunchScreen(
                     yield Button("Show log", id="btn-show-log", variant="default")
                 yield Button("Dismiss", id="btn-dismiss", variant="default")
                 yield Button("Login", id="btn-login", variant="primary", disabled=True)
-        dialog.border_title = f"CLI Task {self._task_id} ({self._task_name})"
+        dialog.border_title = f"CLI Task {self._task_id}"
 
     def _build_agent_choices(self) -> list[tuple[str, str]]:
         """Build the (label, value) list for the agent Select.
@@ -1564,11 +1572,10 @@ class TaskLaunchScreen(
         select.disabled = False
 
     def on_mount(self) -> None:
-        """Start polling for container readiness and focus the prompt input."""
+        """Start polling for container readiness and focus the name input."""
         import time
 
-        prompt = self.query_one("#launch-prompt", TextArea)
-        prompt.focus()
+        self.query_one("#launch-name", Input).focus()
         self._refresh_hint()
         self._start_time = time.monotonic()
         self._poll_timer = self.set_interval(1.5, self._poll_status)
@@ -1576,6 +1583,33 @@ class TaskLaunchScreen(
     def on_descendant_focus(self, event: events.DescendantFocus) -> None:
         """Refresh the Enter hint whenever focus moves between the dialog's controls."""
         self._refresh_hint()
+
+    def on_descendant_blur(self, event: events.DescendantBlur) -> None:
+        """Save the task name when focus leaves its input."""
+        if event.widget.id == "launch-name":
+            self._commit_name()
+
+    def _commit_name(self) -> None:
+        """Persist an edited name, or restore the last saved name on invalid input."""
+        name_input = self.query_one("#launch-name", Input)
+        raw = name_input.value.strip()
+        candidate = sanitize_task_name(raw) if raw else self._task_name
+        error = (
+            validate_task_name(candidate)
+            if candidate
+            else "must contain at least one alphanumeric character"
+        )
+        if error:
+            self.notify(f"Invalid name: {error}.")
+        elif candidate and candidate != self._task_name:
+            try:
+                task_rename(self._project_name, self._task_id, candidate)
+            except (SystemExit, Exception) as exc:
+                self.notify(f"Failed to rename task: {exc}", severity="error")
+            else:
+                self._task_name = candidate
+                self.notify(f"Task {self._task_id} renamed.")
+        name_input.value = self._task_name
 
     # Enter means "log in" on both of these widgets — via the bubbled key in
     # ``on_key`` for the prompt (``_SubmittablePromptArea``) and via the
@@ -1601,6 +1635,7 @@ class TaskLaunchScreen(
         """Rebuild the border subtitle for the current focus and readiness state."""
         focused_id = self.focused.id if self.focused else None
         subtitle = _join_hints(
+            "Enter instructions" if focused_id == "launch-name" else None,
             "Ctrl+J newline" if focused_id == "launch-prompt" else None,
             "Space agent list" if focused_id == "login-agent" else None,
             "Esc dismiss",
@@ -1705,9 +1740,10 @@ class TaskLaunchScreen(
             status_widget.update("Status: Launch may have failed \u2014 check notifications")
 
     def on_input_submitted(self, event: "Input.Submitted") -> None:
-        """Treat Enter in the prompt input as Login if container is ready."""
-        if self._container_ready:
-            self._do_login()
+        """Advance from the task name to the instructions without logging in."""
+        if event.input.id == "launch-name":
+            self.query_one("#launch-prompt", TextArea).focus()
+            event.stop()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle Login, Dismiss, or Show-log button clicks."""
@@ -1728,6 +1764,7 @@ class TaskLaunchScreen(
         *agent* is the chosen shell/agent on Login, or ``None`` on Dismiss;
         the prompt travels either way (stripped, or ``None`` when blank).
         """
+        self._commit_name()
         prompt = self.query_one("#launch-prompt", TextArea).text.strip() or None
         return (
             self._project_name,

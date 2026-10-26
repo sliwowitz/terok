@@ -46,7 +46,7 @@ from ..tasks import (
     load_task_meta,
     task_new,
     update_task_exit_code,
-    write_task_meta,
+    write_task_state,
 )
 from .config import _apply_unrestricted_env, _str_to_bool
 from .container import _assert_running, _podman_start, _run_container
@@ -317,7 +317,7 @@ def task_run_headless(request: HeadlessRunRequest) -> str:
         meta["provider"] = request.provider
     meta["unrestricted"] = unrestricted
     meta["debug"] = request.debug
-    write_task_meta(meta_path, meta)
+    write_task_state(meta_path, meta)
 
     _report_headless_result(
         project_name=project.name,
@@ -454,7 +454,7 @@ def task_followup_headless(
 
     # Clear previous exit_code so effective_status shows "running" until new exit
     meta["exit_code"] = None
-    write_task_meta(meta_path, meta)
+    write_task_state(meta_path, meta)
 
     _report_headless_result(
         project_name=project.name,

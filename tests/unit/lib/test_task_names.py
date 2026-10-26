@@ -18,10 +18,12 @@ from terok.lib.orchestration.tasks import (
     generate_task_name,
     get_tasks,
     iter_task_ids,  # noqa: F401 — used in renamed assert
+    load_task_meta,
     sanitize_task_name,
     task_new,
     task_rename,
     validate_task_name,
+    write_task_meta,
 )
 from terok.lib.orchestration.tasks.naming import (
     _default_categories_for_project,
@@ -185,6 +187,25 @@ def test_task_rename_unknown_task_raises() -> None:
     with project_env(project_yaml(project_name), project_name=project_name):
         with pytest.raises(SystemExit):
             task_rename(project_name, "999", "new-name")
+
+
+def test_task_rename_preserves_readiness_written_after_its_metadata_read() -> None:
+    """A rename using older metadata must not undo completed initialization."""
+    project_name = "proj_rename_ready"
+    with project_env(project_yaml(project_name), project_name=project_name):
+        task_id = task_new(project_name, name="original-name")
+        stale_meta, handle = load_task_meta(project_name, task_id)
+        write_task_meta(handle, {**stale_meta, "mode": "cli", "ready_at": "ready"})
+
+        with patch(
+            "terok.lib.orchestration.tasks.lifecycle.read_task_meta", return_value=stale_meta
+        ):
+            task_rename(project_name, task_id, "edited-name")
+
+        meta, _ = load_task_meta(project_name, task_id)
+        assert meta["name"] == "edited-name"
+        assert meta["mode"] == "cli"
+        assert meta["ready_at"] == "ready"
 
 
 def test_get_tasks_loads_name() -> None:

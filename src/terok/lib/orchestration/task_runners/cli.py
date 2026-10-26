@@ -29,7 +29,7 @@ from ..tasks import (
     CONTAINER_TEROK_CONFIG,
     container_name,
     load_task_meta,
-    write_task_meta,
+    write_task_state,
 )
 from .config import _apply_unrestricted_env, _prepare_agent_config, _str_to_bool
 from .container import (
@@ -55,7 +55,7 @@ def task_run_cli(
     """
     project = load_project(project_name)
     validate_host_setup()
-    meta, meta_path = load_task_meta(project.name, task_id, "cli")
+    _, meta_path = load_task_meta(project.name, task_id, "cli")
 
     cname = container_name(project.name, "cli", task_id)
     _log_debug(f"cli run: start project={project.name} task={task_id} cname={cname}")
@@ -143,11 +143,12 @@ def task_run_cli(
         meta_path=meta_path,
     )
 
+    meta, _ = load_task_meta(project.name, task_id, "cli")
     meta["mode"] = "cli"
     meta["ready_at"] = datetime.now(UTC).isoformat()
     meta["unrestricted"] = unrestricted
     meta["debug"] = debug
-    write_task_meta(meta_path, meta)
+    write_task_state(meta_path, meta)
 
     color_enabled = _supports_color()
     print(

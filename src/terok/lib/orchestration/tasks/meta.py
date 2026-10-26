@@ -19,7 +19,8 @@ comments and round-trip ergonomics cheap.
 The split is reconciled at the I/O boundary: ``read_task_meta``
 returns one merged dict in internal-storage shape (``project_name``,
 ``task_id``, …), ``write_task_meta`` splits a single dict back to
-both files atomically.
+both files atomically. Name edits and lifecycle updates can write
+their own file independently without overwriting each other.
 """
 
 import json
@@ -162,6 +163,15 @@ def write_task_meta(dossier_handle: Path, meta: dict) -> None:
     stale and the other fresh, but never a half-written file — readers
     always get a parseable shape.
     """
+    write_task_dossier(dossier_handle, meta)
+    write_task_state(dossier_handle, meta)
+
+
+def write_task_dossier(dossier_handle: Path, meta: dict) -> None:
+    """Write task identity and name without replacing lifecycle state.
+
+    Accepts the merged metadata shape; ignores all bookkeeping fields.
+    """
     meta_dir, task_id = _dossier_handle_to_dir_and_id(dossier_handle)
     meta_dir.mkdir(parents=True, exist_ok=True)
 
@@ -170,12 +180,20 @@ def write_task_meta(dossier_handle: Path, meta: dict) -> None:
         for internal_key, wire_key in _DOSSIER_TO_WIRE.items()
         if meta.get(internal_key)
     }
-    state = {k: v for k, v in meta.items() if k not in _DOSSIER_INTERNAL_KEYS}
-
     _atomic_write(
         dossier_path(meta_dir, task_id),
         json.dumps(dossier, indent=2, ensure_ascii=False, default=str) + "\n",
     )
+
+
+def write_task_state(dossier_handle: Path, meta: dict) -> None:
+    """Write lifecycle state without replacing task identity or name.
+
+    Accepts the merged metadata shape; ignores all dossier fields.
+    """
+    meta_dir, task_id = _dossier_handle_to_dir_and_id(dossier_handle)
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    state = {k: v for k, v in meta.items() if k not in _DOSSIER_INTERNAL_KEYS}
     _atomic_write(meta_path(meta_dir, task_id), _yaml_dump(state))
 
 
@@ -280,7 +298,7 @@ def update_task_exit_code(project_name: str, task_id: str, exit_code: int | None
     if meta is None:
         return
     meta["exit_code"] = exit_code
-    write_task_meta(dossier_path(meta_dir, task_id), meta)
+    write_task_state(dossier_path(meta_dir, task_id), meta)
 
 
 def _check_mode(meta: dict, expected: str) -> None:
@@ -298,7 +316,7 @@ def load_task_meta(
     Returns ``(meta, dossier_path)``: the merged in-memory dict (in
     its internal storage shape — ``project_name`` / ``task_id`` / …)
     plus the canonical dossier-file handle for write-back via
-    ``write_task_meta(dossier_path, meta)``.  Raises SystemExit if
+    ``write_task_state(dossier_path, meta)``.  Raises SystemExit if
     the task is unknown or its mode conflicts with *expected_mode*.
     """
     meta_dir = tasks_meta_dir(project_name)
@@ -318,7 +336,7 @@ def mark_task_deleting(project_name: str, task_id: str) -> None:
         if meta is None:
             return
         meta["deleting"] = True
-        write_task_meta(dossier_path(meta_dir, task_id), meta)
+        write_task_state(dossier_path(meta_dir, task_id), meta)
     except Exception as e:
         _log_debug(f"mark_task_deleting: failed project_name={project_name} task_id={task_id}: {e}")
 
@@ -336,5 +354,7 @@ __all__ = [
     "tasks_archive_dir",
     "tasks_meta_dir",
     "update_task_exit_code",
+    "write_task_dossier",
     "write_task_meta",
+    "write_task_state",
 ]

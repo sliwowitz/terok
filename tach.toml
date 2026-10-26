@@ -854,6 +854,7 @@ expose = [
     "meta_path",
     "read_task_meta",
     "write_task_meta",
+    "write_task_state",
     "iter_task_ids",
     "task_exists",
     "lookup_container_by_pt",

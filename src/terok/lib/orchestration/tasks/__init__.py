@@ -69,6 +69,7 @@ from .meta import (  # noqa: F401 — re-exported public API
     tasks_meta_dir,
     update_task_exit_code,
     write_task_meta,
+    write_task_state,
 )
 from .naming import (  # noqa: F401 — re-exported public API
     TASK_NAME_MAX_LEN,
@@ -136,4 +137,5 @@ __all__ = [
     "validate_task_name",
     "wait_for_container_exit",
     "write_task_meta",
+    "write_task_state",
 ]

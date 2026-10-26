@@ -45,6 +45,7 @@ from .meta import (
     read_task_meta,
     tasks_archive_dir,
     tasks_meta_dir,
+    write_task_dossier,
     write_task_meta,
 )
 from .naming import generate_task_name, sanitize_task_name, validate_task_name
@@ -173,7 +174,7 @@ def _task_rename(project: ProjectConfig, task_id: str, new_name: str) -> None:
     if err:
         raise SystemExit(f"Invalid task name: {err}")
     meta["name"] = sanitized
-    write_task_meta(dossier_path(meta_dir, task_id), meta)
+    write_task_dossier(dossier_path(meta_dir, task_id), meta)
     print(f"Renamed task {task_id} to {sanitized}")
 
 

@@ -30,6 +30,7 @@ from terok.lib.orchestration.task_runners import (
     task_followup_headless,
     task_run_headless,
 )
+from terok.lib.orchestration.tasks import task_rename
 from tests.test_utils import assert_task_id, captured_runspec, mock_git_config, write_project
 
 
@@ -401,6 +402,30 @@ class TestTaskRunHeadless:
             assert meta["mode"] == "run"
             assert meta["exit_code"] == 0
 
+    def test_headless_preserves_name_changed_during_launch(self, tmp_path: Path) -> None:
+        """Persisting launch state must not undo a rename made during container startup."""
+        project_name = "proj_headless_rename"
+
+        def rename_during_launch(**kwargs) -> None:
+            """Rename after the runner has read the original metadata."""
+            task_rename(project_name, kwargs["task_id"], "edited-name")
+
+        with unittest.mock.patch(
+            "terok.lib.orchestration.task_runners.headless._run_container",
+            side_effect=rename_during_launch,
+        ):
+            result = run_headless_request(
+                tmp_path,
+                write_runner_project(tmp_path, project_name),
+                HeadlessRunRequest(project_name, "test", name="original-name", follow=False),
+            )
+
+        meta = read_task_meta(tmp_path, project_name, result.task_id)
+        assert meta["name"] == "edited-name"
+        assert meta["mode"] == "run"
+        assert meta["ready_at"]
+        assert meta["agent"] == "claude"
+
     def test_headless_debug_flows_to_sidecar_and_meta(self) -> None:
         """``--debug`` reaches ``launch_prepared`` and is persisted in task meta."""
         with tempfile.TemporaryDirectory() as td:
@@ -620,6 +645,30 @@ class TestTaskFollowupHeadless:
 
             meta = read_task_meta(base, "proj_meta2", task_id)
             assert meta["exit_code"] == 0
+
+    def test_followup_preserves_name_changed_during_restart(
+        self, tmp_path: Path, mock_runtime
+    ) -> None:
+        """Clearing the old exit code must not undo a rename made during restart."""
+        project_name = "proj_followup_rename"
+        task_id = self._create_completed_task(tmp_path, project_name)
+        mock_runtime.container.return_value.start.side_effect = lambda: task_rename(
+            project_name, task_id, "edited-name"
+        )
+
+        run_followup_request(
+            tmp_path,
+            project_name,
+            task_id,
+            "continue",
+            container_state=["exited", "running"],
+            follow=False,
+        )
+
+        meta = read_task_meta(tmp_path, project_name, task_id)
+        assert meta["name"] == "edited-name"
+        assert meta["mode"] == "run"
+        assert meta["exit_code"] is None
 
     def test_followup_no_follow_mode(self, mock_runtime) -> None:
         """Follow-up with follow=False prints detached info and skips wait."""

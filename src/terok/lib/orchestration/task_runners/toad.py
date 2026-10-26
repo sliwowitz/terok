@@ -43,7 +43,7 @@ from ..tasks import (
     CONTAINER_TEROK_CONFIG,
     container_name,
     load_task_meta,
-    write_task_meta,
+    write_task_state,
 )
 from .config import _apply_unrestricted_env, _prepare_agent_config, _str_to_bool
 from .container import _refuse_existing_container, _run_container
@@ -186,7 +186,7 @@ def task_run_toad(
     meta["mode"] = "toad"
     meta["unrestricted"] = unrestricted
     meta["debug"] = debug
-    write_task_meta(meta_path, meta)
+    write_task_state(meta_path, meta)
 
     # Preserve the address family when the public host is a loopback — binding
     # ::1 to 127.0.0.1 would make the URL we print (``http://[::1]:…``)
@@ -268,7 +268,7 @@ def task_run_toad(
     )
 
     meta["ready_at"] = datetime.now(UTC).isoformat()
-    write_task_meta(meta_path, meta)
+    write_task_state(meta_path, meta)
 
     color_enabled = _supports_color()
     url = _toad_browser_url(pub_host, port, token)
