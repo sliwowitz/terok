@@ -501,3 +501,26 @@ class SharedDirFieldTests(unittest.TestCase):
         """``shared_dir: ~`` (YAML null) stays None."""
         raw = RawProjectYaml.model_validate({"shared_dir": None})
         self.assertIsNone(raw.shared_dir)
+
+
+class DockerSnippetPlacementTests(unittest.TestCase):
+    """A Dockerfile snippet is project configuration: project.yml takes it, config.yml refuses it."""
+
+    def test_project_yml_takes_a_snippet(self) -> None:
+        raw = RawProjectYaml.model_validate(
+            {"image": {"user_snippet_inline": "RUN true", "user_snippet_file": "extra.dockerfile"}}
+        )
+        self.assertEqual(raw.image.user_snippet_inline, "RUN true")
+        self.assertEqual(raw.image.user_snippet_file, "extra.dockerfile")
+
+    def test_config_yml_refuses_a_snippet_and_names_project_yml(self) -> None:
+        for key in ("user_snippet_inline", "user_snippet_file"):
+            with self.subTest(key=key), self.assertRaises(ValidationError) as caught:
+                RawGlobalConfig.model_validate({"image": {key: "RUN true"}})
+            message = str(caught.exception)
+            self.assertIn(key, message)
+            self.assertIn("project.yml", message)
+
+    def test_config_yml_image_defaults_still_validate(self) -> None:
+        raw = RawGlobalConfig.model_validate({"image": {"agents": "all", "family": "rpm"}})
+        self.assertEqual(raw.image.agents, "all")

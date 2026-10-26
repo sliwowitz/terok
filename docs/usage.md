@@ -362,6 +362,8 @@ RUN apt-get update && apt-get install -y ripgrep jq && rm -rf /var/lib/apt/lists
 ```
 
 This text is pasted near the end of your project image (L2) Dockerfile.
+A Docker snippet is set per project only: `config.yml` refuses
+`image.user_snippet_file` and `image.user_snippet_inline`.
 In the TUI, **Shift+S** on the project details screen edits the snippet —
 see [Editing Configuration in the TUI](#editing-configuration-in-the-tui).
 
