@@ -146,6 +146,29 @@ def test_task_gate_token_unknown_task_raises() -> None:
             _task_gate_token("online-proj", "no-such-task")
 
 
+def test_task_gate_token_preserves_name_changed_during_minting() -> None:
+    """Persisting a new gate token must not overwrite a concurrent rename."""
+    from terok.lib.orchestration.environment import _task_gate_token
+    from terok.lib.orchestration.tasks import load_task_meta, task_new, task_rename
+
+    with mock_git_config(), project_env(_ONLINE_YAML, project_name="online-proj"):
+        task_id = task_new("online-proj", name="original-name")
+
+        def rename_while_minting() -> str:
+            """Rename after the token lookup has read the original metadata."""
+            task_rename("online-proj", task_id, "edited-name")
+            return "terok-g-test-token"
+
+        with patch(
+            "terok.lib.orchestration.environment.mint_gate_token", side_effect=rename_while_minting
+        ):
+            token = _task_gate_token("online-proj", task_id)
+
+        meta, _ = load_task_meta("online-proj", task_id)
+        assert meta["name"] == "edited-name"
+        assert meta["gate_token"] == token == "terok-g-test-token"
+
+
 def test_gatekeeping_missing_gate_raises() -> None:
     """Gatekeeping mode requires a synced gate mirror before task startup."""
     with mock_git_config(), project_env(_GATEKEEPING_YAML, project_name="gk-proj", with_gate=False):

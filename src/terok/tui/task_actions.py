@@ -189,16 +189,7 @@ class TaskActionsMixin(_MixinBase):
             return
 
         default_name = generate_task_name(self.current_project_name)
-        await self.push_screen(
-            TaskNameScreen(default_name=default_name),
-            self._on_task_start_cli_name,
-        )
-
-    async def _on_task_start_cli_name(self, name: str | None) -> None:
-        """Handle name result from TaskNameScreen for CLI task start."""
-        if name is None or not self.current_project_name:
-            return
-        await self._start_cli_task_background(name)
+        await self._start_cli_task_background(default_name)
 
     async def _start_cli_task_background(self, name: str) -> None:
         """Create a CLI task and start its container in the background.
@@ -210,7 +201,7 @@ class TaskActionsMixin(_MixinBase):
         The launch screen is pushed *immediately* with a placeholder
         (loading) agent dropdown; the slow ``installed_agents`` lookup
         runs in a worker and fills the dropdown when it returns.  This
-        keeps the prompt TextArea instantly typeable.
+        keeps the name and prompt editable while the container starts.
         """
         pid = self.current_project_name
         if not pid:

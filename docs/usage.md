@@ -548,6 +548,14 @@ terok task run myproj --no-attach
 terok task list myproj
 ```
 
+In the TUI, press **c** to start a CLI task. The task starts initializing
+with a generated name as the launch dialog opens. The name field has initial
+focus, with the live status and optional instructions below it. Press **Enter**
+or **Tab** to move to the instructions. Leaving the name field saves the edited
+name and shows a rename notification; an empty field restores the previous name.
+**Dismiss** and **Login** also save the name and instructions. Dismiss leaves
+the container starting in the background.
+
 #### Additional Task Operations
 
 ```bash

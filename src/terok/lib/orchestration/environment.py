@@ -153,14 +153,14 @@ def _task_gate_token(project_name: str, task_id: str) -> str:
     it dies with the task's metadata.  The sidecar JSON already carries
     the token in plaintext on the host, so this adds no new exposure.
     """
-    from .tasks import load_task_meta, write_task_meta
+    from .tasks import load_task_meta, write_task_state
 
     meta, handle = load_task_meta(project_name, task_id)
     token = meta.get("gate_token")
     if not token:
         token = mint_gate_token()
         meta["gate_token"] = token
-        write_task_meta(handle, meta)
+        write_task_state(handle, meta)
     return str(token)
 
 

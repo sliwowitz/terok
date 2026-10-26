@@ -39,6 +39,7 @@ from terok.lib.orchestration.tasks import (
     task_delete,
     task_list,
     task_new,
+    task_rename,
     tasks_meta_dir,
     write_task_meta,
 )
@@ -530,6 +531,33 @@ class TestTask:
             assert sorted(p.name for p in workspace_dir.iterdir()) == [".new-task-marker"]
             agent_mounts = ctx.base / "sandbox-live" / "mounts"
             assert (agent_mounts / "_claude-config" / "settings.json").is_file()
+
+    def test_task_run_cli_preserves_name_changed_during_initialization(self, mock_runtime) -> None:
+        """Container readiness must not restore the name captured before startup."""
+        project_name = "proj_cli_rename"
+        with project_env(
+            f"project:\n  id: {project_name}\n  security_class: online\n",
+            project_name=project_name,
+            with_config_file=True,
+            clear_env=True,
+        ):
+            task_id = task_new(project_name, name="original-name")
+            mock_runtime.container.return_value.stream_initial_logs.side_effect = lambda **kwargs: (
+                task_rename(project_name, task_id, "edited-name")
+            )
+            with (
+                _set_state_sequence(mock_runtime, [None, "running"]),
+                mock_git_config(),
+            ):
+                task_run_cli(project_name, task_id)
+
+            meta, _ = load_task_meta(project_name, task_id)
+            assert meta["name"] == "edited-name"
+            assert meta["mode"] == "cli"
+            assert meta["ready_at"]
+            assert meta["unrestricted"] is True
+            assert meta["debug"] is False
+            assert meta["hooks_fired"] == ["pre_start", "post_start", "post_ready"]
 
     def test_task_run_toad_passes_public_url(self, mock_runtime) -> None:
         """task_run_toad must pass --public-url with the host port to toad serve."""

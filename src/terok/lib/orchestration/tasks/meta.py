@@ -19,7 +19,8 @@ comments and round-trip ergonomics cheap.
 The split is reconciled at the I/O boundary: ``read_task_meta``
 returns one merged dict in internal-storage shape (``project_name``,
 ``task_id``, …), ``write_task_meta`` splits a single dict back to
-both files atomically.
+both files atomically. Name edits and lifecycle updates can write
+their own file independently without overwriting each other.
 """
 
 import json
@@ -162,6 +163,15 @@ def write_task_meta(dossier_handle: Path, meta: dict) -> None:
     stale and the other fresh, but never a half-written file — readers
     always get a parseable shape.
     """
+    write_task_dossier(dossier_handle, meta)
+    write_task_state(dossier_handle, meta)
+
+
+def write_task_dossier(dossier_handle: Path, meta: dict) -> None:
+    """Write task identity and name without replacing lifecycle state.
+
+    Accepts the merged metadata shape; ignores all bookkeeping fields.
+    """
     meta_dir, task_id = _dossier_handle_to_dir_and_id(dossier_handle)
     meta_dir.mkdir(parents=True, exist_ok=True)
 
@@ -170,12 +180,20 @@ def write_task_meta(dossier_handle: Path, meta: dict) -> None:
         for internal_key, wire_key in _DOSSIER_TO_WIRE.items()
         if meta.get(internal_key)
     }
-    state = {k: v for k, v in meta.items() if k not in _DOSSIER_INTERNAL_KEYS}
-
     _atomic_write(
         dossier_path(meta_dir, task_id),
         json.dumps(dossier, indent=2, ensure_ascii=False, default=str) + "\n",
     )
+
+
+def write_task_state(dossier_handle: Path, meta: dict) -> None:
+    """Write lifecycle state without replacing task identity or name.
+
+    Accepts the merged metadata shape; ignores all dossier fields.
+    """
+    meta_dir, task_id = _dossier_handle_to_dir_and_id(dossier_handle)
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    state = {k: v for k, v in meta.items() if k not in _DOSSIER_INTERNAL_KEYS}
     _atomic_write(meta_path(meta_dir, task_id), _yaml_dump(state))
 
 
@@ -336,5 +354,7 @@ __all__ = [
     "tasks_archive_dir",
     "tasks_meta_dir",
     "update_task_exit_code",
+    "write_task_dossier",
     "write_task_meta",
+    "write_task_state",
 ]

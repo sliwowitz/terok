@@ -41,6 +41,22 @@ def test_launch_checks_host_before_creating_task(mode: str) -> None:
     assert "missing host tool" in app.notify.call_args.args[0]
 
 
+def test_cli_start_launches_with_generated_name_without_a_name_dialog() -> None:
+    """The CLI shortcut starts initialization without waiting for a name submission."""
+    from terok.tui.task_actions import TaskActionsMixin
+
+    app = types.SimpleNamespace(
+        current_project_name="project",
+        _start_cli_task_background=mock.AsyncMock(),
+        push_screen=mock.AsyncMock(),
+    )
+    with mock.patch("terok.tui.task_actions.generate_task_name", return_value="generated-name"):
+        run(TaskActionsMixin._action_task_start_cli(app))
+
+    app._start_cli_task_background.assert_awaited_once_with("generated-name")
+    app.push_screen.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # TaskCreateScreen
 # ---------------------------------------------------------------------------
@@ -172,6 +188,7 @@ class TestTaskLaunchScreen:
         )
         screen.dismiss = mock.Mock()
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "half-typed thought"
         screen.query_one = lambda selector, cls=None: mock_textarea
 
@@ -187,6 +204,7 @@ class TestTaskLaunchScreen:
         )
         screen.dismiss = mock.Mock()
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "half-typed thought"
         screen.query_one = lambda selector, cls=None: mock_textarea
 
@@ -206,6 +224,7 @@ class TestTaskLaunchScreen:
         )
         screen.dismiss = mock.Mock()
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "   "
         screen.query_one = lambda selector, cls=None: mock_textarea
 
@@ -251,6 +270,7 @@ class TestTaskLaunchScreen:
         mock_select = mock.Mock()
         mock_select.value = "claude"
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "fix the bug"
 
         def query_one(selector, cls=None):
@@ -273,6 +293,7 @@ class TestTaskLaunchScreen:
         mock_select = mock.Mock()
         mock_select.value = "bash"
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "scribble for the agent"
 
         def query_one(selector, cls=None):
@@ -297,6 +318,7 @@ class TestTaskLaunchScreen:
         mock_select = mock.Mock()
         mock_select.value = "bash"
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "   "
 
         def query_one(selector, cls=None):
@@ -309,27 +331,21 @@ class TestTaskLaunchScreen:
         screen._do_login()
         screen.dismiss.assert_called_once_with(("p", "1", "my-task", "c", "bash", None))
 
-    def test_login_button_blocked_when_not_ready(self) -> None:
+    @pytest.mark.parametrize("ready", [False, True])
+    def test_name_enter_advances_to_prompt_without_login(self, ready: bool) -> None:
+        """Name-field submission edits instructions even if the container is ready."""
         screens, _ = import_screens()
         screen = screens.TaskLaunchScreen(container_name="c", project_name="p", task_id="1")
         screen._do_login = mock.Mock()
-
-        assert not screen._container_ready
-
-        # Simulate Enter in the prompt input — should not login
+        screen._container_ready = ready
+        prompt = mock.Mock()
+        screen.query_one = mock.Mock(return_value=prompt)
         event = mock.Mock()
+        event.input.id = "launch-name"
         screen.on_input_submitted(event)
         screen._do_login.assert_not_called()
-
-    def test_login_button_allowed_when_ready(self) -> None:
-        screens, _ = import_screens()
-        screen = screens.TaskLaunchScreen(container_name="c", project_name="p", task_id="1")
-        screen._do_login = mock.Mock()
-        screen._container_ready = True
-
-        event = mock.Mock()
-        screen.on_input_submitted(event)
-        screen._do_login.assert_called_once()
+        prompt.focus.assert_called_once()
+        event.stop.assert_called_once()
 
     @staticmethod
     def _screen_focused_on(focused_id: str | None, *, ready: bool):
@@ -902,7 +918,7 @@ class TestNewTaskBinding:
 
 
 class TestTaskLaunchScreenCompose:
-    """Test that compose() sets the expected border title with the task name."""
+    """The title identifies the task; the editable input holds its name."""
 
     @staticmethod
     def _run_compose(screens_mod: types.ModuleType, screen: Any) -> Any | None:
@@ -926,21 +942,21 @@ class TestTaskLaunchScreenCompose:
             Vertical.__enter__ = orig_enter
         return captured[0] if captured else None
 
-    def test_compose_border_title_includes_name(self) -> None:
+    def test_compose_border_title_omits_editable_name(self) -> None:
         screens, _ = import_screens()
         screen = screens.TaskLaunchScreen(
             container_name="c", project_name="p", task_id="3", task_name="fix-auth"
         )
         dialog = self._run_compose(screens, screen)
         assert dialog is not None
-        assert dialog.border_title == "CLI Task 3 (fix-auth)"
+        assert dialog.border_title == "CLI Task 3"
 
     def test_compose_border_title_fallback_to_id(self) -> None:
         screens, _ = import_screens()
         screen = screens.TaskLaunchScreen(container_name="c", project_name="p", task_id="7")
         dialog = self._run_compose(screens, screen)
         assert dialog is not None
-        assert dialog.border_title == "CLI Task 7 (7)"
+        assert dialog.border_title == "CLI Task 7"
 
     def test_compose_renders_select_disabled_while_loading(self) -> None:
         """While ``_installed is None`` the agent Select is rendered disabled."""
@@ -1297,6 +1313,7 @@ class TestTaskLaunchScreenNamePropagation:
         mock_select = mock.Mock()
         mock_select.value = "vibe"
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = "refactor auth"
 
         screen.query_one = lambda sel, cls=None: (
@@ -1317,6 +1334,7 @@ class TestTaskLaunchScreenNamePropagation:
         mock_select = mock.Mock()
         mock_select.value = "bash"
         mock_textarea = mock.Mock()
+        mock_textarea.value = screen._task_name
         mock_textarea.text = ""
 
         screen.query_one = lambda sel, cls=None: (
