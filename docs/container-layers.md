@@ -62,6 +62,15 @@ When defining a model manually, specify both `max_context_length` (total
 context window) and `max_output_tokens` (per-response cap). A large context
 window does not imply an equally large allowed completion.
 
+The Vibe wrapper and ACP adapter keep sessions in the task-private
+`/home/dev/.terok/vibe-session.d` store, not shared `~/.vibe`. Automatic resume
+selects only this task's saved root sessions, excluding subagent and archived
+sessions. Old shared histories remain untouched but are not automatically
+resumed or imported; their task ownership cannot be verified. Rebuild and
+recreate the task container to update the ACP adapter too. Credentials and
+normal Vibe settings remain shared; initial instructions and agent-history
+tracking are unchanged.
+
 ### L2 — Project Image (`<project>:l2-cli`)
 
 Built `FROM` the L1 image.
