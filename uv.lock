@@ -2479,8 +2479,8 @@ wheels = [
 
 [[package]]
 name = "terok-executor"
-version = "0.5.1a2.dev518+gfd0994982"
-source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Faslr-control#fd09949823f476fc29abae72205ea6911994f1ad" }
+version = "0.5.1a2.dev519+g2c34f696e"
+source = { git = "https://github.com/sliwowitz/terok-executor?rev=feat%2Faslr-control#2c34f696ed8047c316ab99796bcfc3b208769c54" }
 dependencies = [
     { name = "agent-client-protocol" },
     { name = "jinja2" },
@@ -2495,8 +2495,8 @@ dependencies = [
 
 [[package]]
 name = "terok-sandbox"
-version = "0.7.0a2.dev521+g2d4cb1d69"
-source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Faslr-control#2d4cb1d69ee2d8c07a345e2dc16dcd69d42d9156" }
+version = "0.7.0a2.dev522+gd4d666a09"
+source = { git = "https://github.com/sliwowitz/terok-sandbox?rev=feat%2Faslr-control#d4d666a09707ef0755e7dbd10ea7dec7fae737be" }
 dependencies = [
     { name = "aiohttp" },
     { name = "cryptography" },
