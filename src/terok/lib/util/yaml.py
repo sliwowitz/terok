@@ -14,6 +14,6 @@ under concurrent ``load`` / ``dump`` from Textual worker threads (symptom
 
 from __future__ import annotations
 
-from terok_util.yaml import YAMLError, dump, load  # noqa: F401 — re-exported
+from terok_util.yaml import YAMLError, dump, literal_block, load  # noqa: F401 — re-exported
 
-__all__ = ["load", "dump", "YAMLError"]
+__all__ = ["load", "dump", "literal_block", "YAMLError"]

@@ -836,6 +836,53 @@ class TestAuthScreenOptions:
         screen.dismiss.assert_called_once_with(None)
 
 
+class TestProjectConfigEditors:
+    """The project screen reaches the project.yml and Docker snippet editors."""
+
+    @pytest.mark.parametrize(("key", "action"), [("y", "edit_project_yml"), ("S", "edit_snippet")])
+    def test_keys_bind_the_editors(self, key: str, action: str) -> None:
+        screens, _ = import_screens()
+        bindings = {
+            (b._stub_args[0], b._stub_args[1]) for b in screens.ProjectDetailsScreen.BINDINGS
+        }
+        assert (key, action) in bindings
+
+    @pytest.mark.parametrize("action", ["edit_project_yml", "edit_snippet"])
+    def test_actions_dismiss_with_their_id(self, action: str) -> None:
+        """The app's handler table opens the editor, as for the instructions editor."""
+        screens, _ = import_screens()
+        screen = screens.ProjectDetailsScreen(
+            project=make_project(name="proj1"), state=None, task_count=0
+        )
+        screen.dismiss = mock.Mock()
+        getattr(screen, f"action_{action}")()
+        screen.dismiss.assert_called_once_with(action)
+
+    def test_menu_lists_the_editors(self) -> None:
+        screens, _ = import_screens()
+        screen = screens.ProjectDetailsScreen(
+            project=make_project(name="proj1"), state=None, task_count=0
+        )
+        option_list = next(
+            w for w in screen.compose() if w._stub_kwargs.get("id") == "actions-list"
+        )
+        ids = {opt._stub_kwargs.get("id") for opt in option_list._stub_args if opt is not None}
+        assert {"edit_project_yml", "edit_snippet"} <= ids
+
+    def test_enter_on_a_broken_project_opens_its_project_yml(self) -> None:
+        """A broken project cannot open the project screen; its file opens for repair instead."""
+        _, app_class = import_app()
+        instance = mock.Mock(spec=app_class)
+        instance.push_screen = mock.AsyncMock()  # Textual's, absent from the stub App
+        instance.notify = mock.Mock()
+        instance.current_project_name = "broken"
+        instance._broken_by_id = {"broken": mock.Mock(name="BrokenProject")}
+        run(app_class.action_show_project_actions(instance))
+        instance._edit_project_yml.assert_called_once_with("broken")
+        instance.push_screen.assert_not_called()
+        instance.notify.assert_not_called()
+
+
 class TestTaskMenuShieldOptions:
     """The task menu names what each accept posture still blocks."""
 
@@ -1053,159 +1100,6 @@ class TestShowResolvedInstructions:
             run(ProjectActionsMixin._action_show_resolved_instructions(instance))
         assert ri.call_args == mock.call({}, "claude", project_root=None, family="rpm")
         instance.push_screen.assert_awaited_once()
-
-
-class TestEditInstructionsRouting:
-    """``_edit_instructions_file`` chooses ``$EDITOR`` or the integrated editor."""
-
-    def _get_mixin(self):
-        """Import ProjectActionsMixin directly — avoids import_app() Textual stubs."""
-        from terok.tui.project_actions import ProjectActionsMixin
-
-        return ProjectActionsMixin
-
-    def _instance(self, mixin: object, *, is_web: bool) -> mock.Mock:
-        """Build a mixin mock with the collaborators the editor routing touches."""
-        instance = mock.Mock(spec=mixin)
-        instance.is_web = is_web
-        instance.push_screen = mock.AsyncMock()
-        instance._edit_in_external_editor = mock.AsyncMock()
-        instance._refresh_project_state = mock.Mock()
-        instance.notify = mock.Mock()
-        return instance
-
-    def test_external_editor_used_when_set_and_preferred(self, tmp_path: object) -> None:
-        """Local TUI + ``$EDITOR`` set + preference on → suspend into ``$EDITOR``."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin, is_web=False)
-        instr_path = tmp_path / "instructions.md"
-        with (
-            mock.patch.dict("terok.tui.project_actions.os.environ", {"EDITOR": "vim"}),
-            mock.patch(
-                "terok.lib.api.get_config",
-                return_value=mock.Mock(tui_external_editor=True),
-            ),
-        ):
-            run(mixin._edit_instructions_file(instance, instr_path, title="T", done_msg="done"))
-        instance._edit_in_external_editor.assert_awaited_once_with(
-            instr_path, "vim", done_msg="done"
-        )
-        instance.push_screen.assert_not_awaited()
-
-    def test_web_tui_forces_integrated_editor(self, tmp_path: object) -> None:
-        """Web TUI ignores ``$EDITOR`` — there is no terminal to suspend to."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin, is_web=True)
-        instr_path = tmp_path / "instructions.md"
-        instr_path.write_text("body", encoding="utf-8")
-        with (
-            mock.patch.dict("terok.tui.project_actions.os.environ", {"EDITOR": "vim"}),
-            mock.patch("terok.tui.text_screens.TextEditorScreen") as screen_cls,
-        ):
-            run(mixin._edit_instructions_file(instance, instr_path, title="T", done_msg="done"))
-        instance._edit_in_external_editor.assert_not_awaited()
-        instance.push_screen.assert_awaited_once()
-        screen_cls.assert_called_once_with("body", title="T")
-
-    def test_preference_off_uses_integrated_editor(self, tmp_path: object) -> None:
-        """``external_editor: false`` keeps the integrated editor even with ``$EDITOR`` set."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin, is_web=False)
-        instr_path = tmp_path / "instructions.md"
-        with (
-            mock.patch.dict("terok.tui.project_actions.os.environ", {"EDITOR": "vim"}),
-            mock.patch(
-                "terok.lib.api.get_config",
-                return_value=mock.Mock(tui_external_editor=False),
-            ),
-            mock.patch("terok.tui.text_screens.TextEditorScreen") as screen_cls,
-        ):
-            run(mixin._edit_instructions_file(instance, instr_path, title="T", done_msg="done"))
-        instance._edit_in_external_editor.assert_not_awaited()
-        screen_cls.assert_called_once_with("", title="T")
-
-    def test_no_editor_env_uses_integrated_editor(self, tmp_path: object) -> None:
-        """No ``$EDITOR`` → integrated editor, without even consulting the preference."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin, is_web=False)
-        instr_path = tmp_path / "instructions.md"
-        with (
-            mock.patch.dict("terok.tui.project_actions.os.environ", {}, clear=True),
-            mock.patch("terok.tui.text_screens.TextEditorScreen") as screen_cls,
-        ):
-            run(mixin._edit_instructions_file(instance, instr_path, title="T", done_msg="done"))
-        instance._edit_in_external_editor.assert_not_awaited()
-        screen_cls.assert_called_once_with("", title="T")
-
-    def test_integrated_editor_save_callback_writes_and_refreshes(self, tmp_path: object) -> None:
-        """The integrated editor's Save callback writes the file and refreshes state."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin, is_web=True)
-        instr_path = tmp_path / "nested" / "instructions.md"
-        with mock.patch("terok.tui.text_screens.TextEditorScreen"):
-            run(mixin._edit_instructions_file(instance, instr_path, title="T", done_msg="saved!"))
-        on_saved = instance.push_screen.await_args[0][1]
-
-        on_saved(None)
-        assert not instr_path.exists()
-        instance.notify.assert_not_called()
-
-        on_saved("new body")
-        assert instr_path.read_text(encoding="utf-8") == "new body"
-        instance.notify.assert_called_once_with("saved!")
-        instance._refresh_project_state.assert_called_once()
-
-
-class TestEditInExternalEditor:
-    """``_edit_in_external_editor`` suspends the TUI and shells out to ``$EDITOR``."""
-
-    def _get_mixin(self):
-        """Import ProjectActionsMixin directly — avoids import_app() Textual stubs."""
-        from terok.tui.project_actions import ProjectActionsMixin
-
-        return ProjectActionsMixin
-
-    def _instance(self, mixin: object) -> mock.Mock:
-        """Build a mixin mock with ``suspend`` wired as a context manager."""
-        instance = mock.Mock(spec=mixin)
-        instance.suspend = mock.MagicMock()
-        instance._refresh_project_state = mock.Mock()
-        instance.notify = mock.Mock()
-        return instance
-
-    def test_runs_editor_then_notifies_and_refreshes(self, tmp_path: object) -> None:
-        """A clean editor exit creates the parent dir, notifies, and refreshes state."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin)
-        instance._run_suspended = mock.AsyncMock(return_value=0)
-        instr_path = tmp_path / "nested" / "instructions.md"
-        run(mixin._edit_in_external_editor(instance, instr_path, "vim -u NONE", done_msg="ok"))
-        instance._run_suspended.assert_awaited_once_with(
-            "vim", "-u", "NONE", str(instr_path), prompt_on_success=False
-        )
-        assert instr_path.parent.is_dir()
-        instance.notify.assert_called_once_with("ok")
-        instance._refresh_project_state.assert_called_once()
-
-    def test_launch_failure_is_surfaced_not_raised(self, tmp_path: object) -> None:
-        """A failed spawn (``None`` exit code) aborts quietly — no notify, no refresh."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin)
-        instance._run_suspended = mock.AsyncMock(return_value=None)
-        instr_path = tmp_path / "instructions.md"
-        run(mixin._edit_in_external_editor(instance, instr_path, "bogus-editor", done_msg="ok"))
-        instance.notify.assert_not_called()
-        instance._refresh_project_state.assert_not_called()
-
-    def test_nonzero_editor_exit_suppresses_success(self, tmp_path: object) -> None:
-        """An editor exiting non-zero (e.g. vim ``:cq``) must not claim success."""
-        mixin = self._get_mixin()
-        instance = self._instance(mixin)
-        instance._run_suspended = mock.AsyncMock(return_value=1)
-        instr_path = tmp_path / "instructions.md"
-        run(mixin._edit_in_external_editor(instance, instr_path, "vim", done_msg="ok"))
-        instance.notify.assert_not_called()
-        instance._refresh_project_state.assert_not_called()
 
 
 class TestActionAuth:
@@ -1742,6 +1636,26 @@ class TestCommandPalette:
             commands = list(app_class.get_system_commands(instance, screen=mock.Mock()))
         titles = [cmd.title for cmd in commands]
         assert "Set default agents" in titles
+
+    @pytest.mark.parametrize(
+        ("title", "action"),
+        [
+            ("Edit global config", "action_edit_global_config"),
+            ("Edit global instructions", "action_edit_global_instructions"),
+            ("Show default instructions", "action_show_default_instructions"),
+        ],
+    )
+    def test_get_system_commands_includes_global_editors(self, title: str, action: str) -> None:
+        """config.yml and the global instructions are edited from the command palette."""
+        from tests.unit.tui.tui_test_helpers import build_textual_stubs
+
+        stubs = build_textual_stubs()
+        _, app_class = import_app(stubs)
+        instance = app_class()
+        with mock.patch.dict(sys.modules, stubs):
+            commands = list(app_class.get_system_commands(instance, screen=mock.Mock()))
+        callbacks = {cmd.title: cmd.callback for cmd in commands}
+        assert callbacks[title] == getattr(instance, action)
 
 
 class TestDefaultAgentsAction:

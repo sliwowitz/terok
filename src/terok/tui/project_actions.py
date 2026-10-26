@@ -12,19 +12,24 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import inspect
 import os
 import shlex
 import sys
+import tempfile
 import termios
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from terok_util import require_host_tool
 from textual import work
 
 from ..lib.api import (
+    ProjectConfig,
     delete_project,
     find_projects_sharing_gate,
     load_project,
@@ -41,6 +46,7 @@ if TYPE_CHECKING:
 
     from ..lib.api import AuthSession
     from .console_log import ConsoleLogEntry
+    from .wizard_screens import ProjectReviewScreen
 
     _MixinBase = App
 else:
@@ -91,6 +97,92 @@ def _terminal_pollution_guard() -> Iterator[None]:
                 termios.tcsetattr(stdin_fd, termios.TCSADRAIN, saved)
 
 
+@dataclass(frozen=True)
+class EditableText:
+    """A text the operator edits from the TUI, and how it is read, checked and saved."""
+
+    title: str
+    """Names the text on the editor's border and in notifications."""
+    draft_name: str
+    """File name of the ``$EDITOR`` draft — its suffix picks the editor's syntax mode."""
+    load: Callable[[], str]
+    save: Callable[[str], object]
+    validate: Callable[[str], str | None] | None = None
+    """Returns why a text must not be saved, or ``None`` when it may be."""
+    language: str | None = None
+    """Syntax highlighting in the integrated editor; ``None`` is plain text."""
+
+    @classmethod
+    def from_file(
+        cls,
+        path: Path,
+        *,
+        title: str,
+        validate: Callable[[str], str | None] | None = None,
+        language: str | None = None,
+    ) -> EditableText:
+        """A text stored in the file at *path* — empty until the first save creates the file."""
+        return cls(
+            title=title,
+            draft_name=path.name,
+            load=lambda: path.read_text(encoding="utf-8") if path.is_file() else "",
+            save=partial(_write_text_file, path),
+            validate=validate,
+            language=language,
+        )
+
+
+def _write_text_file(path: Path, text: str) -> None:
+    """Write *text* to *path*, creating missing parent directories."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def _read_draft(
+    draft: Path, original: str, validate: Callable[[str], str | None] | None
+) -> tuple[str, str | None]:
+    """Read an edited ``$EDITOR`` draft; return its text and why it must not be saved, or ``None``.
+
+    An unchanged draft passes unchecked — quitting without a change is
+    no edit, even of a text that does not load.
+    """
+    try:
+        edited = draft.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        return original, f"The edited file is not valid UTF-8: {exc}"
+    if edited == original or validate is None:
+        return edited, None
+    return edited, validate(edited)
+
+
+def _snippet_texts(project: ProjectConfig) -> list[EditableText]:
+    """Return the Docker snippets *project*'s image build includes, as editable texts.
+
+    The file ``image.user_snippet_file`` names comes first, as in the
+    build.  The inline ``image.user_snippet_inline`` follows when it
+    holds text — and stands alone when no file is configured, so a
+    project without any snippet starts an inline one.
+    """
+    from ..lib.api import set_project_snippet_inline
+
+    snippets: list[EditableText] = []
+    if (path := project.snippet_path) is not None:
+        snippets.append(
+            EditableText.from_file(path, title=f"Docker snippet — {project.name} ({path.name})")
+        )
+    inline = project.snippet_inline or ""
+    if inline.strip() or not snippets:
+        snippets.append(
+            EditableText(
+                title=f"Docker snippet — {project.name} (inline in project.yml)",
+                draft_name="snippet.dockerfile",
+                load=lambda: inline,
+                save=partial(set_project_snippet_inline, project.name),
+            )
+        )
+    return snippets
+
+
 class ProjectActionsMixin(_MixinBase):
     """Project infrastructure and shared action helpers for TerokTUI.
 
@@ -107,6 +199,7 @@ class ProjectActionsMixin(_MixinBase):
         async def refresh_projects(self) -> None: ...
         async def refresh_tasks(self) -> None: ...
         def _refresh_project_state(self) -> None: ...
+        def _offer_restart_for_config(self) -> None: ...
         async def _refresh_vault_status(self, *, push_modal_if_locked: bool = False) -> None: ...
         async def _on_vault_unlock_result(self, passphrase: str | None) -> None: ...
         # ``@work``-decorated on the App, so the real return is a Worker.
@@ -771,69 +864,253 @@ class ProjectActionsMixin(_MixinBase):
 
         await self.push_screen(GateBackupsScreen(backups), _on_pick)
 
-    # ---------- Instructions editing ----------
+    # ---------- Text editing (instructions, project.yml, config.yml, snippets) ----------
 
-    async def _edit_instructions_file(self, instr_path: Path, *, title: str, done_msg: str) -> None:
-        """Edit *instr_path* — in ``$EDITOR`` or the integrated editor.
+    def _edit_text(
+        self,
+        text: EditableText,
+        *,
+        done_msg: str,
+        after_save: Callable[[], object] | None = None,
+    ) -> None:
+        """Edit *text* in ``$EDITOR`` or the integrated editor, and save an accepted change.
 
         ``$EDITOR`` is used when it is set, the ``tui.external_editor``
         preference is on (the default), and the TUI is *not* web-served
-        — opening it suspends the TUI, which is fine in a real terminal
-        but impossible under textual-serve.  Otherwise (web TUI, the
-        preference off, or no ``$EDITOR``) the file opens in the
-        integrated [`TextEditorScreen`][terok.tui.text_screens.TextEditorScreen].
+        — the editor takes over the terminal, and a web TUI has none.
+        Otherwise the text opens in the integrated
+        [`TextEditorScreen`][terok.tui.text_screens.TextEditorScreen].
+        Both ways, nothing is written until the text's validator accepts
+        it, and a failed write keeps the edit.  *after_save* runs after a
+        save; it may return an awaitable.
         """
-        from ..lib.api import get_config
+        self._run_text_edit(text, done_msg, after_save)
 
-        editor = "" if self.is_web else os.environ.get("EDITOR", "").strip()
-        if editor and get_config().tui_external_editor:
-            await self._edit_in_external_editor(instr_path, editor, done_msg=done_msg)
+    @work(group="text-edit", exit_on_error=False)
+    async def _run_text_edit(
+        self, text: EditableText, done_msg: str, after_save: Callable[[], object] | None
+    ) -> None:
+        """Worker body of ``_edit_text`` — a failure becomes a notification, never a crash."""
+        try:
+            await self._edit_and_save(text, done_msg=done_msg, after_save=after_save)
+        except Exception as exc:  # noqa: BLE001 — an edit must never take the TUI down
+            self.notify(f"Editing {text.title} failed: {exc}", severity="error", markup=False)
+
+    async def _edit_and_save(
+        self, text: EditableText, *, done_msg: str, after_save: Callable[[], object] | None
+    ) -> None:
+        """Load *text*, let the operator edit it, and save the edit when it changed anything.
+
+        A write that fails sends the operator back to the edit, with the
+        reason, until it is saved or abandoned.
+        """
+        try:
+            original = text.load()
+        except (OSError, UnicodeDecodeError) as exc:
+            self.notify(f"Cannot read {text.title}: {exc}", severity="error", markup=False)
             return
+        editor = self._external_editor()
+        draft = original
+        while True:
+            edited = await self._edit_once(text, draft, editor)
+            if edited is None:
+                return
+            if edited == original:
+                self.notify("No changes to save.")
+                return
+            try:
+                text.save(edited)
+                break
+            except (OSError, SystemExit, ValueError) as exc:
+                reason = f"Cannot save {text.title}: {exc}"
+            draft = edited
+            if editor is None:
+                self.notify(reason, severity="error", markup=False)
+            elif await self._confirm_discard(text.title, reason):
+                return
+        self.notify(done_msg, markup=False)
+        if after_save is not None and inspect.isawaitable(pending := after_save()):
+            await pending
 
+    async def _edit_once(self, text: EditableText, draft: str, editor: str | None) -> str | None:
+        """Edit *draft* once, in *editor* or the integrated editor; ``None`` when abandoned."""
+        if editor is not None:
+            return await self._edit_in_external_editor(
+                editor, draft, draft_name=text.draft_name, title=text.title, validate=text.validate
+            )
         from .text_screens import TextEditorScreen
 
-        existing = instr_path.read_text(encoding="utf-8") if instr_path.is_file() else ""
+        return await self.push_screen_wait(
+            TextEditorScreen(
+                draft, title=text.title, language=text.language, validate=text.validate
+            )
+        )
 
-        def _on_saved(text: str | None) -> None:
-            if text is None:
-                return
-            instr_path.parent.mkdir(parents=True, exist_ok=True)
-            instr_path.write_text(text, encoding="utf-8")
-            self.notify(done_msg)
-            self._refresh_project_state()
+    def _external_editor(self) -> str | None:
+        """Return the ``$EDITOR`` command that edits go to, or ``None`` for the integrated editor."""
+        if self.is_web:
+            return None
+        from ..lib.api import get_config
 
-        await self.push_screen(TextEditorScreen(existing, title=title), _on_saved)
+        editor = os.environ.get("EDITOR", "").strip()
+        return editor if editor and get_config().tui_external_editor else None
 
     async def _edit_in_external_editor(
-        self, instr_path: Path, editor: str, *, done_msg: str
-    ) -> None:
-        """Open *instr_path* in ``$EDITOR`` via a suspended terminal.
+        self,
+        editor: str,
+        original: str,
+        *,
+        draft_name: str,
+        title: str,
+        validate: Callable[[str], str | None] | None,
+    ) -> str | None:
+        """Edit *original* as a draft file in *editor*; return the accepted text, or ``None``.
 
-        Local-terminal only — the caller forces the integrated editor
-        under ``App.is_web``, so the ``suspend()`` here always has a real
-        terminal to suspend *to* (the same local-only suspend the CLI
-        login path keeps).
+        The draft is *draft_name* in a private temporary directory: the
+        file name gives the editor its syntax mode, and the real file
+        changes only after the edited text passes *validate*.  An editor
+        that exits non-zero abandons the edit; an unchanged draft comes
+        back as it is.  A refused text shows why and goes back to the
+        editor, unless the operator discards it.  Local-terminal only —
+        ``_external_editor`` never picks ``$EDITOR`` under
+        ``App.is_web``, so the ``suspend()`` always has a real terminal
+        to suspend *to*.
         """
-        instr_path.parent.mkdir(parents=True, exist_ok=True)
-        code = await self._run_suspended(
-            *shlex.split(editor), str(instr_path), prompt_on_success=False
+        with tempfile.TemporaryDirectory(prefix="terok-edit-") as draft_dir:
+            draft = Path(draft_dir) / draft_name
+            draft.write_text(original, encoding="utf-8")
+            while True:
+                code = await self._run_suspended(
+                    *shlex.split(editor), str(draft), prompt_on_success=False
+                )
+                if code != 0:
+                    return None
+                edited, verdict = _read_draft(draft, original, validate)
+                if verdict is None:
+                    return edited
+                if await self._confirm_discard(title, verdict):
+                    return None
+
+    async def _confirm_discard(self, title: str, verdict: str) -> bool:
+        """Show why an edit of *title* was refused; return whether the operator discards it."""
+        from .screens import ConfirmDestructiveScreen
+
+        # push_screen_wait is typed Screen[object]; Screen is invariant, so
+        # Screen[bool] does not satisfy it (a stubs issue).
+        confirm: Any = ConfirmDestructiveScreen(
+            message=f"{verdict}\n\nDiscard your changes, or Cancel to go back to them in the editor.",
+            title=f"Not saved — {title}",
+            confirm_label="Discard",
         )
-        if code != 0:
-            return
-        self.notify(done_msg)
-        self._refresh_project_state()
+        return bool(await self.push_screen_wait(confirm))
 
     async def _action_edit_instructions(self) -> None:
-        """Edit the current project's instructions.md in ``$EDITOR`` or the integrated editor."""
+        """Edit the current project's instructions.md."""
         if not self.current_project_name:
             self.notify("No project selected.")
             return
         pid = self.current_project_name
-        instr_path = load_project(pid).root / "instructions.md"
-        await self._edit_instructions_file(
-            instr_path,
-            title=f"Instructions — {pid}",
+        try:
+            instr_path = load_project(pid).root / "instructions.md"
+        except SystemExit as exc:
+            self.notify(str(exc), severity="error", markup=False)
+            return
+        self._edit_text(
+            EditableText.from_file(instr_path, title=f"Instructions — {pid}"),
             done_msg=f"Instructions updated for {pid}",
+            after_save=self._refresh_project_state,
+        )
+
+    async def _action_edit_project_yml(self) -> None:
+        """Edit the current project's project.yml."""
+        if not self.current_project_name:
+            self.notify("No project selected.")
+            return
+        self._edit_project_yml(self.current_project_name)
+
+    def _edit_project_yml(self, project_name: str) -> None:
+        """Edit *project_name*'s project.yml; a save that would break the project is refused.
+
+        Also the repair path for a broken project: a valid save re-scans
+        the project list, which turns the project healthy again.
+        """
+        from ..lib.api import project_config_path, validate_project_yaml
+
+        try:
+            path = project_config_path(project_name)
+        except SystemExit as exc:
+            self.notify(str(exc), severity="error", markup=False)
+            return
+        self._edit_text(
+            EditableText.from_file(
+                path,
+                title=f"project.yml — {project_name}",
+                validate=partial(validate_project_yaml, project_name),
+                language="yaml",
+            ),
+            done_msg=f"Saved {path}",
+            after_save=self.refresh_projects,
+        )
+
+    async def _action_edit_snippet(self) -> None:
+        """Edit the current project's Docker snippet — the text its image build includes.
+
+        The snippet lives where ``project.yml`` says: the file that
+        ``image.user_snippet_file`` names, the inline
+        ``image.user_snippet_inline``, or both — then a chooser asks
+        which one to edit.  A project without a snippet starts an inline
+        one.
+        """
+        if not self.current_project_name:
+            self.notify("No project selected.")
+            return
+        try:
+            project = load_project(self.current_project_name)
+        except SystemExit as exc:
+            self.notify(str(exc), severity="error", markup=False)
+            return
+        snippets = _snippet_texts(project)
+        if len(snippets) == 1:
+            self._edit_snippet(snippets[0])
+            return
+
+        from .screens import ChoiceScreen
+
+        def _on_pick(choice: str | None) -> None:
+            """Edit the picked snippet; ``None`` (Escape) edits nothing."""
+            if choice is not None:
+                self._edit_snippet(snippets[int(choice)])
+
+        self.push_screen(
+            ChoiceScreen(
+                f"Docker snippets — {project.name}",
+                [(str(index), snippet.title) for index, snippet in enumerate(snippets)],
+            ),
+            _on_pick,
+        )
+
+    def _edit_snippet(self, snippet: EditableText) -> None:
+        """Edit one Docker snippet; the image build picks it up at the next build."""
+        self._edit_text(
+            snippet,
+            done_msg=f"Saved {snippet.title}.  Rebuild the project image to apply it.",
+            after_save=self.refresh_projects,
+        )
+
+    async def _action_edit_global_config(self) -> None:
+        """Edit the user config file; a valid save offers the restart that applies it."""
+        from ..lib.api import get_config, validate_global_config
+
+        path = get_config().global_config_path
+        self._edit_text(
+            EditableText.from_file(
+                path,
+                title=f"Global config — {path}",
+                validate=validate_global_config,
+                language="yaml",
+            ),
+            done_msg=f"Saved {path}",
+            after_save=self._offer_restart_for_config,
         )
 
     async def _action_toggle_instructions_inherit(self) -> None:
@@ -908,14 +1185,14 @@ class ProjectActionsMixin(_MixinBase):
         await self.push_screen(TextViewScreen(text, title=f"Resolved instructions — {pid}"))
 
     async def _action_edit_global_instructions(self) -> None:
-        """Edit the global instructions.md in ``$EDITOR`` or the integrated editor."""
+        """Edit the global instructions.md."""
         from ..lib.api import get_config
 
         global_instr = get_config().global_config_path.parent / "instructions.md"
-        await self._edit_instructions_file(
-            global_instr,
-            title="Global instructions",
+        self._edit_text(
+            EditableText.from_file(global_instr, title="Global instructions"),
             done_msg="Global instructions updated",
+            after_save=self._refresh_project_state,
         )
 
     async def _action_show_default_instructions(self) -> None:
@@ -985,19 +1262,25 @@ class ProjectActionsMixin(_MixinBase):
             REVIEW_BACK,
             InitOutcome,
             InitProgressScreen,
-            ProjectReviewScreen,
             WizardFormScreen,
         )
 
         values: dict[str, str] | None = None
         while True:
-            values = await self.push_screen_wait(WizardFormScreen(initial=values))
+            values = await self.push_screen_wait(
+                WizardFormScreen(
+                    initial=values,
+                    edit_externally=self._external_edit_hook(
+                        draft_name="snippet.dockerfile", title="Docker snippet"
+                    ),
+                )
+            )
             if values is None:
                 return  # user cancelled the form
 
             rendered = render_project_yaml(values)
             review_result = await self.push_screen_wait(
-                ProjectReviewScreen(values["project_name"], rendered)
+                self._project_review_screen(values["project_name"], rendered)
             )
             if review_result is None:
                 return  # Escape on the review screen — abandon
@@ -1041,6 +1324,44 @@ class ProjectActionsMixin(_MixinBase):
                     timeout=10,
                 )
         await self.refresh_projects()
+
+    def _project_review_screen(self, project_name: str, rendered: str) -> ProjectReviewScreen:
+        """Build the wizard's review step for *rendered*, editable in ``$EDITOR`` where edits go there.
+
+        Initialize is refused for a text that would not load as the new
+        project — the check every other ``project.yml`` editor applies.
+        """
+        from ..lib.api import validate_project_yaml
+        from .wizard_screens import ProjectReviewScreen
+
+        validate = partial(validate_project_yaml, project_name)
+        return ProjectReviewScreen(
+            project_name,
+            rendered,
+            validate=validate,
+            edit_externally=self._external_edit_hook(
+                draft_name="project.yml", title=f"project.yml — {project_name}", validate=validate
+            ),
+        )
+
+    def _external_edit_hook(
+        self,
+        *,
+        draft_name: str,
+        title: str,
+        validate: Callable[[str], str | None] | None = None,
+    ) -> Callable[[str], Awaitable[str | None]] | None:
+        """Return the ``$EDITOR`` round-trip for a wizard text, or ``None`` where edits stay in the TUI."""
+        editor = self._external_editor()
+        if editor is None:
+            return None
+        return partial(
+            self._edit_in_external_editor,
+            editor,
+            draft_name=draft_name,
+            title=title,
+            validate=validate,
+        )
 
     def _maybe_nudge_global_agents(self, values: dict[str, str]) -> None:
         """Notify with a command-palette hint when neither scope configures agents.

@@ -177,6 +177,9 @@ earlier ones, key by key):
 Setting `TEROK_CONFIG_FILE=/path/to/config.yml` disables layering and
 uses only that file.  `terok config paths` prints the merge order.
 
+In the TUI, the command palette entry **Edit global config** edits the
+user file — see [Editing Configuration in the TUI](#editing-configuration-in-the-tui).
+
 ### Example Config
 
 Copy from `examples/terok-config.yml`:
@@ -359,6 +362,8 @@ RUN apt-get update && apt-get install -y ripgrep jq && rm -rf /var/lib/apt/lists
 ```
 
 This text is pasted near the end of your project image (L2) Dockerfile.
+In the TUI, **Shift+S** on the project details screen edits the snippet —
+see [Editing Configuration in the TUI](#editing-configuration-in-the-tui).
 
 ### Step 4: Generate Dockerfiles
 
@@ -1103,14 +1108,15 @@ The project details panel shows an **Instruct:** badge with three states:
 
 Available actions from the project details screen:
 
-- **Shift+I** — edit project `instructions.md` in `$EDITOR`
+- **Shift+I** — edit project `instructions.md` (see
+  [Editing Configuration in the TUI](#editing-configuration-in-the-tui))
 - **t** — toggle instructions inheritance (include/exclude bundled defaults)
 - **v** — view fully resolved instructions as a task would receive them
 
 Command palette (`Ctrl+P`) actions:
 
-- **Edit Global Instructions** — edit the global `instructions.md` in `$EDITOR`
-- **Show Default Instructions** — view the bundled default instructions (read-only)
+- **Edit global instructions** — edit the global `instructions.md`
+- **Show default instructions** — view the bundled default instructions (read-only)
 
 #### Theme
 
@@ -1244,6 +1250,60 @@ Import an OpenCode config file into the shared mount:
 ```bash
 terok config import-opencode /path/to/opencode.json
 ```
+
+### Editing Configuration in the TUI
+
+The TUI edits these files:
+
+| File | Where in the TUI |
+|---|---|
+| `project.yml` | project details screen → **y** |
+| the project's Docker snippet | project details screen → **Shift+S** |
+| the project's `instructions.md` | project details screen → **Shift+I** |
+| `config.yml`, the user config file | command palette (`Ctrl+P`) → **Edit global config** |
+| the global `instructions.md` | command palette → **Edit global instructions** |
+
+A file opens in `$EDITOR` when `$EDITOR` is set, `tui.external_editor`
+is on (the default), and the TUI runs in a local terminal.  Otherwise it
+opens in the integrated editor: **Ctrl+S** saves, **Esc** cancels.  The
+web TUI always uses the integrated editor, because it has no terminal for
+`$EDITOR`.
+
+`$EDITOR` edits a draft copy, not the file.  When the editor exits with
+status 0, terok checks the draft and writes it to the file only if the
+check passes.  An editor that exits with an error, such as vim's `:cq`,
+discards the draft.  `$EDITOR` must wait until you close the file, as for
+`git commit`: set a GUI editor to wait, for example `EDITOR="code --wait"`.
+
+terok checks `project.yml` and `config.yml` before it writes them:
+
+- `project.yml` gets the checks that loading the project runs.  terok
+  refuses a save that would break the project.
+- `config.yml` is merged with the lower config layers and validated as at
+  startup.  terok refuses a save that would make it fall back to defaults.
+
+A refused save keeps your text.  The integrated editor shows the reason
+under the text.  With `$EDITOR`, a dialog shows the reason: **Cancel**
+opens the draft in the editor again, **Discard** drops it.  A write that
+fails, for example on a read-only file, keeps your text the same way.
+
+The Docker snippet editor opens the snippet that `project.yml` names: the
+`image.user_snippet_file` file, the inline `image.user_snippet_inline`
+text, or a choice of the two when both are set.  A project without a
+snippet starts an inline one.  Rebuild the project image to apply a
+changed snippet.
+
+Press **Enter** on a broken project (one whose `project.yml` does not
+load; the project panel shows why) to open its `project.yml`.  The
+integrated editor also shows the load error under the text.  After a
+valid save, the project list shows the project as healthy again.
+
+When files open in `$EDITOR`, the new-project wizard shows an **Edit in
+$EDITOR** button for its Docker snippet field and on its review step.
+
+terok reads `config.yml` once, at start, so a saved `config.yml` offers a
+restart of the TUI.  Press **r** to restart in place.  In the web TUI,
+reload the page instead.
 
 ---
 

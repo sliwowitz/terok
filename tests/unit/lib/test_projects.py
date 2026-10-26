@@ -21,8 +21,11 @@ from terok.lib.core.projects import (
     list_projects,
     load_project,
     normalize_project_name,
+    project_config_path,
     require_project_exists,
     set_project_image_agents,
+    set_project_snippet_inline,
+    validate_project_yaml,
 )
 from terok.lib.domain.project_state import get_project_state
 from terok.lib.util.yaml import load as yaml_load
@@ -1068,3 +1071,150 @@ class TestDeriveProject:
             derive_project("src", "derived")
             with pytest.raises(SystemExit, match="already exists"):
                 derive_project("src", "derived")
+
+
+class TestProjectYamlEditing:
+    """The checks and writes behind the TUI's ``project.yml`` and snippet editors."""
+
+    def test_validate_accepts_a_loadable_text_and_writes_nothing(self) -> None:
+        """A text ``load_project`` would accept passes, and the file on disk stays as it was."""
+        with project_env(project_yaml("demo"), project_name="demo") as ctx:
+            path = ctx.config_root / "demo" / "project.yml"
+            before = path.read_text(encoding="utf-8")
+            edited = project_yaml("demo", security_class="gatekeeping")
+            assert validate_project_yaml("demo", edited) is None
+            assert path.read_text(encoding="utf-8") == before
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param("project:\n  name: demo\n  bogus: 1\n", "bogus", id="schema"),
+            pytest.param("project: [\n", "Failed to read", id="yaml-syntax"),
+            pytest.param("project:\n  name: other\n", "Project name mismatch", id="name"),
+            pytest.param(
+                "project:\n  name: demo\nshield:\n  sets: [nope]\n",
+                "Unknown shield.sets entry",
+                id="egress-set",
+            ),
+            pytest.param(
+                "project:\n  name: demo\n  security_class: gatekeeping\ngate:\n  enabled: false\n",
+                "requires gate.enabled",
+                id="gatekeeping-without-gate",
+            ),
+        ],
+    )
+    def test_validate_reports_what_load_project_rejects(self, text: str, expected: str) -> None:
+        """Every check ``load_project`` runs refuses the text, with its message."""
+        with project_env(project_yaml("demo"), project_name="demo"):
+            verdict = validate_project_yaml("demo", text)
+        assert verdict is not None
+        assert expected in verdict
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param(
+                "project:\n  name: demo\nshared_dir: ~terok-no-such-user/shared\n",
+                "shared_dir: cannot expand",
+                id="unknown-home",
+            ),
+            pytest.param(
+                f'project:\n  name: demo\ntasks:\n  root: "{MOCK_BASE}/a\\0b"\n',
+                "Invalid project.yml",
+                id="nul-in-path",
+            ),
+            pytest.param(
+                "project:\n  name: demo\nimage:\n  user_snippet_file: ~terok-no-such-user/x\n",
+                "image.user_snippet_file: cannot expand",
+                id="snippet-unknown-home",
+            ),
+        ],
+    )
+    def test_validate_refuses_a_path_no_filesystem_accepts(self, text: str, expected: str) -> None:
+        """A path that cannot be expanded or resolved is a refused text, not an exception."""
+        with project_env(project_yaml("demo"), project_name="demo"):
+            verdict = validate_project_yaml("demo", text)
+        assert verdict is not None
+        assert expected in verdict
+
+    def test_unusable_path_on_disk_lists_the_project_as_broken(self) -> None:
+        """Discovery shows such a project as broken instead of failing the whole scan."""
+        yaml_text = "project:\n  name: demo\nshared_dir: ~terok-no-such-user/shared\n"
+        with project_env(yaml_text, project_name="demo"):
+            valid, broken = discover_projects()
+        assert valid == []
+        assert [bp.name for bp in broken] == ["demo"]
+        assert "cannot expand" in broken[0].error
+
+    def test_validate_checks_a_new_project_like_the_wizard_creates_it(self) -> None:
+        """A project that does not exist yet is checked as a new user-scope project."""
+        with project_env(project_yaml("demo"), project_name="demo"):
+            assert validate_project_yaml("fresh", "project:\n  name: fresh\n") is None
+            verdict = validate_project_yaml("fresh", "project:\n  name: other\n")
+        assert verdict is not None
+        assert "Project name mismatch" in verdict
+
+    def test_validate_strips_terminal_control_characters(self) -> None:
+        """A verdict quotes the text back, so escape sequences in it are blanked."""
+        with project_env(project_yaml("demo"), project_name="demo"):
+            verdict = validate_project_yaml("demo", 'project:\n  name: "\x1b[31mred"\n')
+        assert verdict is not None
+        assert "\x1b" not in verdict
+
+    def test_config_path_finds_a_broken_project_too(self) -> None:
+        """The path lookup does not parse the file, so a broken project has one as well."""
+        with project_env("project: [\n", project_name="demo") as ctx:
+            assert project_config_path("demo") == ctx.config_root / "demo" / "project.yml"
+
+    def test_config_path_rejects_an_unknown_project(self) -> None:
+        with project_env(project_yaml("demo"), project_name="demo"):
+            with pytest.raises(SystemExit, match="not found"):
+                project_config_path("nope")
+
+    def test_inline_snippet_is_written_as_a_literal_block(self) -> None:
+        """The snippet stays a readable ``|`` block, and the rest of the file keeps its comments."""
+        yaml_text = project_yaml("demo") + "# keep me\nimage:\n  agents: all\n"
+        with project_env(yaml_text, project_name="demo"):
+            path = set_project_snippet_inline("demo", "RUN one\nRUN two\n")
+            written = path.read_text(encoding="utf-8")
+            loaded = load_project("demo").snippet_inline
+        assert "user_snippet_inline: |\n    RUN one\n    RUN two\n" in written
+        assert "# keep me" in written
+        assert loaded == "RUN one\nRUN two\n"
+
+    def test_inline_snippet_with_control_characters_keeps_the_project_loadable(self) -> None:
+        """Pasted terminal colours must not leave a project.yml that no longer parses."""
+        snippet = "RUN echo \x1b[1mready\x1b[0m\n"
+        with project_env(
+            project_yaml("demo") + "image:\n  user_snippet_inline: |\n    RUN x\n",
+            project_name="demo",
+        ):
+            set_project_snippet_inline("demo", snippet)
+            assert load_project("demo").snippet_inline == snippet
+
+
+class TestSnippetPath:
+    """``ProjectConfig.snippet_path`` resolves ``image.user_snippet_file`` like the image build."""
+
+    def _snippet_path(self, configured: str | None) -> tuple[Path | None, Path]:
+        yaml_text = project_yaml("demo")
+        if configured is not None:
+            yaml_text += f"image:\n  user_snippet_file: {configured}\n"
+        with project_env(yaml_text, project_name="demo"):
+            project = load_project("demo")
+        return project.snippet_path, project.root
+
+    def test_unset_means_no_snippet_file(self) -> None:
+        assert self._snippet_path(None)[0] is None
+
+    def test_relative_path_resolves_against_the_project_directory(self) -> None:
+        path, root = self._snippet_path("snippets/extra.dockerfile")
+        assert path == root / "snippets" / "extra.dockerfile"
+
+    def test_absolute_path_is_kept(self) -> None:
+        absolute = MOCK_BASE / "snippets" / "extra.dockerfile"
+        assert self._snippet_path(str(absolute))[0] == absolute
+
+    def test_home_is_expanded(self) -> None:
+        path, _root = self._snippet_path("~/extra.dockerfile")
+        assert path == Path.home() / "extra.dockerfile"

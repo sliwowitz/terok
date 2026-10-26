@@ -19,7 +19,7 @@ from terok_util.config_stack import ConfigScope
 from terok.lib.integrations.sandbox import gate_use_personal_ssh_default
 
 from ..integrations.executor import ExecutorConfigView
-from ..util.yaml import YAMLError, dump as _yaml_dump, load as _yaml_load
+from ..util.yaml import YAMLError, dump as _yaml_dump, literal_block, load as _yaml_load
 from .config import (
     build_dir,
     gate_repos_dir,
@@ -131,23 +131,36 @@ def _format_validation_error(exc: ValidationError, cfg_path: Path) -> str:
 
 
 def _parse_project_yaml(cfg_path: Path) -> RawProjectYaml:
-    """Parse and validate a project.yml file, returning a typed model.
+    """Read and validate a project.yml file, returning a typed model.
 
-    Any error reading or parsing the file — including internal crashes
-    from the YAML library itself — is converted into a single
-    ``SystemExit`` with the path embedded in the message.  The narrow
-    catch list (OSError, UnicodeDecodeError, YAMLError) would let
-    ruamel.yaml's own quirks (``IndexError`` on certain inputs,
-    ``AttributeError`` mid-scan, etc.) escape and crash whatever
-    called us — the TUI's project-list keypress handler was one such
-    path.  ``discover_projects`` already treats ``SystemExit`` from
-    this module as "broken project" and surfaces the entry in-UI, so
-    the robust policy is: no matter what goes wrong per file, the app
-    keeps running and the user sees a damaged project in the list.
+    A read failure becomes the same ``SystemExit`` that
+    [`_parse_project_text`][terok.lib.core.projects._parse_project_text]
+    raises for a parse or schema failure.
     """
     try:
-        raw = _yaml_load(cfg_path.read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, YAMLError) as exc:
+        text = cfg_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"Failed to read {cfg_path}: {exc}") from exc
+    return _parse_project_text(text, cfg_path)
+
+
+def _parse_project_text(text: str, cfg_path: Path) -> RawProjectYaml:
+    """Parse and validate *text* as the content of the project.yml at *cfg_path*.
+
+    Any error parsing the text — including internal crashes from the
+    YAML library itself — is converted into a single ``SystemExit``
+    with the path embedded in the message.  The narrow catch list
+    (YAMLError) would let ruamel.yaml's own quirks (``IndexError`` on
+    certain inputs, ``AttributeError`` mid-scan, etc.) escape and crash
+    whatever called us — the TUI's project-list keypress handler was
+    one such path.  ``discover_projects`` already treats ``SystemExit``
+    from this module as "broken project" and surfaces the entry in-UI,
+    so the robust policy is: no matter what goes wrong per file, the
+    app keeps running and the user sees a damaged project in the list.
+    """
+    try:
+        raw = _yaml_load(text) or {}
+    except YAMLError as exc:
         raise SystemExit(f"Failed to read {cfg_path}: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 — YAML parsers can raise anything; quarantine it
         raise SystemExit(f"Failed to read {cfg_path}: {type(exc).__name__}: {exc}") from exc
@@ -180,6 +193,14 @@ def _resolve_hooks(raw: RawProjectYaml) -> tuple[str | None, str | None, str | N
         h.post_ready or g_ready,
         h.post_stop or g_stop,
     )
+
+
+def _expand_user(value: str, key: str) -> Path:
+    """Return *value* as a path with ``~`` expanded; an unknown ``~user`` fails the load, naming *key*."""
+    try:
+        return Path(value).expanduser()
+    except RuntimeError as exc:
+        raise SystemExit(f"{key}: cannot expand {value!r}: {exc}") from exc
 
 
 def _build_project_config(
@@ -216,12 +237,18 @@ def _build_project_config(
 
             shared_dir: Path | None = tasks_root / SHARED_DIRNAME
         case str() as s:
-            p = Path(s).expanduser()
+            p = _expand_user(s, "shared_dir")
             if not p.is_absolute():
                 raise SystemExit(f"shared_dir must be an absolute path, got: {s!r}")
             shared_dir = p.resolve()
         case _:
             shared_dir = None
+
+    snippet_path: Path | None = None
+    if raw.image.user_snippet_file:
+        snippet_path = _expand_user(raw.image.user_snippet_file, "image.user_snippet_file")
+        if not snippet_path.is_absolute():
+            snippet_path = root.resolve() / snippet_path
 
     agent_cfg = dict(raw.agent)
 
@@ -312,7 +339,7 @@ def _build_project_config(
         family=raw.image.family,
         agents=raw.image.agents or (ExecutorConfigView.image_agents() or "all"),
         snippet_inline=raw.image.user_snippet_inline,
-        snippet_file=raw.image.user_snippet_file,
+        snippet_path=snippet_path,
         shared_dir=shared_dir,
     )
 
@@ -470,6 +497,15 @@ def require_project_exists(project_name: str) -> None:
     _find_project_root(project_name)
 
 
+def project_config_path(project_name: str) -> Path:
+    """Return the ``project.yml`` that [`load_project`][terok.lib.core.projects.load_project] reads for *project_name*.
+
+    Only finds the file and does not parse it, so it also works for a
+    broken project.  Raises ``SystemExit`` when no such project exists.
+    """
+    return _find_project_root(project_name) / _PROJECT_YML
+
+
 # ---------- Project listing ----------
 
 
@@ -587,9 +623,34 @@ def load_project(project_name: str) -> ProjectConfig:
     cfg_path = root / _PROJECT_YML
     if not cfg_path.is_file():
         raise SystemExit(f"Missing {_PROJECT_YML} in {root}")
+    return _resolve_project(_parse_project_yaml(cfg_path), root, project_name)
 
-    raw = _parse_project_yaml(cfg_path)
 
+def validate_project_yaml(project_name: str, text: str) -> str | None:
+    """Return why *text* would not load as *project_name*'s ``project.yml``, or ``None``.
+
+    Runs every check that [`load_project`][terok.lib.core.projects.load_project]
+    runs, on *text* instead of the file on disk: YAML syntax, the schema,
+    the name/directory match, the egress-set names and the merged git
+    identity.  An editor uses this to refuse a save that would break the
+    project.  A project that does not exist yet is checked as the new
+    project the wizard creates in the user projects directory.  Nothing
+    is written.
+    """
+    try:
+        root = _find_project_root(project_name)
+    except SystemExit:
+        root = user_projects_dir() / project_name
+    try:
+        _resolve_project(_parse_project_text(text, root / _PROJECT_YML), root, project_name)
+    except SystemExit as exc:
+        return _sanitize_for_tty(str(exc))
+    return None
+
+
+def _resolve_project(raw: RawProjectYaml, root: Path, project_name: str) -> ProjectConfig:
+    """Merge the git identity layers under *raw* and build the project's config."""
+    cfg_path = root / _PROJECT_YML
     # Git identity resolved via ConfigStack: git-global → terok-global → project.yml
     git_dict = raw.git.model_dump(exclude_none=True)
     identity_stack = ConfigStack()
@@ -608,6 +669,11 @@ def load_project(project_name: str) -> ProjectConfig:
         raise SystemExit(
             _format_validation_error(exc, cfg_path) + f"\n  (git identity merged from: {sources})"
         )
+    except (OSError, RuntimeError, ValueError) as exc:
+        # A configured path no filesystem accepts (a NUL byte, a symlink
+        # loop) is a broken config like any other — after ValidationError,
+        # which subclasses ValueError.
+        raise SystemExit(f"Invalid {_PROJECT_YML} ({cfg_path}): {exc}") from exc
 
 
 def set_project_image_agents(project_name: str, selection: str) -> Path:
@@ -639,4 +705,17 @@ def set_project_shield_sets(project_name: str, sets: tuple[str, ...]) -> Path:
     validate_egress_sets(sets)
     cfg_path = _find_project_root(project_name) / _PROJECT_YML
     yaml_update_section(cfg_path, "shield", {"sets": list(sets)})
+    return cfg_path
+
+
+def set_project_snippet_inline(project_name: str, snippet: str) -> Path:
+    """Write *snippet* into the project's ``project.yml`` under ``image.user_snippet_inline``.
+
+    The snippet is stored as a literal block (``|``), so it stays
+    readable in the file.  Returns the project.yml path written.
+    """
+    from terok.lib.integrations.sandbox import yaml_update_section
+
+    cfg_path = _find_project_root(project_name) / _PROJECT_YML
+    yaml_update_section(cfg_path, "image", {"user_snippet_inline": literal_block(snippet)})
     return cfg_path

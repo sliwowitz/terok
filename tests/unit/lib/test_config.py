@@ -1237,3 +1237,78 @@ class TestTuiThemePersistence:
         monkeypatch.setenv("TEROK_CONFIG_FILE", str(path))
         cfg.save_tui_theme("ansi-dark")
         assert cfg.get_tui_theme() == "ansi-dark"
+
+
+# ── validate_global_config ────────────────────────────────────────────
+
+
+def _config_layers_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, system_text: str | None = None
+) -> Path:
+    """Point the config layers at a system file and a user file under *tmp_path*.
+
+    Returns the user file's path; it is not created.
+    """
+    system, user = tmp_path / "system.yml", tmp_path / "user.yml"
+    if system_text is not None:
+        system.write_text(system_text, encoding="utf-8")
+    monkeypatch.setattr(cfg, "_config_layers", lambda: [("system", system), ("user", user)])
+    return user
+
+
+def test_validate_global_config_accepts_a_partial_file_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    user = _config_layers_in(monkeypatch, tmp_path)
+    assert cfg.validate_global_config("tui:\n  default_tmux: true\n") is None
+    assert cfg.validate_global_config("") is None
+    assert not user.exists()
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("tui:\n  bogus: 1\n", "tui.bogus: Extra inputs", id="schema"),
+        pytest.param("tui: [\n", "Malformed YAML", id="yaml-syntax"),
+        pytest.param("- a\n", "top level must be a mapping", id="not-a-mapping"),
+    ],
+)
+def test_validate_global_config_reports_why_a_text_is_refused(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, text: str, expected: str
+) -> None:
+    _config_layers_in(monkeypatch, tmp_path)
+    verdict = cfg.validate_global_config(text)
+    assert verdict is not None
+    assert expected in verdict
+
+
+def test_validate_global_config_validates_the_merged_layers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A problem in a lower layer stays a problem — startup would fall back to defaults."""
+    _config_layers_in(monkeypatch, tmp_path, system_text="tui:\n  bogus: 1\n")
+    verdict = cfg.validate_global_config("tui:\n  default_tmux: true\n")
+    assert verdict is not None
+    assert "tui.bogus" in verdict
+    assert str(tmp_path / "system.yml") in verdict
+
+
+def test_validate_global_config_resolves_inherit_markers_like_startup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``_inherit`` is merge syntax, not a schema key — it must not read as an unknown key."""
+    _config_layers_in(monkeypatch, tmp_path, system_text="tui:\n  default_tmux: true\n")
+    assert cfg.validate_global_config("tui:\n  _inherit: true\n  theme: x\n") is None
+
+
+@pytest.mark.parametrize("override", [True, False], ids=["TEROK_CONFIG_FILE", "xdg"])
+def test_top_config_layer_is_the_user_config_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, override: bool
+) -> None:
+    """The edited text replaces the top layer, which must be the file the editor writes."""
+    if override:
+        monkeypatch.setenv("TEROK_CONFIG_FILE", str(tmp_path / "override.yml"))
+    else:
+        monkeypatch.delenv("TEROK_CONFIG_FILE", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert cfg._config_layers()[-1][1] == cfg.global_config_path()

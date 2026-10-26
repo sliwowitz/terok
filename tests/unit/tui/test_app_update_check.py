@@ -19,7 +19,7 @@ import pytest
 from terok.lib.core import version as version_mod
 from terok.tui import app as app_mod
 from terok.tui.app import _RESTART_EXIT_RESULT, TerokTUI
-from terok.tui.screens import UpdateRestartScreen
+from terok.tui.screens import RestartOfferScreen
 
 
 class TestInstalledDistVersion:
@@ -133,48 +133,58 @@ class TestOfferUpdateRestart:
         stub = SimpleNamespace(
             _update_offered_version=None,
             push_screen=MagicMock(),
-            _on_update_restart_choice=object(),
+            _on_restart_choice=object(),
         )
         TerokTUI._offer_update_restart(stub, "0.8.0", "0.9.0")
         assert stub._update_offered_version == "0.9.0"
         screen, callback = stub.push_screen.call_args[0]
-        assert isinstance(screen, UpdateRestartScreen)
-        assert callback is stub._on_update_restart_choice
+        assert isinstance(screen, RestartOfferScreen)
+        assert callback is stub._on_restart_choice
 
     @pytest.mark.asyncio
     async def test_accepting_restarts_via_action_quit(self) -> None:
         """``r`` routes into the restart-flavoured quit."""
         stub = SimpleNamespace(action_quit=AsyncMock())
-        await TerokTUI._on_update_restart_choice(stub, True)
+        await TerokTUI._on_restart_choice(stub, True)
         stub.action_quit.assert_awaited_once_with(restart=True)
 
     @pytest.mark.asyncio
     async def test_dismissing_keeps_running(self) -> None:
         """Any other key keeps the current instance alive."""
         stub = SimpleNamespace(action_quit=AsyncMock())
-        await TerokTUI._on_update_restart_choice(stub, False)
-        await TerokTUI._on_update_restart_choice(stub, None)
+        await TerokTUI._on_restart_choice(stub, False)
+        await TerokTUI._on_restart_choice(stub, None)
         stub.action_quit.assert_not_awaited()
 
 
-class TestUpdateRestartScreen:
-    """The modal restarts only on ``r``."""
+class TestRestartOfferScreen:
+    """The modal answers only to an explicit key."""
 
     @pytest.mark.parametrize(
         ("key", "expected"),
         [
             pytest.param("r", True, id="r-restarts"),
-            pytest.param("x", False, id="other-key-dismisses"),
+            pytest.param("escape", False, id="escape-keeps-running"),
+            pytest.param("n", False, id="n-keeps-running"),
         ],
     )
     def test_key_mapping(self, key: str, expected: bool) -> None:
-        """``r`` confirms the restart; anything else dismisses the offer."""
-        screen = UpdateRestartScreen.__new__(UpdateRestartScreen)
+        """``r`` confirms the restart; ``Esc`` or ``n`` keeps the TUI running."""
+        screen = RestartOfferScreen.__new__(RestartOfferScreen)
         screen.dismiss = MagicMock()
         event = SimpleNamespace(key=key, stop=MagicMock())
-        UpdateRestartScreen.on_key(screen, event)
+        RestartOfferScreen.on_key(screen, event)
         event.stop.assert_called_once()
         screen.dismiss.assert_called_once_with(expected)
+
+    @pytest.mark.parametrize("key", ["x", "ctrl+s", "enter"])
+    def test_other_keys_do_not_answer(self, key: str) -> None:
+        """A key meant for the screen below — a second Ctrl+S — must not decline the offer."""
+        screen = RestartOfferScreen.__new__(RestartOfferScreen)
+        screen.dismiss = MagicMock()
+        event = SimpleNamespace(key=key, stop=MagicMock())
+        RestartOfferScreen.on_key(screen, event)
+        screen.dismiss.assert_not_called()
 
 
 class TestRunTui:
@@ -271,3 +281,24 @@ class TestRestartFlags:
     ) -> None:
         """Each flag reappears exactly when its parsed value asks for it."""
         assert app_mod._restart_flags(SimpleNamespace(**namespace)) == expected
+
+
+class TestOfferRestartForConfig:
+    """A saved config.yml offers the restart that applies it."""
+
+    def test_local_terminal_gets_the_restart_offer(self) -> None:
+        stub = SimpleNamespace(
+            is_web=False, push_screen=MagicMock(), notify=MagicMock(), _on_restart_choice=object()
+        )
+        TerokTUI._offer_restart_for_config(stub)
+        screen, callback = stub.push_screen.call_args[0]
+        assert isinstance(screen, RestartOfferScreen)
+        assert callback is stub._on_restart_choice
+        stub.notify.assert_not_called()
+
+    def test_web_tui_is_told_to_reload_the_page(self) -> None:
+        """The served process cannot re-exec itself; a page reload starts a fresh one."""
+        stub = SimpleNamespace(is_web=True, push_screen=MagicMock(), notify=MagicMock())
+        TerokTUI._offer_restart_for_config(stub)
+        stub.push_screen.assert_not_called()
+        assert "Reload the page" in stub.notify.call_args.args[0]

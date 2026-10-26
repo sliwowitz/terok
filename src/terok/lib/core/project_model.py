@@ -191,7 +191,8 @@ class ProjectConfig(BaseModel):
     agents: str = "all"
     """Comma-separated roster entries to install in L1 (or ``"all"``)."""
     snippet_inline: str | None = None
-    snippet_file: str | None = None
+    snippet_path: Path | None = None
+    """The file ``image.user_snippet_file`` names — ``~`` expanded, relative to the project directory."""
     # Shared task directory (multi-agent IPC)
     shared_dir: Path | None = None
 

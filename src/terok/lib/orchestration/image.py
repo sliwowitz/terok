@@ -307,10 +307,7 @@ class ProjectImage:
         exist or cannot be read.
         """
         parts: list[str] = []
-        if self.project.snippet_file:
-            us_path = Path(self.project.snippet_file).expanduser()
-            if not us_path.is_absolute():
-                us_path = self.project.root / us_path
+        if (us_path := self.project.snippet_path) is not None:
             if not us_path.is_file():
                 raise SystemExit(
                     f"image.user_snippet_file not found: {us_path}\n"

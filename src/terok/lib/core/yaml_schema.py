@@ -520,11 +520,17 @@ class RawTUISection(BaseModel):
     external_editor: bool = Field(
         default=True,
         description=(
-            "Open instruction-editing actions in ``$EDITOR`` when it is set, "
-            "instead of the integrated text editor.  Honoured only on a "
-            "local-terminal TUI — the web TUI (``terok-web`` / textual-serve) "
-            "always uses the integrated editor, as there is no terminal to "
-            "suspend to.  Set ``false`` to always use the integrated editor."
+            "Edit texts from the TUI — instructions, ``project.yml``, "
+            "``config.yml`` and Docker snippets — in ``$EDITOR`` when it is "
+            "set, instead of the integrated text editor.  The editor gets a "
+            "draft copy; a text that would not load is refused when the "
+            "editor exits, and the real file stays unchanged.  ``$EDITOR`` "
+            "must wait until the file is closed (e.g. ``code --wait``).  "
+            "Honoured only "
+            "on a local-terminal TUI — the web TUI (``terok-web`` / "
+            "textual-serve) always uses the integrated editor, as there is "
+            "no terminal to suspend to.  Set ``false`` to always use the "
+            "integrated editor."
         ),
     )
     desktop_entry: Literal["auto", "skip", "install"] = Field(

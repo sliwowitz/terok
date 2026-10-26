@@ -102,8 +102,8 @@ if _HAS_TEXTUAL:
     from . import tmux_session
 
     # ``App.run()`` result asking ``_run_tui`` to re-exec the process in
-    # place — used when the operator accepts the restart offer after a
-    # terok upgrade landed on disk.
+    # place — used when the operator accepts a restart offer (a terok
+    # upgrade landed on disk, or config.yml was saved).
     _RESTART_EXIT_RESULT = "terok-restart"
 
     # How often to compare the on-disk terok version against the running
@@ -145,10 +145,10 @@ if _HAS_TEXTUAL:
         ConfirmDestructiveScreen,
         ProjectDetailsScreen,
         QuitConfirmScreen,
+        RestartOfferScreen,
         ShieldScreen,
         TaskDetailsScreen,
         TmuxQuitScreen,
-        UpdateRestartScreen,
         VaultScreen,
         VaultUnlockModal,
     )
@@ -181,6 +181,8 @@ if _HAS_TEXTUAL:
         "sync_gate": "_action_sync_gate",
         "gate_backups": "_action_gate_backups",
         "edit_instructions": "_action_edit_instructions",
+        "edit_project_yml": "_action_edit_project_yml",
+        "edit_snippet": "_action_edit_snippet",
         "toggle_inherit": "_action_toggle_instructions_inherit",
         "show_resolved": "_action_show_resolved_instructions",
         "import_opencode_config": "_action_import_opencode_config",
@@ -1322,7 +1324,7 @@ if _HAS_TEXTUAL:
             self._broken_by_id = {bp.name: bp for bp in broken}
 
             proj_widget = self.query_one("#project-list", ProjectList)
-            proj_widget.set_projects(projects, broken)
+            await proj_widget.set_projects(projects, broken)
             self._announce_newly_broken(broken)
 
             if not projects and not broken:
@@ -1961,6 +1963,10 @@ if _HAS_TEXTUAL:
             """Edit Global Instructions."""
             await self._action_edit_global_instructions()
 
+        async def action_edit_global_config(self) -> None:
+            """Edit the user config file (config.yml)."""
+            await self._action_edit_global_config()
+
         async def action_show_default_instructions(self) -> None:
             """Show Default Instructions."""
             await self._action_show_default_instructions()
@@ -2053,8 +2059,9 @@ if _HAS_TEXTUAL:
 
             With ``restart=True`` the app exits with
             ``_RESTART_EXIT_RESULT`` so ``_run_tui`` re-execs the process
-            in place (same terminal, same tmux window) to pick up a terok
-            version that was installed while the TUI was running.
+            in place (same terminal, same tmux window) to pick up what
+            only a fresh process sees: a terok version installed while the
+            TUI was running, or a saved config.yml.
             """
             self._stop_upstream_polling()
             self._stop_container_status_polling()
@@ -2149,13 +2156,30 @@ if _HAS_TEXTUAL:
             """Push the restart offer for a freshly installed terok version."""
             self._update_offered_version = installed
             self.push_screen(
-                UpdateRestartScreen(
-                    running=_short_version(running), installed=_short_version(installed)
+                RestartOfferScreen(
+                    f"terok has been updated: {_short_version(installed)} is now installed\n"
+                    f"(this TUI is still running {_short_version(running)})."
                 ),
-                self._on_update_restart_choice,
+                self._on_restart_choice,
             )
 
-        async def _on_update_restart_choice(self, restart: bool | None) -> None:
+        def _offer_restart_for_config(self) -> None:
+            """Offer the restart that applies a saved config.yml.
+
+            The config is read once and cached across terok and its
+            sibling packages, so only a fresh process sees all of a
+            change.  The web TUI cannot re-exec its own process; a page
+            reload there starts a fresh one.
+            """
+            if self.is_web:
+                self.notify("Reload the page to apply the new config.", timeout=10)
+                return
+            self.push_screen(
+                RestartOfferScreen("The config is saved.  A restart applies it."),
+                self._on_restart_choice,
+            )
+
+        async def _on_restart_choice(self, restart: bool | None) -> None:
             """Restart the TUI in place when the operator accepted the offer."""
             if restart:
                 await self.action_quit(restart=True)
@@ -2178,12 +2202,9 @@ if _HAS_TEXTUAL:
                 self.notify("No project selected.")
                 return
             if self.current_project_name in self._broken_by_id:
-                bp = self._broken_by_id[self.current_project_name]
-                self.notify(
-                    f"Cannot act on broken project '{bp.name}'. Fix {bp.config_path} first.",
-                    severity="warning",
-                    timeout=10,
-                )
+                # A broken project has no loadable config to act on; the one
+                # thing to do with it is fix its project.yml.
+                self._edit_project_yml(self.current_project_name)
                 return
             project = self._projects_by_id.get(self.current_project_name)
             if not project:
@@ -2306,6 +2327,21 @@ if _HAS_TEXTUAL:
                 "Set default agents",
                 "Pick the agent roster baked into L1 images by default (image.agents in config.yml)",
                 self.action_configure_default_agents,
+            )
+            yield SystemCommand(
+                "Edit global config",
+                "Edit config.yml, the user config file; a save that would not load is refused",
+                self.action_edit_global_config,
+            )
+            yield SystemCommand(
+                "Edit global instructions",
+                "Edit the instructions.md that every project's agents inherit",
+                self.action_edit_global_instructions,
+            )
+            yield SystemCommand(
+                "Show default instructions",
+                "View the agent instructions bundled with terok (read-only)",
+                self.action_show_default_instructions,
             )
 
         def action_show_console_output(self) -> None:
@@ -2641,7 +2677,7 @@ if _HAS_TEXTUAL:
             return
         exe = find_host_tool("terok-tui")
         if not exe:
-            print("terok-tui not found on PATH — restart it manually to pick up the update.")
+            print("terok-tui not found on PATH — restart it manually.")
             return
         try:
             os.execv(exe, [exe, *restart_flags])  # nosec B606 — resolved entry point, literal flags

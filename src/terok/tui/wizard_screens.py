@@ -9,7 +9,8 @@ Three screens drive the flow:
    [`terok.lib.domain.wizards.new_project.QUESTIONS`][terok.lib.domain.wizards.new_project.QUESTIONS] answer at
    once.  Shares vocabulary + validation with the CLI wizard.
 2. [`ProjectReviewScreen`][terok.tui.wizard_screens.ProjectReviewScreen] — shows the rendered ``project.yml`` in
-   a ``TextArea`` for last-minute edits before commit.
+   a ``TextArea`` for last-minute edits before commit — in ``$EDITOR``
+   too, when the operator's settings send edits there.
 3. [`InitProgressScreen`][terok.tui.wizard_screens.InitProgressScreen] — runs ssh-init → generate → build →
    gate-sync as a background worker, updating a per-step status list
    and surfacing the public key when the user needs to register it.
@@ -18,8 +19,9 @@ Each screen is its own ``ModalScreen`` and dismisses with a result;
 the orchestration lives on the main app
 (`terok.tui.app.TerokTUI._launch_project_wizard`).
 
-No ``app.suspend()`` — this replaces the CLI-subprocess path that
-textual-serve cannot support.
+Nothing here needs a terminal, so the wizard runs under textual-serve
+too; the form's multi-line fields and the review step offer their
+``$EDITOR`` round-trip only in a local terminal.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ import contextlib
 import enum
 import io
 import os
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +67,7 @@ from .agents_screen import AgentsSelectScreen
 from .askpass_service import build_askpass_env, gui_askpass_usable
 from .gpu_screen import GpuSelectScreen
 from .ssh_key_screens import ShowSshKeyScreen, SshKeyCommentScreen
+from .text_screens import ValidationErrorLine, code_text_area, edit_externally_into
 from .widgets.ansi_log import AnsiLog
 
 # ── Step 1: the form ──────────────────────────────────────────────────
@@ -74,7 +77,10 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
     """First wizard screen — one form with every question, validated on submit.
 
     Dismisses with the collected values dict (keys = ``Question.key``)
-    or ``None`` on cancel.
+    or ``None`` on cancel.  *edit_externally* sends a multi-line answer
+    through ``$EDITOR`` and returns the accepted text (``None`` when the
+    operator abandons the edit); when it is set, each multi-line field
+    gets an "Edit in $EDITOR" button for that round-trip.
     """
 
     BINDINGS = [
@@ -135,7 +141,12 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
     }
     """
 
-    def __init__(self, initial: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        initial: dict[str, str] | None = None,
+        *,
+        edit_externally: Callable[[str], Awaitable[str | None]] | None = None,
+    ) -> None:
         """Build a fresh wizard form, optionally pre-filled with previous answers.
 
         *initial* survives the form/review "Back" round-trip.  The
@@ -143,6 +154,7 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
         the "Override agents…" button.
         """
         super().__init__()
+        self._edit_externally = edit_externally
         self._errors: dict[str, Label] = {}
         initial = dict(initial) if initial else {}
         self._agents_override: str | None = initial.pop("agents", None) or None
@@ -202,6 +214,13 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
                 yield Input(value=preset, placeholder=q.placeholder, id=self._widget_id(q))
             case "editor":
                 yield TextArea(preset, id=self._widget_id(q), language=None)
+                if self._edit_externally is not None:
+                    yield Button(
+                        "Edit in $EDITOR",
+                        name=q.key,
+                        classes="wizard-external-edit",
+                        variant="default",
+                    )
         err = Label("", classes="wizard-error", id=self._error_id(q))
         self._errors[q.key] = err
         yield err
@@ -292,6 +311,21 @@ class WizardFormScreen(ModalScreen["dict[str, str] | None"]):
     @on(Button.Pressed, "#wizard-form-cancel")
     def _on_cancel(self) -> None:
         self.dismiss(None)
+
+    @on(Button.Pressed, ".wizard-external-edit")
+    def _on_edit_externally(self, event: Button.Pressed) -> None:
+        """Edit the button's field in $EDITOR — as a worker, so the screen stays responsive."""
+        if event.button.name:
+            self._run_external_edit(event.button.name)
+
+    @work(exclusive=True, group="wizard-form-external", exit_on_error=False)
+    async def _run_external_edit(self, key: str) -> None:
+        """Send the *key* field's text through ``$EDITOR``; an accepted text replaces it."""
+        if self._edit_externally is None:
+            return
+        question = next(q for q in QUESTIONS if q.key == key)
+        area = self.query_one(f"#{self._widget_id(question)}", TextArea)
+        await edit_externally_into(area, self._edit_externally, title=question.prompt)
 
     @on(Button.Pressed, "#wizard-form-agents")
     def _on_open_agents_modal(self) -> None:
@@ -438,6 +472,13 @@ class ProjectReviewScreen(ModalScreen["str | object | None"]):
     - [`REVIEW_BACK`][terok.tui.wizard_screens.REVIEW_BACK] → user clicked "Back"; caller should re-open
       the form with the previous answers as prefill.
     - ``None`` → user hit Escape; wizard is abandoned.
+
+    A *validate* callback returns why a text must not be written, or
+    ``None``; Initialize is refused while it reports a problem, and the
+    reason shows under the text.  *edit_externally* sends the text
+    through ``$EDITOR`` and returns the accepted text (``None`` when the
+    operator abandons the edit); when it is set, an "Edit in $EDITOR"
+    button offers that round-trip.
     """
 
     BINDINGS = [
@@ -474,30 +515,31 @@ class ProjectReviewScreen(ModalScreen["str | object | None"]):
     }
     """
 
-    def __init__(self, project_name: str, rendered: str) -> None:
+    def __init__(
+        self,
+        project_name: str,
+        rendered: str,
+        *,
+        validate: Callable[[str], str | None] | None = None,
+        edit_externally: Callable[[str], Awaitable[str | None]] | None = None,
+    ) -> None:
         """Create the review screen with the initial rendered YAML text."""
         super().__init__()
         self._project_name = project_name
         self._rendered = rendered
+        self._validate = validate
+        self._edit_externally = edit_externally
 
     def compose(self) -> ComposeResult:
-        """Build the editable YAML pane and Back/Initialize buttons."""
+        """Build the editable YAML pane, the error line and the Back/Initialize buttons."""
         dialog = Vertical(id="wizard-review-dialog")
         dialog.border_title = f"Review project.yml — {self._project_name}"
         with dialog:
-            yield TextArea.code_editor(
-                self._rendered,
-                language="yaml",
-                theme="vscode_dark",
-                # Keep Tab on the focus ring — the project template uses
-                # 2-space indent, so a literal tab here would yield an
-                # invalid YAML on save.  Shift-Tab to reach "Initialize"
-                # was a UX wart; Tab now cycles widgets like everywhere
-                # else, and indentation comes from the renderer.
-                tab_behavior="focus",
-                id="wizard-review-yaml",
-            )
+            yield code_text_area(self._rendered, language="yaml", widget_id="wizard-review-yaml")
+            yield ValidationErrorLine(self._validate)
             with Horizontal(id="wizard-review-buttons"):
+                if self._edit_externally is not None:
+                    yield Button("Edit in $EDITOR", id="wizard-review-external", variant="default")
                 yield Button("Back", id="wizard-review-back", variant="default")
                 yield Button("Initialize project", id="wizard-review-init", variant="primary")
 
@@ -513,7 +555,23 @@ class ProjectReviewScreen(ModalScreen["str | object | None"]):
     @on(Button.Pressed, "#wizard-review-init")
     def _on_init(self) -> None:
         yaml_text = self.query_one("#wizard-review-yaml", TextArea).text
-        self.dismiss(yaml_text)
+        if self.query_one(ValidationErrorLine).check(yaml_text):
+            self.dismiss(yaml_text)
+
+    @on(Button.Pressed, "#wizard-review-external")
+    def _on_edit_externally(self) -> None:
+        """Edit in $EDITOR — the round-trip runs as a worker, so the screen stays responsive."""
+        self._run_external_edit()
+
+    @work(exclusive=True, group="wizard-review-external", exit_on_error=False)
+    async def _run_external_edit(self) -> None:
+        """Send the text through ``$EDITOR``; an accepted text replaces the pane's content."""
+        if self._edit_externally is None:
+            return
+        area = self.query_one("#wizard-review-yaml", TextArea)
+        title = f"project.yml — {self._project_name}"
+        if await edit_externally_into(area, self._edit_externally, title=title):
+            self.query_one(ValidationErrorLine).check(area.text)
 
 
 # ── Step 3: initialize project (ssh-init → generate → build → gate) ──
