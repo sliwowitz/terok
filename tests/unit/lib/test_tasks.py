@@ -56,7 +56,7 @@ from tests.test_utils import (
     write_project,
 )
 from tests.testfs import CONTAINER_SSH_DIR, MOCK_BASE
-from tests.testnet import GATE_PORT
+from tests.testnet import FAKE_PEER_PORT, GATE_PORT
 
 
 def _seed_task_meta(project_name: str, task_id: str) -> None:
@@ -558,6 +558,55 @@ class TestTask:
             assert meta["unrestricted"] is True
             assert meta["debug"] is False
             assert meta["hooks_fired"] == ["pre_start", "post_start", "post_ready"]
+
+    @pytest.mark.parametrize("rename_phase", ["port-allocation", "readiness"])
+    def test_task_run_toad_preserves_name_changed_during_initialization(
+        self, mock_runtime, rename_phase: str
+    ) -> None:
+        """Neither Toad state write may restore a name captured before startup."""
+        project_name = "proj_toad_rename"
+        with project_env(
+            f"project:\n  id: {project_name}\n  security_class: online\n",
+            project_name=project_name,
+            with_config_file=True,
+            clear_env=True,
+        ):
+            task_id = task_new(project_name, name="original-name")
+
+            def assign_port(*_args) -> int:
+                """Apply an early rename before the initial launch-state write."""
+                if rename_phase == "port-allocation":
+                    task_rename(project_name, task_id, "edited-name")
+                return FAKE_PEER_PORT
+
+            def finish_initialization(**_kwargs) -> bool:
+                """Apply a late rename before readiness is persisted."""
+                if rename_phase == "readiness":
+                    task_rename(project_name, task_id, "edited-name")
+                return True
+
+            mock_runtime.container.return_value.state = None
+            mock_runtime.container.return_value.running = True
+            mock_runtime.container.return_value.stream_initial_logs.side_effect = (
+                finish_initialization
+            )
+            with (
+                mock_git_config(),
+                unittest.mock.patch(
+                    "terok.lib.orchestration.task_runners.toad.assign_web_port",
+                    side_effect=assign_port,
+                ),
+            ):
+                task_run_toad(project_name, task_id)
+
+            meta, _ = load_task_meta(project_name, task_id)
+            assert meta["name"] == "edited-name"
+            assert meta["mode"] == "toad"
+            assert meta["web_port"] == FAKE_PEER_PORT
+            assert meta["web_token"]
+            assert meta["ready_at"]
+            assert meta["unrestricted"] is True
+            assert meta["debug"] is False
 
     def test_task_run_toad_passes_public_url(self, mock_runtime) -> None:
         """task_run_toad must pass --public-url with the host port to toad serve."""
@@ -2128,6 +2177,29 @@ class TestDossierHandle:
 class TestMetaMutations:
     """mark_task_deleting / update_task_exit_code are best-effort on-disk mutations."""
 
+    @pytest.mark.parametrize("field,value", [("exit_code", 7), ("deleting", True)])
+    def test_state_update_preserves_concurrent_rename(self, field: str, value: int) -> None:
+        """Lifecycle updates must not restore the name from an earlier metadata read."""
+        from terok.lib.orchestration.tasks import mark_task_deleting, update_task_exit_code
+
+        pid = "proj_state_rename"
+        with project_env(f"project:\n  id: {pid}\n", project_name=pid), mock_git_config():
+            task_id = task_new(pid, name="original-name")
+            stale_meta, _ = load_task_meta(pid, task_id)
+            task_rename(pid, task_id, "edited-name")
+
+            with unittest.mock.patch(
+                "terok.lib.orchestration.tasks.meta.read_task_meta", return_value=stale_meta
+            ):
+                if field == "exit_code":
+                    update_task_exit_code(pid, task_id, value)
+                else:
+                    mark_task_deleting(pid, task_id)
+
+            meta, _ = load_task_meta(pid, task_id)
+            assert meta["name"] == "edited-name"
+            assert meta[field] == value
+
     def test_mark_deleting_sets_flag(self) -> None:
         """mark_task_deleting persists deleting=True to the metadata file."""
         from terok.lib.orchestration.tasks import mark_task_deleting, tasks_meta_dir
@@ -2154,7 +2226,7 @@ class TestMetaMutations:
         with project_env(f"project:\n  id: {pid}\n", project_name=pid), mock_git_config():
             task_id = task_new(pid)
             with unittest.mock.patch(
-                "terok.lib.orchestration.tasks.meta.write_task_meta",
+                "terok.lib.orchestration.tasks.meta.write_task_state",
                 side_effect=OSError("disk full"),
             ):
                 mark_task_deleting(pid, task_id)  # must not raise

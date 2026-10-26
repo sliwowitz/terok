@@ -298,7 +298,7 @@ def update_task_exit_code(project_name: str, task_id: str, exit_code: int | None
     if meta is None:
         return
     meta["exit_code"] = exit_code
-    write_task_meta(dossier_path(meta_dir, task_id), meta)
+    write_task_state(dossier_path(meta_dir, task_id), meta)
 
 
 def _check_mode(meta: dict, expected: str) -> None:
@@ -316,7 +316,7 @@ def load_task_meta(
     Returns ``(meta, dossier_path)``: the merged in-memory dict (in
     its internal storage shape — ``project_name`` / ``task_id`` / …)
     plus the canonical dossier-file handle for write-back via
-    ``write_task_meta(dossier_path, meta)``.  Raises SystemExit if
+    ``write_task_state(dossier_path, meta)``.  Raises SystemExit if
     the task is unknown or its mode conflicts with *expected_mode*.
     """
     meta_dir = tasks_meta_dir(project_name)
@@ -336,7 +336,7 @@ def mark_task_deleting(project_name: str, task_id: str) -> None:
         if meta is None:
             return
         meta["deleting"] = True
-        write_task_meta(dossier_path(meta_dir, task_id), meta)
+        write_task_state(dossier_path(meta_dir, task_id), meta)
     except Exception as e:
         _log_debug(f"mark_task_deleting: failed project_name={project_name} task_id={task_id}: {e}")
 
