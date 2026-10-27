@@ -62,6 +62,21 @@ When defining a model manually, specify both `max_context_length` (total
 context window) and `max_output_tokens` (per-response cap). A large context
 window does not imply an equally large allowed completion.
 
+Vibe transcripts retain their native location (`~/.vibe/logs/session` by
+default) in the configured Vibe mount. Native tool/turn hooks capture only
+the current task's root-session ID in `/home/dev/.terok/vibe-session-id.txt`;
+automatic resume never selects the newest shared transcript. Without a
+captured ID the wrapper warns; `vibe --resume` remains available for manual
+selection. Old unverified pointers are ignored, not imported. Rebuild and
+recreate the task container to install the hook helper and ACP adapter.
+Initial instructions and agent-history tracking are unchanged.
+
+Agent mounts are host-wide by default. `credentials.scope: project` in
+`project.yml` isolates both the mounts and credentials per project, while
+sharing them across its tasks. There is no `credentials.scope: task` option;
+`project.isolation: sealed` copies data instead of bind-mounting it and is
+not persistent per-task agent-mount configuration.
+
 ### L2 — Project Image (`<project>:l2-cli`)
 
 Built `FROM` the L1 image.
