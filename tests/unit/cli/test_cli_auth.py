@@ -212,29 +212,29 @@ def test_run_interactive_runs_each_selected_provider() -> None:
     ]
 
 
-def test_run_interactive_hides_oauth_when_disabled(capsys: pytest.CaptureFixture[str]) -> None:
+def test_run_interactive_hides_login_when_disabled(capsys: pytest.CaptureFixture[str]) -> None:
     """Without experimental + allow_oauth, the menu only advertises api-key."""
     with (
         patch("sys.stdin", new=StringIO("\n")),
-        patch("terok.lib.core.config.is_oauth_enabled_for", return_value=False),
+        patch("terok.lib.core.config.is_login_enabled_for", return_value=False),
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name=None)
     out = capsys.readouterr().out
-    assert "oauth" not in out
+    assert "[login" not in out
     assert "api-key" in out
 
 
-def test_run_interactive_shows_oauth_when_enabled(capsys: pytest.CaptureFixture[str]) -> None:
-    """With the gate open, OAuth is surfaced alongside any API-key support."""
+def test_run_interactive_shows_login_when_enabled(capsys: pytest.CaptureFixture[str]) -> None:
+    """With the gate open, the login is surfaced alongside any API-key support."""
     with (
         patch("sys.stdin", new=StringIO("\n")),
-        patch("terok.lib.core.config.is_oauth_enabled_for", return_value=True),
+        patch("terok.lib.core.config.is_login_enabled_for", return_value=True),
         patch("terok.cli.commands.auth._run_one"),
     ):
         _run_interactive(project_name=None)
     out = capsys.readouterr().out
-    assert "oauth" in out
+    assert "[login" in out
 
 
 def test_run_interactive_marks_authenticated_entries(
@@ -331,9 +331,9 @@ def test_run_one_stays_quiet_without_stored_credential(
 
 
 def test_run_one_warns_on_stale_image(capsys: pytest.CaptureFixture[str]) -> None:
-    """An OAuth-capable provider reports a stale project image."""
+    """A login-capable provider reports a stale project image."""
     with (
-        patch("terok.lib.api.agents.available_auth_modes", return_value=["oauth"]),
+        patch("terok.lib.api.agents.available_auth_modes", return_value=["login"]),
         patch(
             "terok.cli.commands.auth.auth_image_staleness_warning",
             return_value="Warning: stale image",
@@ -402,21 +402,21 @@ def test_authenticated_entries_unreadable_vault_returns_none() -> None:
 
 
 def test_available_auth_modes_lists_device_code_for_codex() -> None:
-    """Codex (oauth + device + api_key) surfaces all three, device after oauth."""
+    """Codex (login + device + api_key) surfaces all three, device after login."""
     from terok.lib.domain.auth import available_auth_modes
 
-    with patch("terok.lib.core.config.is_oauth_enabled_for", return_value=True):
-        assert available_auth_modes("codex") == ["oauth", "device_auth", "api_key"]
+    with patch("terok.lib.core.config.is_login_enabled_for", return_value=True):
+        assert available_auth_modes("codex") == ["login", "device_auth", "api_key"]
     # alias resolves to the same entry
-    with patch("terok.lib.core.config.is_oauth_enabled_for", return_value=True):
-        assert available_auth_modes("openai") == ["oauth", "device_auth", "api_key"]
+    with patch("terok.lib.core.config.is_login_enabled_for", return_value=True):
+        assert available_auth_modes("openai") == ["login", "device_auth", "api_key"]
 
 
-def test_available_auth_modes_drops_oauth_when_gated() -> None:
-    """A closed OAuth gate removes oauth *and* its device-code variant."""
+def test_available_auth_modes_drops_login_when_gated() -> None:
+    """A closed login gate removes the login *and* its device-code variant."""
     from terok.lib.domain.auth import available_auth_modes
 
-    with patch("terok.lib.core.config.is_oauth_enabled_for", return_value=False):
+    with patch("terok.lib.core.config.is_login_enabled_for", return_value=False):
         assert available_auth_modes("codex") == ["api_key"]
 
 

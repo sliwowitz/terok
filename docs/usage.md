@@ -707,11 +707,16 @@ single-provider form prints a heads-up first. When the vault can't be
 read — not yet provisioned or currently sealed — both surfaces say so
 instead of guessing.
 
-Each provider offers the methods its vendor supports — OAuth / interactive
-login (launches an auth container), the OAuth **device-code** variant (for
-vendors that support it, e.g. Codex), and API key (paste, no container
-needed). When a provider offers more than one, `terok auth` shows a chooser;
-the TUI's auth flow presents the same choices.
+Each provider offers the methods its vendor supports — the vendor login
+(launches an auth container), its **device-code** variant (for vendors that
+support it, e.g. Codex), and API key (paste, no container needed). When a
+provider offers more than one, `terok auth` shows a chooser; the TUI's auth
+flow presents the same choices.
+
+Vibe's vendor login is its browser sign-in, which issues a key tied to your
+Vibe plan. It needs no browser in the container: in Vibe's setup, choose
+**Launch browser**, then press `c` to show the sign-in URL and open it on
+any machine.
 
 On a headless host (no local browser), Codex's OAuth login can't open the
 usual browser callback. The device-code flow runs the same login headlessly —

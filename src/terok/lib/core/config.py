@@ -882,14 +882,14 @@ def exposed_credential_providers() -> frozenset[str]:
     return frozenset(exposed)
 
 
-def is_oauth_enabled_for(provider: str) -> bool:
-    """Return True when OAuth is operationally enabled for *provider*.
+def is_login_enabled_for(provider: str) -> bool:
+    """Return True when the vendor login is operationally enabled for *provider*.
 
-    Gated providers (currently claude and codex) require the experimental
-    flag plus a per-provider ``allow_oauth`` or ``expose_oauth_token``
-    config key.  Ungated providers fall through to True so user-facing
-    menus continue to surface OAuth where the underlying flow does not
-    depend on terok's experimental gate.
+    Gated providers (currently claude and codex, whose login yields an OAuth
+    credential) require the experimental flag plus a per-provider
+    ``allow_oauth`` or ``expose_oauth_token`` config key.  Ungated providers
+    fall through to True so user-facing menus continue to surface the login
+    where the underlying flow does not depend on terok's experimental gate.
     """
     if provider == "claude":
         return is_claude_oauth_proxied() or is_claude_oauth_exposed()

@@ -310,7 +310,7 @@ class TestAuthenticate:
         assert callable(mock_auth.call_args.kwargs["image"])
 
     def test_project_oauth_image_validates_installed_entry(self) -> None:
-        """Resolving a project OAuth image still validates its auth command."""
+        """Resolving a project login image still validates its auth command."""
         from terok.lib.domain import auth
 
         fake_project = MagicMock()
@@ -351,7 +351,7 @@ class TestAuthenticate:
 
     def test_host_wide_passes_lazy_resolver_as_image(self) -> None:
         """``authenticate(provider)`` passes a callable so the L1 build defers
-        past the OAuth-vs-API-key prompt — picking API key never triggers it."""
+        past the login-vs-API-key prompt — picking API key never triggers it."""
         from terok.lib import api
 
         with (
@@ -415,7 +415,7 @@ class TestAuthenticate:
         assert mock_auth.call_args.kwargs["expose_token"] is False
 
     def test_oauth_gate_is_passed_to_executor(self) -> None:
-        """``is_oauth_enabled_for`` is forwarded as ``oauth_enabled`` so the
+        """``is_login_enabled_for`` is forwarded as ``login_enabled`` so the
         per-provider prompt agrees with the listing screen's filter."""
         from terok.lib import api
 
@@ -427,16 +427,16 @@ class TestAuthenticate:
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=False),
-            patch("terok.lib.core.config.is_oauth_enabled_for", return_value=False) as mock_gate,
+            patch("terok.lib.core.config.is_login_enabled_for", return_value=False) as mock_gate,
             patch("terok.lib.domain.auth.Authenticator.run") as mock_auth,
         ):
             api.authenticate("codex")
 
         mock_gate.assert_called_once_with("codex")
-        assert mock_auth.call_args.kwargs["oauth_enabled"] is False
+        assert mock_auth.call_args.kwargs["login_enabled"] is False
 
     def test_oauth_gate_open_passes_true(self) -> None:
-        """When the gate is open, ``oauth_enabled=True`` reaches the executor."""
+        """When the gate is open, ``login_enabled=True`` reaches the executor."""
         from terok.lib import api
 
         with (
@@ -447,12 +447,12 @@ class TestAuthenticate:
             patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value="/mnt"),
             patch("terok.lib.core.config.is_claude_oauth_exposed", return_value=False),
             patch("terok.lib.core.config.is_codex_oauth_exposed", return_value=False),
-            patch("terok.lib.core.config.is_oauth_enabled_for", return_value=True),
+            patch("terok.lib.core.config.is_login_enabled_for", return_value=True),
             patch("terok.lib.domain.auth.Authenticator.run") as mock_auth,
         ):
             api.authenticate("claude")
 
-        assert mock_auth.call_args.kwargs["oauth_enabled"] is True
+        assert mock_auth.call_args.kwargs["login_enabled"] is True
 
 
 class TestResolveHostAuthImage:

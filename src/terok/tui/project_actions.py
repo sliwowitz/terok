@@ -214,7 +214,7 @@ class ProjectActionsMixin(_MixinBase):
         """Run *argv* in the foreground with the TUI suspended.
 
         The single home of the suspend dance shared by container logins,
-        OAuth containers and the external editor.  The child runs as an
+        login containers and the external editor.  The child runs as an
         asyncio subprocess and the resume prompt reads in a thread: the
         app is suspended, not stopped, and an interactive session can
         last minutes — blocking the loop for its whole duration would
@@ -405,7 +405,7 @@ class ProjectActionsMixin(_MixinBase):
         Replaces the previous ``worker_actions:auth`` subprocess dispatch,
         which couldn't reach a stdin (the worker runs with
         ``stdin=DEVNULL``) so the executor's ``prompt_toolkit`` API-key
-        prompt always saw EOF.  The OAuth path reuses the same
+        prompt always saw EOF.  The login path reuses the same
         tmux/terminal/suspend cascade as project shell logins.
         """
         from ..lib.api import available_auth_modes, load_auth_providers
@@ -418,7 +418,7 @@ class ProjectActionsMixin(_MixinBase):
         modes = available_auth_modes(provider)
         if not modes:
             self.notify(
-                f"Auth for {provider!r} requires OAuth, but it is disabled "
+                f"Auth for {provider!r} needs the vendor login, which is disabled "
                 "by the experimental / allow_oauth gates in config.yml.",
                 severity="error",
                 timeout=10,
@@ -436,9 +436,9 @@ class ProjectActionsMixin(_MixinBase):
         if mode == "api_key":
             await self._auth_via_api_key(provider, project_name=project_name)
         else:
-            # "oauth" launches the browser callback; "device_auth" runs the
-            # same login headlessly via a device code.
-            await self._auth_via_oauth(
+            # "login" runs the vendor login; "device_auth" runs the same
+            # login headlessly via a device code.
+            await self._auth_via_login(
                 provider, project_name=project_name, device_auth=(mode == "device_auth")
             )
 
@@ -464,13 +464,13 @@ class ProjectActionsMixin(_MixinBase):
             return
         self.notify(f"API key stored for {provider}.")
 
-    async def _auth_via_oauth(
+    async def _auth_via_login(
         self, provider: str, *, project_name: str | None, device_auth: bool = False
     ) -> None:
-        """Prepare an OAuth auth container session and hand it to the launcher.
+        """Prepare a login container session and hand it to the launcher.
 
         With *device_auth* the prepared session runs the provider's headless
-        device-code login instead of the browser-callback flow.
+        device-code login instead of the normal flow.
         """
         from ..lib.api import (
             Authenticator,
@@ -493,7 +493,7 @@ class ProjectActionsMixin(_MixinBase):
             image = find_host_auth_image(provider)
             if image is None:
                 self.notify(
-                    f"No agent image found for OAuth auth of {provider}.  Run "
+                    f"No agent image found for the {provider} login.  Run "
                     "`terok image build` first, or use the per-project entry.",
                     severity="warning",
                     timeout=12,
@@ -509,12 +509,12 @@ class ProjectActionsMixin(_MixinBase):
         # shared/host-wide use the global tree + "default" (same routing the
         # CLI uses, see domain.auth.resolve_credential_routing).
         mounts_dir, credential_set = resolve_credential_routing(project_name)
-        # ``prepare_oauth`` raises ``SystemExit`` only for an unknown or
-        # non-OAuth provider — both already excluded by ``_run_auth_flow``
+        # ``prepare_login`` raises ``SystemExit`` only for an unknown or
+        # login-less provider — both already excluded by ``_run_auth_flow``
         # before we get here, so no defensive catch is needed.  An
         # unexpected raise surfaces through the ``@work`` harness instead
         # of tearing down the app.
-        session = Authenticator(provider).prepare_oauth(
+        session = Authenticator(provider).prepare_login(
             project_name,
             mounts_dir=mounts_dir,
             image=image,
@@ -522,9 +522,9 @@ class ProjectActionsMixin(_MixinBase):
             credential_set=credential_set,
             device_auth=device_auth,
         )
-        await self._launch_oauth_container(session)
+        await self._launch_login_container(session)
 
-    async def _launch_oauth_container(self, session: AuthSession) -> None:
+    async def _launch_login_container(self, session: AuthSession) -> None:
         """Launch ``session.argv`` via tmux/terminal/suspend; capture on exit.
 
         Mirrors
@@ -537,7 +537,7 @@ class ProjectActionsMixin(_MixinBase):
         """
         if self.is_web:
             self.notify(
-                "OAuth auth needs a host terminal — unavailable in the web TUI.  "
+                "The vendor login needs a host terminal — unavailable in the web TUI.  "
                 "Use API-key auth instead, or run `terok auth` on the host.",
                 severity="error",
                 timeout=12,
@@ -548,7 +548,7 @@ class ProjectActionsMixin(_MixinBase):
         method, _port = launch_login(session.argv, title=session.title)
         if method in ("tmux", "terminal"):
             self.notify(
-                f"OAuth container started in new {method}.  Credentials "
+                f"Login container started in new {method}.  Credentials "
                 "will be captured automatically when it exits.",
                 timeout=8,
             )
@@ -611,7 +611,7 @@ class ProjectActionsMixin(_MixinBase):
         try:
             if exit_code != 0:
                 self.notify(
-                    f"OAuth container exited {exit_code} — credentials not captured.",
+                    f"Login container exited {exit_code} — credentials not captured.",
                     severity="warning",
                     timeout=10,
                 )
