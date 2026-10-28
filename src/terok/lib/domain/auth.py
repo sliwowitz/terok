@@ -5,7 +5,7 @@
 
 The terok-side wrapper around [`Authenticator`][terok_executor.Authenticator].
 Resolves which image to use (deferred for the host-wide path so picking
-API key never triggers an L1 build), applies the OAuth-vs-API-key gates
+API key never triggers an L1 build), applies the login-vs-API-key gates
 from the user's config, and prompts the user when an L1 image needs
 building.
 
@@ -64,10 +64,10 @@ def available_auth_modes(provider: str) -> list[str]:
 
     The single source of truth for "which login methods does this provider
     expose", honoring both the roster's declared capabilities and terok's
-    OAuth gate (the ``experimental`` flag plus the per-provider
-    ``allow_oauth``).  Returns mode ids drawn from ``"oauth"``,
+    login gate (the ``experimental`` flag plus the per-provider
+    ``allow_oauth``).  Returns mode ids drawn from ``"login"``,
     ``"device_auth"``, and ``"api_key"``: the device-code variant appears
-    only alongside ``"oauth"`` — it is the same credential obtained
+    only alongside ``"login"`` — it is the same credential obtained
     headlessly — and only for providers that declare it.  Shared by the CLI
     listing, the CLI/TUI method choosers, and the TUI's direct-vs-chooser
     gating so the two frontends can't drift.
@@ -75,15 +75,15 @@ def available_auth_modes(provider: str) -> list[str]:
     *provider* is resolved from its LLM-provider alias (``openai`` → ``codex``)
     first.  An unknown provider yields an empty list.
     """
-    from ..core.config import is_oauth_enabled_for
+    from ..core.config import is_login_enabled_for
 
     provider = resolve_auth_provider(provider)
     info = load_auth_providers().get(provider)
     if info is None:
         return []
     modes: list[str] = []
-    if info.supports_oauth and is_oauth_enabled_for(provider):
-        modes.append("oauth")
+    if info.supports_login and is_login_enabled_for(provider):
+        modes.append("login")
         if info.supports_device_auth:
             modes.append("device_auth")
     if info.supports_api_key:
@@ -177,14 +177,14 @@ def authenticate(
 ) -> None:
     """Run the auth flow for *provider*, host-wide by default.
 
-    When *project_name* is given, OAuth uses the project's L2 CLI image.
-    Credentials follow the project's configured scope. Without a project,
-    OAuth uses an L1 image that projects can share. Terok offers to build the
+    When *project_name* is given, the vendor login uses the project's L2 CLI
+    image. Credentials follow the project's configured scope. Without a
+    project, the login uses an L1 image that projects can share. Terok offers to build the
     L1 image if it does not exist.
 
     Image resolution is **deferred**: the executor only invokes the
-    resolver after the user has chosen the OAuth path from the
-    OAuth-vs-API-key prompt, so picking API key never triggers an L1
+    resolver after the user has chosen the login from the
+    login-vs-API-key prompt, so picking API key never triggers an L1
     build.
 
     Credential routing follows the named project's
@@ -207,7 +207,7 @@ def authenticate(
     from ..core.config import (
         is_claude_oauth_exposed,
         is_codex_oauth_exposed,
-        is_oauth_enabled_for,
+        is_login_enabled_for,
     )
 
     provider = resolve_auth_provider(provider)
@@ -227,7 +227,7 @@ def authenticate(
     mounts_dir, credential_set = resolve_credential_routing(project_name)
 
     # The roster declares which auth modes a provider supports; terok's
-    # config can disable the OAuth path (experimental flag + per-provider
+    # config can disable the login (experimental flag + per-provider
     # ``allow_oauth``).  The listing screen already filters on this; pass
     # the same gate into the executor's auth flow so the per-provider
     # prompt agrees.
@@ -236,7 +236,7 @@ def authenticate(
         mounts_dir=mounts_dir,
         image=image,
         expose_token=expose,
-        oauth_enabled=is_oauth_enabled_for(provider),
+        login_enabled=is_login_enabled_for(provider),
         credential_set=credential_set,
         device_auth=device_auth,
     )
@@ -256,12 +256,12 @@ def find_host_auth_image(provider: str) -> str | None:
     """Return an existing L1 image suitable for host-wide *provider* auth.
 
     Non-interactive: returns ``None`` when no matching L1 image exists
-    and the provider's OAuth path needs one.  TUI callers handle the
+    and the provider's login needs one.  TUI callers handle the
     missing-image case themselves (notify, push a build screen, etc.)
     rather than going through the CLI's interactive build prompt in
     ``_resolve_host_auth_image``.
 
-    For API-key-only providers (``supports_oauth`` is False), no
+    For API-key-only providers (``supports_login`` is False), no
     container will ever launch, so any L1 tag is fine — returns the
     default alias unconditionally.
     """
@@ -272,7 +272,7 @@ def find_host_auth_image(provider: str) -> str | None:
     )
 
     info = load_auth_providers().get(provider)
-    needs_container = info is not None and info.supports_oauth
+    needs_container = info is not None and info.supports_login
 
     base = ExecutorConfigView.image_base_image() or DEFAULT_BASE_IMAGE
     builder = ImageBuilder(base)

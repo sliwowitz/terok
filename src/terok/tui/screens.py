@@ -744,8 +744,8 @@ class ApiKeyEntryScreen(screen.ModalScreen[str | None]):
 
 
 _AUTH_MODE_LABELS = {
-    "oauth": "OAuth / interactive login (launches container)",
-    "device_auth": "OAuth — device code (headless: shows URL + code)",
+    "login": "Vendor login (launches container)",
+    "device_auth": "Vendor login — device code (headless: shows URL + code)",
     "api_key": "API key (paste key, no container needed)",
 }
 
@@ -754,10 +754,10 @@ class AuthModeScreen(screen.ModalScreen["str | None"]):
     """Modal for picking the login method when a provider offers more than one.
 
     Mirrors the executor CLI's ``Choose [1-N]:`` prompt but as a proper
-    Textual choice.  The offered methods — ``"oauth"``, its headless
+    Textual choice.  The offered methods — ``"login"``, its headless
     ``"device_auth"`` variant, and ``"api_key"`` — come from
     [`available_auth_modes`][terok.lib.domain.auth.available_auth_modes], so
-    the modal stays in lockstep with the CLI listing and the OAuth gate.
+    the modal stays in lockstep with the CLI listing and the login gate.
     Dismisses with the chosen mode id or ``None`` on cancel.
     """
 

@@ -952,7 +952,7 @@ def test_is_codex_oauth_not_proxied_when_exposed(
         "unknown-provider-open",
     ],
 )
-def test_is_oauth_enabled_for(
+def test_is_login_enabled_for(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     yaml_body: str,
@@ -961,7 +961,7 @@ def test_is_oauth_enabled_for(
 ) -> None:
     """Cross-provider OAuth gate honours the per-provider experimental config."""
     monkeypatch.setenv("TEROK_CONFIG_FILE", str(write_config(tmp_path, yaml_body)))
-    assert cfg.is_oauth_enabled_for(provider) is expected
+    assert cfg.is_login_enabled_for(provider) is expected
 
 
 def test_codex_expose_flag_blocks_vaulting_even_when_not_experimental(

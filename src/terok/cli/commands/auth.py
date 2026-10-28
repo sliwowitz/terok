@@ -29,7 +29,7 @@ from ._completers import complete_project_names as _complete_project_names, set_
 
 # Display labels for the mode ids returned by ``available_auth_modes`` — the
 # hyphenated forms read better in the listing than the internal identifiers.
-_MODE_LABELS = {"oauth": "oauth", "device_auth": "device-code", "api_key": "api-key"}
+_MODE_LABELS = {"login": "login", "device_auth": "device-code", "api_key": "api-key"}
 
 
 def _provider_of() -> dict[str, str]:
@@ -64,7 +64,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
             f"Available providers: {providers_help}\n\n"
             "Run without arguments to open an interactive provider menu. "
             "``terok auth <provider>`` stores credentials in the shared host scope. "
-            "Use ``--project <name>`` to select a project. OAuth uses the project image. "
+            "Use ``--project <name>`` to select a project. The vendor login uses the project image. "
             "If ``credentials.scope`` is ``project``, Terok stores the token in the "
             "project vault."
         ),
@@ -82,7 +82,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
             "--project",
             dest="project_flag",
             default=None,
-            help="Scope authentication with the OAuth image and project.yml credentials.scope",
+            help="Scope authentication with the project's login image and project.yml credentials.scope",
         ),
         _complete_project_names,
     )
@@ -117,7 +117,7 @@ def _run_one(provider: str, project_name: str | None, *, device_auth: bool = Fal
 
     *provider* may be an auth-entry name or an LLM-provider alias of one;
     ``authenticate`` resolves it. Project image validation is deferred until
-    an OAuth method launches a container, so API-key capture needs no image.
+    a vendor login launches a container, so API-key capture needs no image.
 
     With *device_auth* the method chooser is skipped and the provider's
     headless device-code login runs directly.
@@ -134,10 +134,10 @@ def _run_one(provider: str, project_name: str | None, *, device_auth: bool = Fal
             f"Note: {resolved} already has a stored credential — completing this flow replaces it.",
             file=sys.stderr,
         )
-    # Only OAuth uses an image. Do not show an image warning for API-key-only
+    # Only the vendor login uses an image. Do not show an image warning for API-key-only
     # endpoints. Host-wide image staleness is not yet detectable.
     if (
-        "oauth" in available_auth_modes(resolved)
+        "login" in available_auth_modes(resolved)
         and (warning := auth_image_staleness_warning(project_name)) is not None
     ):
         print(warning, file=sys.stderr)

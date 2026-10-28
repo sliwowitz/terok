@@ -1266,11 +1266,11 @@ class TestAuthFlow:
         return ProjectActionsMixin
 
     def _provider(
-        self, *, oauth: bool, api_key: bool, device: bool = False, label: str = "Claude"
+        self, *, login: bool, api_key: bool, device: bool = False, label: str = "Claude"
     ) -> SimpleNamespace:
         """A stand-in for an ``AuthProvider`` roster entry."""
         return SimpleNamespace(
-            supports_oauth=oauth,
+            supports_login=login,
             supports_api_key=api_key,
             supports_device_auth=device,
             label=label,
@@ -1282,12 +1282,12 @@ class TestAuthFlow:
         instance.notify = mock.Mock()
         instance.push_screen_wait = mock.AsyncMock()
         instance._auth_via_api_key = mock.AsyncMock()
-        instance._auth_via_oauth = mock.AsyncMock()
+        instance._auth_via_login = mock.AsyncMock()
         return instance
 
     @contextlib.contextmanager
-    def _roster(self, provider: str, info: SimpleNamespace, *, oauth_enabled: bool):
-        """Patch the provider roster and the OAuth gate for *provider*.
+    def _roster(self, provider: str, info: SimpleNamespace, *, login_enabled: bool):
+        """Patch the provider roster and the login gate for *provider*.
 
         The loader is patched in both places that read it: the membership
         check in ``_run_auth_flow_body`` and ``available_auth_modes``.
@@ -1295,7 +1295,7 @@ class TestAuthFlow:
         with (
             mock.patch("terok.lib.api.load_auth_providers", return_value={provider: info}),
             mock.patch("terok.lib.domain.auth.load_auth_providers", return_value={provider: info}),
-            mock.patch("terok.lib.core.config.is_oauth_enabled_for", return_value=oauth_enabled),
+            mock.patch("terok.lib.core.config.is_login_enabled_for", return_value=login_enabled),
         ):
             yield
 
@@ -1309,17 +1309,17 @@ class TestAuthFlow:
             run(mixin._run_auth_flow_body(instance, "nope", None))
         instance.notify.assert_called_once()
         instance._auth_via_api_key.assert_not_awaited()
-        instance._auth_via_oauth.assert_not_awaited()
+        instance._auth_via_login.assert_not_awaited()
 
-    def test_both_modes_prompts_then_oauth(self) -> None:
-        """Dual-mode provider: the mode screen's ``oauth`` pick routes to OAuth."""
+    def test_both_modes_prompts_then_login(self) -> None:
+        """Dual-mode provider: the mode screen's ``login`` pick routes to the login."""
         mixin = self._get_mixin()
         instance = self._instance(mixin)
-        instance.push_screen_wait.return_value = "oauth"
-        with self._roster("claude", self._provider(oauth=True, api_key=True), oauth_enabled=True):
+        instance.push_screen_wait.return_value = "login"
+        with self._roster("claude", self._provider(login=True, api_key=True), login_enabled=True):
             run(mixin._run_auth_flow_body(instance, "claude", "proj"))
         instance.push_screen_wait.assert_awaited_once()
-        instance._auth_via_oauth.assert_awaited_once_with(
+        instance._auth_via_login.assert_awaited_once_with(
             "claude", project_name="proj", device_auth=False
         )
         instance._auth_via_api_key.assert_not_awaited()
@@ -1329,20 +1329,20 @@ class TestAuthFlow:
         mixin = self._get_mixin()
         instance = self._instance(mixin)
         instance.push_screen_wait.return_value = "api_key"
-        with self._roster("claude", self._provider(oauth=True, api_key=True), oauth_enabled=True):
+        with self._roster("claude", self._provider(login=True, api_key=True), login_enabled=True):
             run(mixin._run_auth_flow_body(instance, "claude", None))
         instance._auth_via_api_key.assert_awaited_once_with("claude", project_name=None)
-        instance._auth_via_oauth.assert_not_awaited()
+        instance._auth_via_login.assert_not_awaited()
 
-    def test_device_code_pick_routes_to_oauth_with_flag(self) -> None:
-        """Picking ``device_auth`` runs the OAuth path with ``device_auth=True``."""
+    def test_device_code_pick_routes_to_login_with_flag(self) -> None:
+        """Picking ``device_auth`` runs the login with ``device_auth=True``."""
         mixin = self._get_mixin()
         instance = self._instance(mixin)
         instance.push_screen_wait.return_value = "device_auth"
-        info = self._provider(oauth=True, api_key=True, device=True, label="Codex")
-        with self._roster("codex", info, oauth_enabled=True):
+        info = self._provider(login=True, api_key=True, device=True, label="Codex")
+        with self._roster("codex", info, login_enabled=True):
             run(mixin._run_auth_flow_body(instance, "codex", None))
-        instance._auth_via_oauth.assert_awaited_once_with(
+        instance._auth_via_login.assert_awaited_once_with(
             "codex", project_name=None, device_auth=True
         )
         instance._auth_via_api_key.assert_not_awaited()
@@ -1352,19 +1352,19 @@ class TestAuthFlow:
         mixin = self._get_mixin()
         instance = self._instance(mixin)
         instance.push_screen_wait.return_value = None
-        with self._roster("claude", self._provider(oauth=True, api_key=True), oauth_enabled=True):
+        with self._roster("claude", self._provider(login=True, api_key=True), login_enabled=True):
             run(mixin._run_auth_flow_body(instance, "claude", None))
         instance._auth_via_api_key.assert_not_awaited()
-        instance._auth_via_oauth.assert_not_awaited()
+        instance._auth_via_login.assert_not_awaited()
 
-    def test_oauth_only_skips_mode_screen(self) -> None:
-        """An OAuth-only provider goes straight to OAuth — no mode prompt."""
+    def test_login_only_skips_mode_screen(self) -> None:
+        """A login-only provider goes straight to the login — no mode prompt."""
         mixin = self._get_mixin()
         instance = self._instance(mixin)
-        with self._roster("claude", self._provider(oauth=True, api_key=False), oauth_enabled=True):
+        with self._roster("claude", self._provider(login=True, api_key=False), login_enabled=True):
             run(mixin._run_auth_flow_body(instance, "claude", None))
         instance.push_screen_wait.assert_not_awaited()
-        instance._auth_via_oauth.assert_awaited_once_with(
+        instance._auth_via_login.assert_awaited_once_with(
             "claude", project_name=None, device_auth=False
         )
 
@@ -1372,30 +1372,30 @@ class TestAuthFlow:
         """An API-key-only provider goes straight to the key form — no mode prompt."""
         mixin = self._get_mixin()
         instance = self._instance(mixin)
-        info = self._provider(oauth=False, api_key=True, label="Blablador")
-        with self._roster("blablador", info, oauth_enabled=True):
+        info = self._provider(login=False, api_key=True, label="Blablador")
+        with self._roster("blablador", info, login_enabled=True):
             run(mixin._run_auth_flow_body(instance, "blablador", None))
         instance.push_screen_wait.assert_not_awaited()
         instance._auth_via_api_key.assert_awaited_once_with("blablador", project_name=None)
 
-    def test_oauth_gated_off_falls_back_to_api_key(self) -> None:
-        """A dual-mode provider with the OAuth gate closed uses API key, no prompt."""
+    def test_login_gated_off_falls_back_to_api_key(self) -> None:
+        """A dual-mode provider with the login gate closed uses API key, no prompt."""
         mixin = self._get_mixin()
         instance = self._instance(mixin)
-        with self._roster("claude", self._provider(oauth=True, api_key=True), oauth_enabled=False):
+        with self._roster("claude", self._provider(login=True, api_key=True), login_enabled=False):
             run(mixin._run_auth_flow_body(instance, "claude", None))
         instance.push_screen_wait.assert_not_awaited()
         instance._auth_via_api_key.assert_awaited_once_with("claude", project_name=None)
 
-    def test_oauth_only_but_gated_off_errors(self) -> None:
-        """OAuth-only provider with the gate closed has no usable mode — it errors."""
+    def test_login_only_but_gated_off_errors(self) -> None:
+        """Login-only provider with the gate closed has no usable mode — it errors."""
         mixin = self._get_mixin()
         instance = self._instance(mixin)
-        with self._roster("claude", self._provider(oauth=True, api_key=False), oauth_enabled=False):
+        with self._roster("claude", self._provider(login=True, api_key=False), login_enabled=False):
             run(mixin._run_auth_flow_body(instance, "claude", None))
         instance.notify.assert_called_once()
         assert instance.notify.call_args.kwargs.get("severity") == "error"
-        instance._auth_via_oauth.assert_not_awaited()
+        instance._auth_via_login.assert_not_awaited()
 
     # ---- _auth_via_api_key ----
 
@@ -1430,59 +1430,59 @@ class TestAuthFlow:
             run(mixin._auth_via_api_key(instance, "claude", project_name=None))
         assert instance.notify.call_args.kwargs.get("severity") == "error"
 
-    # ---- _auth_via_oauth ----
+    # ---- _auth_via_login ----
 
-    def test_oauth_host_wide_missing_image_warns(self) -> None:
-        """Host-wide OAuth with no L1 image present warns and never launches."""
+    def test_login_host_wide_missing_image_warns(self) -> None:
+        """Host-wide login with no L1 image present warns and never launches."""
         mixin = self._get_mixin()
         instance = mock.Mock(spec=mixin)
         instance.notify = mock.Mock()
-        instance._launch_oauth_container = mock.AsyncMock()
+        instance._launch_login_container = mock.AsyncMock()
         with mock.patch("terok.lib.api.find_host_auth_image", return_value=None):
-            run(mixin._auth_via_oauth(instance, "claude", project_name=None))
+            run(mixin._auth_via_login(instance, "claude", project_name=None))
         assert instance.notify.call_args.kwargs.get("severity") == "warning"
-        instance._launch_oauth_container.assert_not_awaited()
+        instance._launch_login_container.assert_not_awaited()
 
-    def test_oauth_host_wide_prepares_and_launches(self) -> None:
-        """Host-wide OAuth resolves the L1 image, prepares a session, launches it."""
+    def test_login_host_wide_prepares_and_launches(self) -> None:
+        """Host-wide login resolves the L1 image, prepares a session, launches it."""
         mixin = self._get_mixin()
         instance = mock.Mock(spec=mixin)
-        instance._launch_oauth_container = mock.AsyncMock()
+        instance._launch_login_container = mock.AsyncMock()
         session = mock.Mock()
         authenticator = mock.Mock()
-        authenticator.prepare_oauth.return_value = session
+        authenticator.prepare_login.return_value = session
         with (
             mock.patch("terok.lib.api.find_host_auth_image", return_value="terok-l1:test"),
             mock.patch("terok.lib.api.Authenticator", return_value=authenticator),
             mock.patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value=MOCK_BASE),
         ):
-            run(mixin._auth_via_oauth(instance, "claude", project_name=None))
-        authenticator.prepare_oauth.assert_called_once()
-        instance._launch_oauth_container.assert_awaited_once_with(session)
+            run(mixin._auth_via_login(instance, "claude", project_name=None))
+        authenticator.prepare_login.assert_called_once()
+        instance._launch_login_container.assert_awaited_once_with(session)
 
-    def test_oauth_device_auth_forwarded_to_prepare(self) -> None:
-        """``device_auth=True`` rides through to ``Authenticator.prepare_oauth``."""
+    def test_login_device_auth_forwarded_to_prepare(self) -> None:
+        """``device_auth=True`` rides through to ``Authenticator.prepare_login``."""
         mixin = self._get_mixin()
         instance = mock.Mock(spec=mixin)
-        instance._launch_oauth_container = mock.AsyncMock()
+        instance._launch_login_container = mock.AsyncMock()
         authenticator = mock.Mock()
-        authenticator.prepare_oauth.return_value = mock.Mock()
+        authenticator.prepare_login.return_value = mock.Mock()
         with (
             mock.patch("terok.lib.api.find_host_auth_image", return_value="terok-l1:test"),
             mock.patch("terok.lib.api.Authenticator", return_value=authenticator),
             mock.patch("terok.lib.core.config.sandbox_live_mounts_dir", return_value=MOCK_BASE),
         ):
-            run(mixin._auth_via_oauth(instance, "codex", project_name=None, device_auth=True))
-        assert authenticator.prepare_oauth.call_args.kwargs["device_auth"] is True
+            run(mixin._auth_via_login(instance, "codex", project_name=None, device_auth=True))
+        assert authenticator.prepare_login.call_args.kwargs["device_auth"] is True
 
-    def test_oauth_project_scoped_uses_project_image(self) -> None:
-        """Project-scoped OAuth reuses the project's CLI image, skips host resolution."""
+    def test_login_project_scoped_uses_project_image(self) -> None:
+        """Project-scoped login reuses the project's CLI image, skips host resolution."""
         mixin = self._get_mixin()
         instance = mock.Mock(spec=mixin)
-        instance._launch_oauth_container = mock.AsyncMock()
+        instance._launch_login_container = mock.AsyncMock()
         session = mock.Mock()
         authenticator = mock.Mock()
-        authenticator.prepare_oauth.return_value = session
+        authenticator.prepare_login.return_value = session
         with (
             mock.patch("terok.lib.core.images.project_cli_image", return_value="proj:img") as pci,
             mock.patch("terok.lib.api.find_host_auth_image") as find_host,
@@ -1491,12 +1491,12 @@ class TestAuthFlow:
                 "terok.lib.api.resolve_credential_routing", return_value=(MOCK_BASE, "myproj")
             ),
         ):
-            run(mixin._auth_via_oauth(instance, "claude", project_name="myproj"))
+            run(mixin._auth_via_login(instance, "claude", project_name="myproj"))
         pci.assert_called_once_with("myproj")
         find_host.assert_not_called()
-        # Per-project credential set reaches prepare_oauth.
-        assert authenticator.prepare_oauth.call_args.kwargs["credential_set"] == "myproj"
-        instance._launch_oauth_container.assert_awaited_once_with(session)
+        # Per-project credential set reaches prepare_login.
+        assert authenticator.prepare_login.call_args.kwargs["credential_set"] == "myproj"
+        instance._launch_login_container.assert_awaited_once_with(session)
 
     # ---- _capture_auth_session ----
 
