@@ -64,6 +64,7 @@ def test_setup_failure_during_start_never_recreates(tmp_path) -> None:
         patch.object(restart, "_validate_restart_preconditions"),
         patch.object(restart, "_validate_shield_bundle_version"),
         patch.object(restart, "_refresh_shield_tiers"),
+        patch.object(restart, "_refresh_clearance_mode"),
         patch.object(restart, "_start_and_report_restart", side_effect=fault),
         patch.object(restart, "_recreate_in_place") as recreate,
         pytest.raises(SetupRequiredError) as raised,

@@ -159,3 +159,63 @@ class TestAuditCredentials:
             task_mod._cmd_task_audit_credentials(
                 _PROJ, _TID, _ns(json_output=False, since="2026-01-01T00:00:00")
             )
+
+
+class TestMute:
+    """``task mute`` / ``task unmute``: the CLI counterpart of the TUI's ``m`` / ``M``."""
+
+    @pytest.mark.parametrize(("cmd", "muted"), [("mute", True), ("unmute", False)])
+    def test_routes_the_resolved_task_with_an_explicit_state(self, cmd: str, muted: bool) -> None:
+        """The resolved id, never the typed one, and the state the verb names."""
+        from terok.lib.api.clearance import MuteResult
+
+        args = _ns(task_cmd=cmd, project_name=_PROJ, task_id="swift")
+        with (
+            mock.patch.object(task_mod, "require_project_exists"),
+            mock.patch.object(task_mod, "resolve_task_id", return_value=_TID),
+            mock.patch(
+                "terok.lib.api.clearance.set_task_prompts_muted",
+                return_value=MuteResult(muted, "done"),
+            ) as set_muted,
+        ):
+            assert task_mod._dispatch_task_sub(args) is True
+        set_muted.assert_called_once_with(_PROJ, _TID, muted=muted)
+
+    def test_a_landed_mute_prints_the_notice(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from terok.lib.api.clearance import MuteResult
+
+        notice = MuteResult(True, "Muted task — refusals are still enforced and logged")
+        with mock.patch("terok.lib.api.clearance.set_task_prompts_muted", return_value=notice):
+            task_mod._cmd_task_mute(_PROJ, _TID, muted=True)
+        assert capsys.readouterr().out.strip() == notice.message
+
+    def test_a_warning_goes_to_stderr_and_succeeds(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Nothing failed — the task started with clearance off — so the exit is clean."""
+        from terok.lib.api.clearance import MuteResult
+
+        warning = MuteResult(None, "started with clearance off", "warning")
+        with mock.patch("terok.lib.api.clearance.set_task_prompts_muted", return_value=warning):
+            task_mod._cmd_task_mute(_PROJ, _TID, muted=True)
+        assert capsys.readouterr().err.strip() == "Warning: started with clearance off"
+
+    def test_a_hub_that_did_not_answer_exits_1(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from terok.lib.api.clearance import MuteResult
+
+        error = MuteResult(None, "its clearance hub did not answer", "error")
+        with (
+            mock.patch("terok.lib.api.clearance.set_task_prompts_muted", return_value=error),
+            pytest.raises(SystemExit) as exc,
+        ):
+            task_mod._cmd_task_mute(_PROJ, _TID, muted=False)
+        assert exc.value.code == 1
+        assert "Error: its clearance hub did not answer" in capsys.readouterr().err
+
+    def test_the_verbs_are_registered(self) -> None:
+        """Both parse with the usual project/task positionals."""
+        root = argparse.ArgumentParser()
+        task_mod.register(root.add_subparsers(dest="cmd"))
+        for cmd in ("mute", "unmute"):
+            args = root.parse_args(["task", cmd, _PROJ, _TID])
+            assert (args.task_cmd, args.project_name, args.task_id) == (cmd, _PROJ, _TID)

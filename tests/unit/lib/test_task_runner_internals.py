@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 import pytest
 from terok_executor import BuildError
@@ -219,6 +219,132 @@ class TestApplyShieldPolicy:
         ):
             _apply_shield_policy(project, "ctr", tmp_path, is_restart=False)
         assert capsys.readouterr().err == ""
+
+    @pytest.mark.parametrize(
+        ("down", "is_restart", "desired", "posture_name"),
+        [
+            pytest.param(True, False, None, "DOWN", id="created-down"),
+            pytest.param(False, False, None, "UP", id="created-up"),
+            pytest.param(True, True, "disengaged", "DISENGAGED", id="restored-disengaged"),
+            pytest.param(True, True, "up", "UP", id="restored-up"),
+        ],
+    )
+    def test_names_the_pinned_hosts_for_the_posture_it_left(
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        down: bool,
+        is_restart: bool,
+        desired: str | None,
+        posture_name: str,
+    ) -> None:
+        """The degraded-tier warning names the pinned hosts, worded for the posture just applied.
+
+        Shield logs and audits them, which a CLI user never sees; the launch
+        and restart print them on stderr like ``terok shield up`` does —
+        all of them UP, the deny line DOWN, nothing DISENGAGED.
+        """
+        from terok.lib.api import DnsTier
+        from terok.lib.api.shield import ShieldState
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
+
+        if desired is not None:
+            (tmp_path / "shield_desired_state").write_text(f"{desired}\n")
+        project = self._make_project(down=down, on_restart="retain")
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_disable_firewall_no_protection",
+                return_value=False,
+            ),
+            patch("terok.lib.orchestration.task_runners.shield.ShieldManager") as manager_cls,
+            patch(
+                "terok.lib.orchestration.task_runners.shield.resolve_container_uuid",
+                return_value="cafef00d",
+            ),
+        ):
+            manager = manager_cls.return_value
+            manager.dns_tier = DnsTier.LOOKUP
+            manager.rotation_risk.lines.return_value = ["Security: pinned deny line"]
+            _apply_shield_policy(project, "ctr", tmp_path, is_restart=is_restart)
+
+        manager.rotation_risk.lines.assert_called_once_with(ShieldState[posture_name])
+        err = capsys.readouterr().err
+        assert "lookup (degraded)" in err
+        assert "Security: pinned deny line" in err
+
+    def test_a_failed_down_names_the_pinned_hosts_in_launch_wording(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A transition that failed leaves the posture unknown: the launch wording covers both."""
+        from terok.lib.api import DnsTier
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
+
+        project = self._make_project(down=True)
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_disable_firewall_no_protection",
+                return_value=False,
+            ),
+            patch("terok.lib.orchestration.task_runners.shield.ShieldManager") as manager_cls,
+            patch(
+                "terok.lib.orchestration.task_runners.shield.resolve_container_uuid",
+                return_value="cafef00d",
+            ),
+        ):
+            manager = manager_cls.return_value
+            manager.down.side_effect = RuntimeError("nft missing")
+            manager.dns_tier = DnsTier.GETENT
+            manager.rotation_risk.lines.return_value = ["DNS tier getent pins 1 allowlisted name"]
+            with pytest.warns(match="shield down"):
+                _apply_shield_policy(project, "ctr", tmp_path, is_restart=False)
+
+        manager.rotation_risk.lines.assert_called_once_with(None)
+        assert "DNS tier getent pins 1 allowlisted name" in capsys.readouterr().err
+
+    def test_pinned_overrides_are_named_on_the_live_tier_too(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Break-glass names are pinned on every tier, so they print without a tier line."""
+        from terok.lib.api import DnsTier
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
+
+        project = self._make_project(down=False)
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_disable_firewall_no_protection",
+                return_value=False,
+            ),
+            patch("terok.lib.orchestration.task_runners.shield.ShieldManager") as manager_cls,
+        ):
+            manager = manager_cls.return_value
+            manager.dns_tier = DnsTier.DNSMASQ_LIVE
+            manager.rotation_risk.lines.return_value = ["Break-glass override name is pinned"]
+            _apply_shield_policy(project, "ctr", tmp_path, is_restart=False)
+
+        assert capsys.readouterr().err == "Break-glass override name is pinned\n"
+
+    def test_an_unreadable_rotation_risk_leaves_the_launch_alone(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Advisory only: a bundle that cannot be read costs the warning, never the launch."""
+        from terok.lib.api import DnsTier
+        from terok.lib.orchestration.task_runners.shield import _apply_shield_policy
+
+        project = self._make_project(down=False)
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.shield.get_shield_disable_firewall_no_protection",
+                return_value=False,
+            ),
+            patch("terok.lib.orchestration.task_runners.shield.ShieldManager") as manager_cls,
+        ):
+            manager = manager_cls.return_value
+            manager.dns_tier = DnsTier.LOOKUP
+            # Each mock has its own class, so this property is this manager's alone.
+            type(manager).rotation_risk = PropertyMock(side_effect=OSError("unreadable bundle"))
+            _apply_shield_policy(project, "ctr", tmp_path, is_restart=False)
+
+        assert "lookup (degraded)" in capsys.readouterr().err
 
     def test_skips_when_firewall_disabled(self) -> None:
         """No-op when the shield kill-switch is set globally."""
@@ -461,14 +587,20 @@ def _tier_project(**overrides: object) -> SimpleNamespace:
 
 
 def test_compose_shield_tiers_authors_t40_and_t10() -> None:
-    """t40 = git host + custom allow; t10 = active overrides (expired dropped)."""
+    """t40 = git host + custom allow; t10 = every override, each carrying its expiry.
+
+    Decision C: the expiry is shield's to enforce — a kernel timeout on the t10
+    element — so an expiring override goes out as ``<host> %expires=<date>``.
+    One already past its date goes out too: shield leaves it out of the tier
+    and records it as ``override_expired``.  No expiry, no marker.
+    """
     from datetime import date, timedelta
 
     from terok.lib.core.project_model import ShieldOverride
     from terok.lib.orchestration.task_runners.container import _compose_shield_tiers
 
-    future = (date.today() + timedelta(days=1)).isoformat()
-    past = (date.today() - timedelta(days=1)).isoformat()
+    future = date.today() + timedelta(days=1)
+    past = date.today() - timedelta(days=1)
     project = _tier_project(
         upstream_url="https://github.com/foo/bar.git",
         shield_allow=("pypi.org",),
@@ -482,7 +614,72 @@ def test_compose_shield_tiers_authors_t40_and_t10() -> None:
     project_allow, override = _compose_shield_tiers(project)
 
     assert project_allow == ("github.com", "pypi.org")  # git remote host + custom allow
-    assert override == ("api.debug.example", "api.active.example")  # expired dropped
+    assert override == (
+        "api.debug.example",
+        f"api.active.example %expires={future.isoformat()}",
+        f"api.expired.example %expires={past.isoformat()}",
+    )
+
+
+def test_compose_shield_tiers_keeps_one_line_per_override_host() -> None:
+    """A host listed twice, in any case, keeps its first place and its longer-lived expiry.
+
+    No expiry outlives every date.
+    """
+    from datetime import date, timedelta
+
+    from terok.lib.core.project_model import ShieldOverride
+    from terok.lib.orchestration.task_runners.container import _compose_shield_tiers
+
+    soon, later = date.today() + timedelta(days=1), date.today() + timedelta(days=9)
+    project = _tier_project(
+        shield_override=(
+            ShieldOverride(host="a.example", reason="r", expires=soon),
+            ShieldOverride(host="b.example", reason="r", expires=later),
+            ShieldOverride(host="a.example", reason="r", expires=later),
+            ShieldOverride(host="b.example", reason="r", expires=soon),
+            ShieldOverride(host="c.example", reason="r"),
+            ShieldOverride(host="c.example", reason="r", expires=later),
+            ShieldOverride(host="D.example", reason="r", expires=soon),
+            ShieldOverride(host="d.example", reason="r", expires=later),
+        ),
+    )
+
+    _, override = _compose_shield_tiers(project)
+
+    assert override == (
+        f"a.example %expires={later.isoformat()}",
+        f"b.example %expires={later.isoformat()}",
+        "c.example",
+        f"d.example %expires={later.isoformat()}",  # one host, however it is spelled
+    )
+
+
+def test_an_override_line_is_shield_policy_grammar() -> None:
+    """Drift guard: shield's own parser reads terok's line as the host valid through the date.
+
+    Shield parses each t10 line as ``+<line>``; the deadline it derives must
+    be the local midnight that ends the expiry day.
+    """
+    from datetime import date, datetime, time, timedelta
+
+    from terok_shield.policy import EXPIRES_MARKER, entry_deadline, parse_policy
+
+    from terok.lib.core.project_model import ShieldOverride
+    from terok.lib.orchestration.task_runners.container import _compose_shield_tiers
+
+    expires = date.today() + timedelta(days=3)
+    project = _tier_project(
+        shield_override=(ShieldOverride(host="api.vendor.example", reason="r", expires=expires),)
+    )
+    (line,) = _compose_shield_tiers(project)[1]
+
+    (entry,) = parse_policy(f"+{line}")
+
+    assert entry.target == "api.vendor.example"
+    assert entry.meta == {EXPIRES_MARKER: expires.isoformat()}
+    end_of_day = datetime.combine(expires + timedelta(days=1), time.min).astimezone()
+    assert entry_deadline(entry) == end_of_day
 
 
 def test_compose_shield_tiers_empty_without_upstream() -> None:
@@ -643,6 +840,32 @@ class TestRefreshShieldTiers:
             override=(),
         )
 
+    def test_refresh_carries_override_expiry_for_the_kernel(self, tmp_path: Path) -> None:
+        """A restart hands shield the same ``%expires`` lines a launch does (decision C)."""
+        from datetime import date, timedelta
+
+        from terok.lib.core.project_model import ShieldOverride
+        from terok.lib.orchestration.task_runners.shield import _refresh_shield_tiers
+
+        (tmp_path / "shield").mkdir()
+        until = date.today() + timedelta(days=2)
+        project = self._project()
+        project.shield_override = (ShieldOverride(host="api.x.example", reason="r", expires=until),)
+        with (
+            patch(
+                "terok.lib.orchestration.task_runners.shield."
+                "get_shield_disable_firewall_no_protection",
+                return_value=False,
+            ),
+            patch("terok.lib.integrations.executor.AgentRoster"),
+            patch("terok.lib.core.config.exposed_credential_providers", return_value=frozenset()),
+            patch("terok.lib.orchestration.task_runners.container._sandbox") as sandbox,
+        ):
+            _refresh_shield_tiers(project, "ctr", tmp_path)
+
+        kwargs = sandbox.return_value.shield_refresh.call_args.kwargs
+        assert kwargs["override"] == (f"api.x.example %expires={until.isoformat()}",)
+
     def test_refresh_skips_unshielded_task(self, tmp_path: Path) -> None:
         """No shield state under the task dir (e.g. created under bypass) → no-op."""
         from terok.lib.orchestration.task_runners.shield import _refresh_shield_tiers
@@ -671,6 +894,49 @@ class TestRefreshShieldTiers:
             project = self._project()
             with pytest.raises(SystemExit, match="Shield policy refresh failed"):
                 _refresh_shield_tiers(project, "ctr", tmp_path)
+
+
+# ── _refresh_clearance_mode ───────────────────────────────
+
+
+class TestRefreshClearanceMode:
+    """The resume rung's sidecar rewrite of ``services.clearance``."""
+
+    def _project(self, clearance: str = "off") -> SimpleNamespace:
+        """A project double resolved to *clearance*."""
+        return SimpleNamespace(clearance=clearance)
+
+    def test_refresh_hands_the_resolved_mode_to_sandbox(self) -> None:
+        """The project's resolved mode — not the creation-time one — reaches the sidecar."""
+        from terok.lib.orchestration.task_runners.restart import _refresh_clearance_mode
+
+        with patch("terok.lib.orchestration.task_runners.restart._sandbox") as sandbox:
+            _refresh_clearance_mode(self._project("mute"), "ctr")
+
+        sandbox.return_value.clearance_refresh.assert_called_once_with("ctr", clearance="mute")
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            pytest.param(FileNotFoundError("no sidecar"), id="missing-sidecar"),
+            pytest.param(PermissionError("not ours"), id="foreign-sidecar"),
+            pytest.param(ValueError("not a JSON object"), id="malformed-sidecar"),
+        ],
+    )
+    def test_a_sidecar_that_cannot_be_rewritten_warns_and_lets_the_restart_go_on(
+        self, failure: Exception, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The shield refuses either way, so the change is lost, not the restart."""
+        from terok.lib.orchestration.task_runners.restart import _refresh_clearance_mode
+
+        with patch("terok.lib.orchestration.task_runners.restart._sandbox") as sandbox:
+            sandbox.return_value.clearance_refresh.side_effect = failure
+            _refresh_clearance_mode(self._project("off"), "ctr")
+
+        err = capsys.readouterr().err
+        assert "services.clearance 'off'" in err
+        assert str(failure) in err
+        assert "--recreate" in err
 
 
 # ── _run_container ────────────────────────────────────────
@@ -734,6 +1000,36 @@ class TestRunContainer:
         assert spec.task_dir == MOCK_TASK_DIR
         assert spec.gpus is None
         assert spec.unrestricted is False  # FOO doesn't have TEROK_UNRESTRICTED
+
+    def test_launch_carries_override_expiry_for_the_kernel(self) -> None:
+        """A launch hands shield ``<host> %expires=<date>`` for an expiring override (decision C)."""
+        from datetime import date, timedelta
+
+        from terok.lib.core.project_model import ShieldOverride
+
+        until = date.today() + timedelta(days=2)
+        project = self._make_project()
+        project.shield_override = (
+            ShieldOverride(host="api.x.example", reason="r", expires=until),
+            ShieldOverride(host="api.y.example", reason="r"),
+        )
+        with patch(
+            "terok.lib.orchestration.task_runners.container._agent_runner"
+        ) as sandbox_factory:
+            _run_container(
+                task_id="t1",
+                cname="test-ctr",
+                image="alpine:latest",
+                env={},
+                volumes=[],
+                project=project,
+                task_dir=MOCK_TASK_DIR,
+            )
+        kwargs = sandbox_factory.return_value.launch_prepared.call_args.kwargs
+        assert kwargs["override"] == (
+            f"api.x.example %expires={until.isoformat()}",
+            "api.y.example",
+        )
 
     def test_allow_debugger_forwarded_to_launch_prepared(self) -> None:
         """``allow_debugger`` reaches ``launch_prepared``; default is False."""

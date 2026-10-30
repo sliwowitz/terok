@@ -297,6 +297,17 @@ def register(
         help="Detach after starting (don't stream output)",
     )
 
+    t_mute = tsub.add_parser(
+        "mute",
+        help="Stop putting a running task's refused connections to you "
+        "(they stay refused and logged; lasts until the task next starts)",
+    )
+    _add_project_task_args(t_mute)
+    t_unmute = tsub.add_parser(
+        "unmute", help="Put a running task's refused connections to you again"
+    )
+    _add_project_task_args(t_unmute)
+
     t_rename = tsub.add_parser("rename", help="Rename a task")
     _add_project_task_args(t_rename)
     t_rename.add_argument("name", help="New task name (slug-style, e.g. fix-auth-bug)")
@@ -701,6 +712,8 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
             args.prompt,
             follow=not getattr(args, "no_follow", False),
         )
+    elif args.task_cmd in ("mute", "unmute"):
+        _cmd_task_mute(pid, tid, muted=args.task_cmd == "mute")
     elif args.task_cmd == "rename":
         task_rename(pid, tid, args.name)
     elif args.task_cmd == "status":
@@ -732,6 +745,27 @@ def _dispatch_task_sub(args: argparse.Namespace) -> bool:
     else:
         return False
     return True
+
+
+def _cmd_task_mute(project_name: str, task_id: str, *, muted: bool) -> None:
+    """Mute or unmute a task's clearance prompts, worded as the TUI's ``m`` / ``M`` are.
+
+    The task's own hub is told, by the short id the shield recorded; the
+    result says what it holds now.  A warning — the task never started, it
+    started with clearance off, or a mute left audit off — goes to stderr and
+    exits 0: nothing failed.  An error — the hub did not answer, or kept the
+    other state — exits 1.
+    """
+    from ...lib.api.clearance import set_task_prompts_muted
+
+    result = set_task_prompts_muted(project_name, task_id, muted=muted)
+    if result.severity == "information":
+        print(result.message)
+        return
+    label = "Error" if result.severity == "error" else "Warning"
+    print(f"{label}: {result.message}", file=sys.stderr)
+    if result.severity == "error":
+        raise SystemExit(1)
 
 
 def _dispatch_archive_sub(args: argparse.Namespace) -> bool:

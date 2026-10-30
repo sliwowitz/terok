@@ -138,7 +138,7 @@ def test_check_shield_surfaces_apparmor_advisory_on_lower_tier() -> None:
     )
     with patch("terok.cli.commands.sickbay.check_environment", return_value=mock_ec):
         status, _label, detail = _check_shield()
-    assert status == "ok"
+    assert status == "warn"
     assert "AppArmor" in detail
     assert "docs/apparmor.md" in detail
     assert "dnsmasq with nftset" not in detail
@@ -153,7 +153,7 @@ def test_check_shield_tier_hint_without_reported_reason() -> None:
     )
     with patch("terok.cli.commands.sickbay.check_environment", return_value=mock_ec):
         status, _label, detail = _check_shield()
-    assert status == "ok"
+    assert status == "warn"
     assert DnsTier.LOOKUP.hint in detail
 
 

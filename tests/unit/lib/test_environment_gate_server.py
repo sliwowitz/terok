@@ -279,8 +279,9 @@ def test_check_project_credentials_present_shared_is_noop() -> None:
     with mock_git_config(), project_env(_ONLINE_YAML, project_name="online-proj"):
         project = load_project("online-proj")
         # Even with an empty vault, shared-scope projects must not raise —
-        # the agent prompts for login on first turn (existing behaviour).
-        # The DB lookup is also short-circuited (no point asking).
+        # the host-wide bucket may be filled later, and the launch only warns
+        # (in-container login is no fallback: the firewall keeps the provider
+        # hosts for the vault).  The DB lookup is also short-circuited.
         with patch(
             "terok.lib.integrations.executor.list_authenticated_agents", return_value=[]
         ) as mock_list:

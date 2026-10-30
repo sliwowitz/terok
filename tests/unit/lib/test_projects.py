@@ -95,6 +95,43 @@ def test_aslr_control_reaches_sandbox(
         assert make_sandbox_config().aslr_control is bool(global_value)
 
 
+@pytest.mark.parametrize("global_value", [None, "prompt", "mute", "off"])
+@pytest.mark.parametrize("project_value", [None, "prompt", "mute", "off"])
+def test_clearance_resolves_project_then_global_then_prompt(
+    tmp_path: Path,
+    global_value: str | None,
+    project_value: str | None,
+) -> None:
+    """``services.clearance``: the project's value, else the global one, else ``prompt``.
+
+    Whatever wins rides on the sandbox config, which is where the launch
+    writes it into the container's sidecar.
+    """
+    global_config = tmp_path / "config.yml"
+    global_config.write_text(
+        "" if global_value is None else f"services:\n  clearance: '{global_value}'\n"
+    )
+    yaml = project_yaml("clearance-test")
+    if project_value is not None:
+        yaml += f"services:\n  clearance: '{project_value}'\n"
+    with project_env(
+        yaml, project_name="clearance-test", extra_env={"TEROK_CONFIG_FILE": str(global_config)}
+    ):
+        project = load_project("clearance-test")
+        expected = project_value or global_value or "prompt"
+        assert project.clearance == expected
+        assert make_sandbox_config(project).clearance == expected
+        assert make_sandbox_config().clearance == (global_value or "prompt")
+
+
+def test_an_unknown_project_clearance_fails_the_load_naming_the_key() -> None:
+    """The project is the operator's to fix: no mode is guessed for a typo."""
+    yaml = project_yaml("bad-clearance") + "services:\n  clearance: Mute\n"
+    with project_env(yaml, project_name="bad-clearance"):
+        with pytest.raises(SystemExit, match="services → clearance"):
+            load_project("bad-clearance")
+
+
 class TestProject:
     """Tests for project loading/listing."""
 

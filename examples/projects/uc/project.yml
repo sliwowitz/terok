@@ -31,20 +31,30 @@ run:
   # Configure under image.base_image accordingly.
   # gpus: all
 
+# Per-container services for this project's tasks.
+# services:
+#   # Who is asked about a connection the shield refused: prompt (the default,
+#   # inherited from config.yml), mute (tasks start muted; unmute a running one)
+#   # or off (no clearance hub at all).  Refusals stay enforced either way.
+#   # A change applies at each task's next start, a restart included.
+#   clearance: mute
+
 # Egress firewall (shield) per-project policy.
 # shield:
-#   # Curated egress sets granted to this project's tasks (t40 allow tier).
-#   # `recommended` grants every curated set, including ones added in future
-#   # releases; unset or [] grants none.  List the available names with
-#   # `terok shield sets`, or freeze a selection such as
-#   # [git-hosting, python, os-packages].
+#   # Egress sets granted to this project's tasks (t40 allow tier).
+#   # `recommended` grants every built-in set, including ones added in future
+#   # releases; unset or [] grants none.  Your own sets are files under
+#   # ~/.config/terok/egress-sets/<name>.txt (one host per line), granted by
+#   # naming them here.  List the available names with `terok shield sets`,
+#   # or freeze a selection such as [git-hosting, python, os-packages].
 #   sets: [recommended]
 #   # Extra hosts allowed while the shield is up (below the security-deny).
 #   allow:
 #     - ftp.mirror.example.org
 #   # Break-glass overrides ABOVE the security-deny — host, IP, or CIDR (a
-#   # range is logged as a warning), mandatory reason, optional expiry
-#   # (evaluated at each container (re)start).
+#   # range is logged as a warning), mandatory reason, optional expiry (valid
+#   # through that day; the kernel ends it then, on a running task too).
+#   # `terok shield promote` writes these from what a task was refused.
 #   override:
 #     - host: api.example.org
 #       reason: direct endpoint testing

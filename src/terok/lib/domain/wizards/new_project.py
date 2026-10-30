@@ -148,7 +148,7 @@ def detect_gpu_choices() -> tuple[GpuDeviceChoice, ...]:
     try:
         vendors = detect_gpu_vendors()
         addresses = gpu_device_addresses()
-    except Exception:  # noqa: BLE001 — detection is decorative, never fatal
+    except Exception:  # noqa: BLE001 — detection is decorative and never fatal
         return ()
     choices: list[GpuDeviceChoice] = []
     for vendor in ("nvidia", "amd", "intel"):

@@ -8,11 +8,22 @@ elsewhere in terok import from this module rather than from
 ``terok_sandbox`` directly — see the package docstring in
 [`terok.lib.integrations`][terok.lib.integrations] for the rationale.
 
-Every symbol comes from the wheel's top-level public API.  Pure re-export
+Every symbol comes from the wheel's top-level public API, save the few the
+lazy map takes from a submodule because sandbox does not promote them yet
+(``kill_all_supervisors``, ``load_sidecar``).  Pure re-export
 boundary — no shim functions, no kwarg massaging.  Shield's high-level
 surface is the [`ShieldManager`][terok_sandbox.ShieldManager] /
 [`ShieldHooks`][terok_sandbox.ShieldHooks] class pair; shield's command
 registry has its own adapter, ``terok.lib.integrations.shield``.
+
+The manager's operator-facing values travel with it: what an allow or a
+break-glass did (``AllowResult``, ``OverrideRevocation``, and the
+``SecurityTierRefusal`` an allow of a security-tier host raises), what a
+task reached for (``HarvestReport`` of ``HarvestEntry`` rows, classified by
+the ``TIER_*`` standing and ``REMEDY_*`` remedies), what the live ruleset
+reads (``ShieldReading`` of a ``ShieldState``), what a degraded DNS tier pins
+(``RotationRisk``), and shield's own target grammar (``validate_target``).
+``ClearanceMode`` is the ``services.clearance`` vocabulary sandbox owns.
 
 Foundation-layer symbols (``ConfigStack`` / ``ConfigScope`` /
 ``deep_merge``, ``namespace_state_dir`` / ``namespace_runtime_dir``)
@@ -37,12 +48,24 @@ if TYPE_CHECKING:
         EXIT_MANUAL_STEP_NEEDED as EXIT_MANUAL_STEP_NEEDED,
         GIT_HTTP_BACKEND_HINT as GIT_HTTP_BACKEND_HINT,
         PUSH_MARKER_FILENAME as PUSH_MARKER_FILENAME,
+        REMEDY_HOST_PORT as REMEDY_HOST_PORT,
+        REMEDY_OVERRIDE as REMEDY_OVERRIDE,
+        REMEDY_PROJECT as REMEDY_PROJECT,
+        REMEDY_SET as REMEDY_SET,
+        REMEDY_TASK as REMEDY_TASK,
         SERVICES_TCP_OPTOUT_YAML as SERVICES_TCP_OPTOUT_YAML,
         SETUP_COMPONENTS as SETUP_COMPONENTS,
+        TIER_ALLOWLIST as TIER_ALLOWLIST,
+        TIER_HARD_DENY as TIER_HARD_DENY,
+        TIER_OPERATOR_DENY as TIER_OPERATOR_DENY,
+        TIER_PRIVATE as TIER_PRIVATE,
+        TIER_SECURITY as TIER_SECURITY,
+        AllowResult as AllowResult,
         AppliedOp as AppliedOp,
         ApplyPendingResult as ApplyPendingResult,
         BackupRef as BackupRef,
         CheckVerdict as CheckVerdict,
+        ClearanceMode as ClearanceMode,
         ContainerRuntime as ContainerRuntime,
         CredentialDB as CredentialDB,
         DnsTier as DnsTier,
@@ -53,11 +76,14 @@ if TYPE_CHECKING:
         GateStalenessInfo as GateStalenessInfo,
         GateSyncResult as GateSyncResult,
         GitGate as GitGate,
+        HarvestEntry as HarvestEntry,
+        HarvestReport as HarvestReport,
         Image as Image,
         KrunRuntime as KrunRuntime,
         LifecycleHooks as LifecycleHooks,
         NoPassphraseError as NoPassphraseError,
         NullRuntime as NullRuntime,
+        OverrideRevocation as OverrideRevocation,
         PassphraseChangeResult as PassphraseChangeResult,
         PassphraseTier as PassphraseTier,
         PendingOp as PendingOp,
@@ -67,8 +93,10 @@ if TYPE_CHECKING:
         RawSSHSection as RawSSHSection,
         RecoveryStatus as RecoveryStatus,
         RestoreBackupResult as RestoreBackupResult,
+        RotationRisk as RotationRisk,
         Sandbox as Sandbox,
         SandboxConfig as SandboxConfig,
+        SecurityTierRefusal as SecurityTierRefusal,
         SelinuxStatus as SelinuxStatus,
         ServicesMode as ServicesMode,
         SessionProvisionResult as SessionProvisionResult,
@@ -76,7 +104,9 @@ if TYPE_CHECKING:
         ShieldAnnotations as ShieldAnnotations,
         ShieldHooks as ShieldHooks,
         ShieldManager as ShieldManager,
+        ShieldReading as ShieldReading,
         ShieldSetupError as ShieldSetupError,
+        ShieldState as ShieldState,
         SSHInitResult as SSHInitResult,
         SSHKeyRow as SSHKeyRow,
         SSHManager as SSHManager,
@@ -129,6 +159,7 @@ if TYPE_CHECKING:
         systemd_creds_available as systemd_creds_available,
         systemd_creds_has_tpm2 as systemd_creds_has_tpm2,
         validate_passthrough_args as validate_passthrough_args,
+        validate_target as validate_target,
         yaml_update_section as yaml_update_section,
         yellow as yellow,
     )
@@ -136,10 +167,31 @@ if TYPE_CHECKING:
     from terok_sandbox.supervisor.install import (
         kill_all_supervisors as kill_all_supervisors,
     )
+    from terok_sandbox.supervisor.sidecar import load_sidecar as load_sidecar
 
 #: Public name -> defining module (PEP 562 lazy resolution).
 _LAZY: dict[str, str] = {
     "AppliedOp": "terok_sandbox",
+    "AllowResult": "terok_sandbox",
+    "ClearanceMode": "terok_sandbox",
+    "HarvestEntry": "terok_sandbox",
+    "HarvestReport": "terok_sandbox",
+    "OverrideRevocation": "terok_sandbox",
+    "REMEDY_HOST_PORT": "terok_sandbox",
+    "REMEDY_OVERRIDE": "terok_sandbox",
+    "REMEDY_PROJECT": "terok_sandbox",
+    "REMEDY_SET": "terok_sandbox",
+    "REMEDY_TASK": "terok_sandbox",
+    "RotationRisk": "terok_sandbox",
+    "SecurityTierRefusal": "terok_sandbox",
+    "ShieldReading": "terok_sandbox",
+    "ShieldState": "terok_sandbox",
+    "TIER_ALLOWLIST": "terok_sandbox",
+    "TIER_HARD_DENY": "terok_sandbox",
+    "TIER_OPERATOR_DENY": "terok_sandbox",
+    "TIER_PRIVATE": "terok_sandbox",
+    "TIER_SECURITY": "terok_sandbox",
+    "validate_target": "terok_sandbox",
     "ApplyPendingResult": "terok_sandbox",
     "BackupRef": "terok_sandbox",
     "CheckVerdict": "terok_sandbox",
@@ -218,6 +270,10 @@ _LAZY: dict[str, str] = {
     "is_ssh_url": "terok_sandbox",
     "desktop_keyring_backend_available": "terok_sandbox",
     "kill_all_supervisors": "terok_sandbox.supervisor.install",
+    # Reached past the top level, like ``kill_all_supervisors``: sandbox has no
+    # public reader for the mode a container last started under, which its
+    # sidecar records.  Promote it in sandbox, then point this line there.
+    "load_sidecar": "terok_sandbox.supervisor.sidecar",
     "make_stray_sidecar_check": "terok_sandbox",
     "mint_gate_token": "terok_sandbox",
     "normalize_gpus": "terok_sandbox",
@@ -248,6 +304,26 @@ _LAZY: dict[str, str] = {
 
 __all__ = [
     "AppliedOp",
+    "AllowResult",
+    "ClearanceMode",
+    "HarvestEntry",
+    "HarvestReport",
+    "OverrideRevocation",
+    "REMEDY_HOST_PORT",
+    "REMEDY_OVERRIDE",
+    "REMEDY_PROJECT",
+    "REMEDY_SET",
+    "REMEDY_TASK",
+    "RotationRisk",
+    "SecurityTierRefusal",
+    "ShieldReading",
+    "ShieldState",
+    "TIER_ALLOWLIST",
+    "TIER_HARD_DENY",
+    "TIER_OPERATOR_DENY",
+    "TIER_PRIVATE",
+    "TIER_SECURITY",
+    "validate_target",
     "ApplyPendingResult",
     "BackupRef",
     "CheckVerdict",
@@ -326,6 +402,7 @@ __all__ = [
     "is_ssh_url",
     "desktop_keyring_backend_available",
     "kill_all_supervisors",
+    "load_sidecar",
     "make_stray_sidecar_check",
     "mint_gate_token",
     "normalize_gpus",

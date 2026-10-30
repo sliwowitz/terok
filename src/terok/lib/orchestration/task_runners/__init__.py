@@ -37,7 +37,10 @@ from .restart import (  # noqa: F401 — re-exported public API
     ensure_task_running,
     task_restart,
 )
-from .shield import resolve_container_uuid  # noqa: F401 — re-exported public API
+from .shield import (  # noqa: F401 — re-exported public API
+    resolve_container_uuid,
+    task_shield_manager,
+)
 from .toad import task_run_toad  # noqa: F401 — re-exported public API
 
 __all__ = [
@@ -50,4 +53,5 @@ __all__ = [
     "task_run_cli",
     "task_run_headless",
     "task_run_toad",
+    "task_shield_manager",
 ]

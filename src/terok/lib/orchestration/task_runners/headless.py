@@ -50,6 +50,7 @@ from ..tasks import (
 )
 from .config import _apply_unrestricted_env, _str_to_bool
 from .container import _assert_running, _podman_start, _run_container
+from .restart import _refresh_before_resume
 from .shield import _apply_shield_policy
 
 #: Agent-config volume filename holding the current follow-up prompt.
@@ -368,8 +369,10 @@ def task_followup_headless(
     Replaces prompt.txt with the new prompt (so the agent only sees the
     current instruction) and archives the previous content to
     ``prompt-history.txt``.  Restarts the stopped container via
-    ``podman start``.  Session context is
-    automatically restored for providers that support it:
+    ``podman start`` — after refreshing its shield tiers and clearance mode
+    from the current config, as a plain restart does, so the follow-up runs
+    under today's policy rather than the one frozen at creation.  Session
+    context is automatically restored for providers that support it:
 
     - **Claude**: resumes via ``--resume <session-id>`` (captured by a
       ``SessionStart`` hook that writes ``claude-session.txt``).
@@ -429,6 +432,11 @@ def task_followup_headless(
         )
 
     task_dir = project.tasks_root / str(task_id)
+    # The start below replays the container's creation-time shield bundle and
+    # sidecar unless they are refreshed first — today's tiers (an override
+    # shortened or removed since), today's clearance mode.  Before the prompt
+    # is handed over, so a refusal here leaves the task as it was.
+    _refresh_before_resume(project, cname, task_dir)
     _inject_followup_prompt(
         is_sealed=project.is_sealed,
         cname=cname,

@@ -589,6 +589,11 @@ terok task stop myproj v9krt
 terok task restart myproj v9krt             # Resume as-is; warns if the image drifted
 terok task restart myproj v9krt --recreate  # Recreate to pick up a rebuilt image
 
+# Stop (or resume) asking about a running task's refused connections —
+# they stay refused and logged; the mute lasts until the task next starts
+terok task mute myproj v9krt
+terok task unmute myproj v9krt
+
 # Delete a task
 terok task delete myproj v9krt
 
@@ -761,6 +766,22 @@ Two consequences follow from this:
 Run `terok sickbay <project> <task>` to see a per-task auth report.
 Missing phantom env vars show up as warnings ("not set") and flag exactly
 which providers were unauthenticated when the container was created.
+
+**In-container login is no fallback.**  The egress firewall keeps every
+vault-relayed provider host (for Claude, `api.anthropic.com` and
+`platform.claude.com`) for the vault, so an agent started without a stored
+credential cannot log in from inside the task.  The agent's wrapper refuses
+up front, naming the `terok auth` command; the launch prints the same
+warning on the host when the project's default agent has no credential in
+the task; and `terok sickbay` reports it as the *Agent credentials* row
+before any task is started.  A Claude OAuth login stored while OAuth routing
+was on (`experimental: true` plus `agent.claude.allow_oauth: true`) is not
+used by `claude` once routing is off.  The launch says so on the host, and
+a bare `claude` refuses up front with the same cause — the provider's vault
+handle stays in place for the task's other agents, so the task carries a
+claude-only signal for it.  `claude --provider anthropic` still reaches the
+model through the vault.  Store an API key with `terok auth claude`, or turn
+routing back on.
 
 ### Vault passphrase backend
 
@@ -1592,6 +1613,13 @@ launch:
 - **Where credentials live:** `~/.local/share/terok/vault` (or `/var/lib/terok/vault` if root; override with `credentials.dir` in config.yml or `TEROK_VAULT_DIR`)
 - **Shared directories:** See [shared-dirs.md](shared-dirs.md)
 - **Security modes:** See [git-gate-and-security-modes.md](git-gate-and-security-modes.md)
+- **A task cannot reach a host:** `terok shield promote <project> <task>`
+  reviews what the egress firewall refused (or, under `shield down`, would
+  have) and moves what the task needed into policy — see
+  [Promoting What a Task Needed](shield-security.md#promoting-what-a-task-needed)
+- **Too many Allow/Deny prompts:** `services.clearance: mute` (or `off`), per
+  project or in `config.yml`, stops asking while the firewall keeps refusing
+  — see [Muting the Prompts](shield-security.md#muting-the-prompts-not-the-shield)
 - **Copying text from the terminal:** TUI and tmux can intercept mouse
   events, preventing normal text selection from reaching the clipboard.
   Hold **Shift** while selecting, then **Shift+Ctrl+C** to copy.

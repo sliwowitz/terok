@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 import shlex
-from datetime import date
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,32 +48,78 @@ from ..tasks import dossier_path, tasks_meta_dir
 if TYPE_CHECKING:
     from terok.lib.integrations.sandbox import ContainerRuntime
 
-    from ...core.project_model import ProjectConfig
+    from ...core.project_model import ProjectConfig, ShieldOverride
 
 
 _NO_EGRESS = EgressProjection()
 """No roster projection — the launch paths that author no t20/t30 tier."""
 
 
+_EXPIRES_MARKER = "%expires="
+"""Shield's policy marker for the day a t10 override stops being valid.
+
+Its grammar (``terok_shield.policy``): a date keeps the entry valid *through*
+that day, until the host's local midnight that ends it."""
+
+
 def _compose_shield_tiers(project: ProjectConfig) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Author the project's t40 (project-allow) + t10 (override) shield tiers.
 
     t40 = the upstream git host (so the agent can reach its own remote once
-    the shield is UP), the project's curated egress sets (``shield.sets``,
-    none unless the project selects them; ``os-packages`` resolves by the
-    image's package family), and its custom ``shield.allow`` hosts.  t10 =
-    the project's break-glass ``shield.override`` hosts, dropping any whose
-    ``expires`` date is in the past.  Both are de-duplicated, order-preserving.
+    the shield is UP), the project's egress sets (``shield.sets`` — built-in
+    sets and the operator's own, none unless the project selects them;
+    ``os-packages`` resolves by the image's package family), and its custom
+    ``shield.allow`` hosts, de-duplicated and order-preserving.  t10 = the
+    project's break-glass ``shield.override`` entries, one line per host, each
+    carrying its expiry for shield to enforce (``_override_lines``).
     """
     allow: list[str] = []
     if project.upstream_url and (host := git_remote_host(project.upstream_url)):
         allow.append(host)
     allow.extend(resolve_egress_sets(project.shield_sets, project.known_family))
     allow.extend(project.shield_allow)
+    return tuple(dict.fromkeys(allow)), _override_lines(project.shield_override)
 
-    today = date.today()
-    override = [o.host for o in project.shield_override if not (o.expires and o.expires < today)]
-    return tuple(dict.fromkeys(allow)), tuple(dict.fromkeys(override))
+
+def _override_lines(overrides: Iterable[ShieldOverride]) -> tuple[str, ...]:
+    """The t10 lines handed to shield: one per host, each carrying its expiry.
+
+    An entry with an ``expires`` date goes out as ``<host> %expires=<date>``,
+    so the expiry is shield's to enforce, and shield enforces it in the
+    kernel: the t10 element carries a timeout that runs out at the end of
+    that day, host local time, on a task that keeps running past it — not
+    only when the task next starts.  An entry already past its date goes out
+    too: shield leaves it out of the tier and records it as
+    ``override_expired``, so a break-glass that lapsed while the task was
+    stopped says why it is gone.  An entry without ``expires`` holds until
+    it is removed, as it always has.
+
+    A host listed twice keeps its first position and the longer-lived of
+    its expiries (none outlives any date): two lines for one host would ask
+    the kernel for one element with two timeouts.  Host names compare
+    case-insensitively, as DNS and terok's own override writer do.
+    """
+    kept: dict[str, ShieldOverride] = {}
+    for override in overrides:
+        host = override.host.lower()
+        current = kept.get(host)
+        if current is None or _outlives(override, current):
+            kept[host] = override  # a dict keeps the first insertion's position
+    return tuple(_override_line(override) for override in kept.values())
+
+
+def _outlives(candidate: ShieldOverride, current: ShieldOverride) -> bool:
+    """Whether *candidate* stays valid longer than *current* — no expiry outlives every date."""
+    if current.expires is None:
+        return False
+    return candidate.expires is None or candidate.expires > current.expires
+
+
+def _override_line(override: ShieldOverride) -> str:
+    """One override as shield's t10 line: the host, plus its ``%expires`` marker when it has one."""
+    if override.expires is None:
+        return override.host
+    return f"{override.host} {_EXPIRES_MARKER}{override.expires.isoformat()}"
 
 
 def _podman_start(project: ProjectConfig, cname: str) -> None:
@@ -160,7 +206,7 @@ def _maybe_warn_recovery_unconfirmed(color: bool) -> None:
 
     try:
         status = RecoveryStatus.load()
-    except Exception:  # noqa: BLE001 — best-effort hint, never the source of truth
+    except Exception:  # noqa: BLE001 — a best-effort hint and never the source of truth
         return
     if status.acknowledged:
         return

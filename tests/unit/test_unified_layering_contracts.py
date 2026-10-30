@@ -50,6 +50,7 @@ import pytest
 # does read it.
 _TEROK_PROMISED_FIELDS: tuple[str, ...] = (
     "services_mode",
+    "clearance",
     "shield_audit",
     "gate_port",
     "token_broker_port",
@@ -73,12 +74,13 @@ def test_config_equality_contract(tmp_path: Path) -> None:
     matches what
     [`SandboxConfig`][terok_sandbox.SandboxConfig] would have read
     standalone for the fields sandbox/executor own in `config.yml`.
-    Tests `services.mode` and `shield.audit` — representative
-    sandbox-owned schema knobs (`shield_disabled` is excluded above).
+    Tests `services.mode`, `services.clearance` and `shield.audit` —
+    representative sandbox-owned schema knobs (`shield_disabled` is
+    excluded above).
     """
     cfg_path = _write_user_config(
         tmp_path,
-        "services:\n  mode: tcp\nshield:\n  audit: false\n",
+        "services:\n  mode: tcp\n  clearance: mute\nshield:\n  audit: false\n",
     )
 
     with patch.dict(os.environ, {"TEROK_CONFIG_FILE": str(cfg_path)}, clear=False):
@@ -117,7 +119,7 @@ def test_show_config_observable(tmp_path: Path) -> None:
     pytest.importorskip("ruamel.yaml")
     from ruamel.yaml import YAML
 
-    cfg_path = _write_user_config(tmp_path, "services:\n  mode: tcp\n")
+    cfg_path = _write_user_config(tmp_path, "services:\n  mode: tcp\n  clearance: mute\n")
     env = {**os.environ, "TEROK_CONFIG_FILE": str(cfg_path)}
 
     standalone_out = subprocess.run(

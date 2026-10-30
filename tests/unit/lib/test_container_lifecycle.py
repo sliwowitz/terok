@@ -831,3 +831,40 @@ def test_task_restart_resume_refreshes_shield_tiers() -> None:
         assert cname_arg == container_name
         assert task_dir_arg == project_arg.tasks_root / str(task_id)
         container.start.assert_called_once()
+
+
+def test_task_restart_resume_rewrites_the_clearance_mode_before_starting() -> None:
+    """A plain restart applies today's ``services.clearance`` through the sidecar.
+
+    The sidecar is the only way the mode reaches the supervisor, and every
+    start re-reads it — so the resume rung rewrites it, beside the shield
+    tier refresh, before the container is stopped or started.
+    """
+    project_name = "proj_resume_clearance"
+    yaml_text = project_config(project_name) + "services:\n  clearance: mute\n"
+    with project_env(yaml_text, project_name=project_name) as ctx:
+        task_id = create_task_with_mode(ctx, project_name)
+        container_name = f"{project_name}-cli-{task_id}"
+
+        order: list[str] = []
+        container = _mock_container(state="running")
+        container.login_command.return_value = ["podman", "exec", "-it", container_name, "bash"]
+        container.stop.side_effect = lambda **_kw: order.append("stop")
+        container.start.side_effect = lambda: setattr(container, "state", "running")
+        runtime_mock = _mock_runtime(container)
+        with (
+            mock_git_config(),
+            patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
+            patch("terok.lib.orchestration.task_runners.restart._refresh_shield_tiers"),
+            patch(
+                "terok.lib.integrations.sandbox.Sandbox.clearance_refresh",
+                autospec=True,
+                side_effect=lambda _self, *_a, **_kw: order.append("clearance"),
+            ) as refresh,
+        ):
+            capture_stdout(task_restart, project_name, task_id)
+
+        refresh.assert_called_once()
+        assert refresh.call_args.args[1] == container_name
+        assert refresh.call_args.kwargs == {"clearance": "mute"}
+        assert order[:2] == ["clearance", "stop"]

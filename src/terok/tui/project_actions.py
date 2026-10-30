@@ -1373,7 +1373,7 @@ class ProjectActionsMixin(_MixinBase):
 
             if ExecutorConfigView.image_agents():
                 return
-        except Exception:  # noqa: BLE001 — advisory probe, must not surface
+        except Exception:  # noqa: BLE001 — an advisory probe that must not surface
             return
         self.notify(
             "Tip: no default agents are configured.  "

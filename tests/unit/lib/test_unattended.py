@@ -570,6 +570,79 @@ class TestTaskFollowupHeadless:
             result.run_mock.assert_called_once()
             mock_runtime.container.assert_any_call(f"proj_start-run-{task_id}")
 
+    def test_followup_refreshes_the_bundle_and_sidecar_before_starting(self, mock_runtime) -> None:
+        """The follow-up start applies today's shield tiers and clearance mode, as a restart does.
+
+        ``podman start`` replays the creation-time bundle and sidecar: an
+        override shortened or removed since, or a project switched to
+        ``services.clearance: off``, would otherwise be replayed.  The refresh
+        runs before the prompt is handed over, so a refusal leaves the task
+        as it was.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            task_id = self._create_completed_task(base, "proj_refresh")
+            order: list[str] = []
+            container = mock_runtime.container.return_value
+            container.start.side_effect = lambda: order.append("start")
+            restart_mod = "terok.lib.orchestration.task_runners.restart"
+            with (
+                unittest.mock.patch(
+                    f"{restart_mod}._validate_shield_bundle_version",
+                    side_effect=lambda _c: order.append("version"),
+                ) as gate,
+                unittest.mock.patch(
+                    f"{restart_mod}._refresh_shield_tiers",
+                    side_effect=lambda *_a: order.append("tiers"),
+                ) as tiers,
+                unittest.mock.patch(
+                    f"{restart_mod}._refresh_clearance_mode",
+                    side_effect=lambda *_a: order.append("clearance"),
+                ) as clearance,
+                unittest.mock.patch(
+                    "terok.lib.orchestration.task_runners.headless._inject_followup_prompt",
+                    side_effect=lambda **_kw: order.append("prompt"),
+                ),
+            ):
+                run_followup_request(
+                    base,
+                    "proj_refresh",
+                    task_id,
+                    "continue",
+                    container_state=["exited", "running"],
+                    follow=False,
+                )
+
+            cname = f"proj_refresh-run-{task_id}"
+            gate.assert_called_once_with(cname)
+            project, tier_cname, task_dir = tiers.call_args.args
+            assert tier_cname == cname
+            assert task_dir == project.tasks_root / task_id
+            assert clearance.call_args.args[1] == cname
+            assert order == ["version", "tiers", "clearance", "prompt", "start"]
+
+    def test_followup_refused_by_the_bundle_gate_leaves_the_prompt_alone(
+        self, mock_runtime
+    ) -> None:
+        """A stale bundle fails the follow-up before anything is written or started."""
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            task_id = self._create_completed_task(base, "proj_stale")
+            with (
+                unittest.mock.patch(
+                    "terok.lib.orchestration.task_runners.restart._validate_shield_bundle_version",
+                    side_effect=SystemExit("carries shield bundle v1"),
+                ),
+                pytest.raises(SystemExit, match="shield bundle"),
+            ):
+                run_followup_request(
+                    base, "proj_stale", task_id, "continue", container_state="exited"
+                )
+
+            agent_cfg, _meta_path = task_paths(base, "proj_stale", task_id)
+            assert (agent_cfg / "prompt.txt").read_text() == "initial prompt"
+            mock_runtime.container.return_value.start.assert_not_called()
+
     def test_followup_rejects_non_run_mode(self) -> None:
         """Follow-up rejects tasks that aren't headless (mode != 'run')."""
         with tempfile.TemporaryDirectory() as td:

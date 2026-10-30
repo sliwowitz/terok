@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ...core.project_model import is_valid_project_name
@@ -105,6 +106,23 @@ class TaskMeta(TaskState):
     """The DNS tier this task launched with, or ``None`` when not yet known.
     Populated at runtime by the TUI's shield-state worker, never persisted — like
     [`shield_state`][terok.lib.orchestration.tasks.query.TaskMeta.shield_state]."""
+    bypass_closes_at: datetime | None = None
+    """When the task's open bypass window closes, by the local wall clock;
+    ``None`` when none is open.  The kernel counts the window down and keeps
+    no deadline anywhere else, so the TUI's shield-state worker reads the
+    seconds left once and anchors them here — the task pane then counts down
+    without asking the kernel again.  Runtime-only, like ``shield_state``."""
+    prompts: str | None = None
+    """Whether a refusal in this task is put to the operator: ``asking``,
+    ``muted``, ``off`` (it started with clearance off and runs no hub), or
+    ``unknown`` (its clearance hub did not say).  ``None`` when not read — the
+    task is not running, so no hub holds a mute.  Runtime-only, like
+    ``shield_state``."""
+    rotation_lines: tuple[str, ...] = ()
+    """The degraded-DNS-tier warning for the task — the policy names its tier
+    pins to the addresses they resolved to — worded for the posture it was
+    read in; empty when nothing is at risk.  Runtime-only, like
+    ``shield_state``."""
     created_at: str | None = None
 
     @property

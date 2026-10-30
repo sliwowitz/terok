@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unittest.mock
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from terok_sandbox import SelinuxCheckResult, SelinuxStatus
@@ -421,7 +422,11 @@ class TestCheckVault:
 
 
 class TestCheckShieldDnsTier:
-    """Shield row carries an install hint when not on the top DNS tier."""
+    """Shield row warns, with an install hint, when not on the top DNS tier.
+
+    A degraded tier pins allowlisted names to the addresses they resolved to,
+    so it is a warning rather than a pass.
+    """
 
     def _patch(self, dns_tier: str) -> unittest.mock._patch[unittest.mock.MagicMock]:
         """Patch ``check_environment`` so it returns a healthy shield on *dns_tier*."""
@@ -447,7 +452,7 @@ class TestCheckShieldDnsTier:
 
         with self._patch(DnsTier.LOOKUP.value):
             sev, _, detail = _check_shield()
-        assert sev == "ok"
+        assert sev == "warn"
         assert DnsTier.LOOKUP.hint in detail
 
     def test_getent_tier_carries_hint(self) -> None:
@@ -457,8 +462,17 @@ class TestCheckShieldDnsTier:
 
         with self._patch(DnsTier.GETENT.value):
             sev, _, detail = _check_shield()
-        assert sev == "ok"
+        assert sev == "warn"
         assert DnsTier.GETENT.hint in detail
+
+    def test_static_dnsmasq_tier_warns_too(self) -> None:
+        """dnsmasq without nftset still resolves names once: not live, so a warning."""
+        from terok.cli.commands.sickbay import _check_shield
+        from terok.lib.api import DnsTier
+
+        with self._patch(DnsTier.DNSMASQ_STATIC.value):
+            sev, _, _detail = _check_shield()
+        assert sev == "warn"
 
 
 class TestCheckSelinuxPolicy:
@@ -957,6 +971,219 @@ class TestCheckShieldAnnotations:
         # Only the named task, not the globbed pair
         assert mock_check.call_count == 1
         assert mock_check.call_args.args[1] == "g1abc"
+
+
+class TestCheckAgentCredentials:
+    """terok#1273: sickbay names a default agent that cannot authenticate before a task does."""
+
+    _ENTRIES = {
+        "claude": SimpleNamespace(credential_provider="anthropic"),
+        "codex": None,
+        "openrouter": None,
+    }
+    """Auth entries the roster offers — ``opencode`` is deliberately absent."""
+
+    _ALIASES = {"anthropic": "claude", "openai": "codex", "mistral": "vibe"}
+    """Provider name -> the auth entry that authenticates it, as the roster derives them.
+
+    None of these providers is an auth entry itself, so a check that skipped
+    the resolution would find nothing to check for them and report ``ok``."""
+
+    def _project(self, name: str, **fields: object) -> object:
+        """A shared-scope project defaulting to claude with no provider override."""
+        from types import SimpleNamespace
+
+        values: dict[str, object] = {
+            "name": name,
+            "default_agent": None,
+            "default_provider": None,
+            "credentials_scope": "shared",
+        }
+        values.update(fields)
+        return SimpleNamespace(**values)
+
+    def _run(
+        self,
+        projects: list[object],
+        authed: dict[str | None, frozenset[str] | None],
+        *,
+        global_agent: str | None = None,
+        credential_types: dict[str, str] | None = None,
+    ) -> tuple[str, str, str]:
+        """Run the check against *projects*, with *authed* entries per credential routing."""
+        from terok.cli.commands.sickbay import _check_agent_credentials
+
+        with (
+            unittest.mock.patch(
+                "terok.cli.commands.sickbay.load_vault_status",
+                return_value=SimpleNamespace(credential_types=credential_types or {}),
+            ),
+            unittest.mock.patch(
+                "terok.lib.core.projects.discover_projects", return_value=(projects, [])
+            ),
+            unittest.mock.patch(
+                "terok.lib.api.agents.load_auth_providers", return_value=self._ENTRIES
+            ),
+            unittest.mock.patch(
+                "terok.lib.api.agents.authenticated_entries",
+                side_effect=lambda scope=None: authed[scope],
+            ),
+            # The real resolver, over a fixed alias map: the row must resolve
+            # a provider alias to the entry that stores its credential.
+            unittest.mock.patch(
+                "terok.lib.domain.auth.auth_provider_aliases", return_value=self._ALIASES
+            ),
+            unittest.mock.patch(
+                "terok.lib.core.config.get_global_default_agent", return_value=global_agent
+            ),
+        ):
+            return _check_agent_credentials()
+
+    def test_ok_when_every_default_agent_is_authenticated(self) -> None:
+        """A stored credential for each project's default agent is a clean row."""
+        sev, label, _detail = self._run([self._project("alpha")], {None: frozenset({"claude"})})
+        assert (sev, label) == ("ok", "Agent credentials")
+
+    def test_an_unrouted_claude_login_is_not_a_usable_credential(self) -> None:
+        """A stored OAuth login nothing routes to claude warns, naming both remedies."""
+        sev, _label, detail = self._run(
+            [self._project("alpha")],
+            {None: frozenset({"claude"})},
+            credential_types={"anthropic": "oauth"},
+        )
+        assert sev == "warn"
+        assert "allow_oauth" in detail
+        assert "terok auth claude" in detail
+
+    def test_an_unrouted_claude_login_is_ignored_when_no_default_launch_needs_claude(self) -> None:
+        """A claude OAuth login in the vault is no news to a fleet whose default agent is codex."""
+        sev, _label, _detail = self._run(
+            [self._project("alpha", default_agent="codex")],
+            {None: frozenset({"codex"})},
+            credential_types={"anthropic": "oauth"},
+        )
+        assert sev == "ok"
+
+    @pytest.mark.parametrize("routing", ["is_claude_oauth_proxied", "is_claude_oauth_exposed"])
+    def test_a_routed_claude_login_is_ok(self, routing: str) -> None:
+        """Proxied or exposed, the login reaches claude: nothing to warn about."""
+        with unittest.mock.patch(f"terok.lib.core.config.{routing}", return_value=True):
+            sev, _label, _detail = self._run(
+                [self._project("alpha")],
+                {None: frozenset({"claude"})},
+                credential_types={"anthropic": "oauth"},
+            )
+        assert sev == "ok"
+
+    def test_a_claude_api_key_needs_no_routing(self) -> None:
+        """An API key rides the vault whatever the OAuth settings say."""
+        sev, _label, _detail = self._run(
+            [self._project("alpha")],
+            {None: frozenset({"claude"})},
+            credential_types={"anthropic": "api_key"},
+        )
+        assert sev == "ok"
+
+    def test_warn_names_the_agent_and_the_command(self) -> None:
+        """A fresh install with nothing stored warns, naming ``terok auth claude``."""
+        sev, _label, detail = self._run([self._project("alpha")], {None: frozenset()})
+        assert sev == "warn"
+        assert "no stored credential: claude" in detail
+        assert "terok auth claude" in detail
+        assert "egress firewall" in detail
+
+    def test_shared_projects_share_one_finding(self) -> None:
+        """Every shared-scope project reads the host-wide bucket: one gap, named once."""
+        projects = [self._project("alpha"), self._project("beta")]
+        sev, _label, detail = self._run(projects, {None: frozenset()})
+        assert sev == "warn"
+        assert detail.count("claude") == 2  # the finding and the command, nothing per project
+
+    def test_without_projects_the_global_default_is_checked(self) -> None:
+        """Before any project exists, the global default agent is what a task would run."""
+        sev, _label, detail = self._run([], {None: frozenset()}, global_agent="codex")
+        assert sev == "warn"
+        assert "terok auth codex" in detail
+
+    def test_project_scope_reads_its_own_bucket(self) -> None:
+        """``credentials.scope: project`` is checked against the project's own set."""
+        projects = [self._project("iso", credentials_scope="project")]
+        sev, _label, detail = self._run(projects, {None: frozenset({"claude"}), "iso": frozenset()})
+        assert sev == "warn"
+        assert "terok auth claude --project iso" in detail
+
+    def test_a_default_provider_is_what_needs_the_credential(self) -> None:
+        """A project routing claude through openrouter needs openrouter's credential."""
+        projects = [self._project("alpha", default_provider="openrouter")]
+        sev, _label, detail = self._run(projects, {None: frozenset({"claude"})})
+        assert sev == "warn"
+        assert "terok auth openrouter" in detail
+
+    @pytest.mark.parametrize(
+        ("provider", "entry"),
+        [
+            pytest.param("openai", "codex", id="openai-via-codex"),
+            pytest.param("anthropic", "claude", id="anthropic-via-claude"),
+        ],
+    )
+    def test_a_default_provider_alias_needs_its_entrys_credential(
+        self, provider: str, entry: str
+    ) -> None:
+        """``default_provider: openai`` is stored by ``terok auth codex`` — no ``openai`` entry exists.
+
+        Checked under the provider's own name, the row would find no auth
+        entry, skip the project, and report ``ok`` for a task that cannot
+        authenticate.
+        """
+        projects = [self._project("alpha", default_provider=provider)]
+        sev, _label, detail = self._run(projects, {None: frozenset()})
+        assert sev == "warn"
+        assert f"no stored credential: {entry}" in detail
+        assert f"terok auth {entry}" in detail
+
+    def test_a_default_provider_alias_with_its_credential_stored_is_ok(self) -> None:
+        """The alias's entry holding a credential is a clean row."""
+        projects = [self._project("alpha", default_provider="openai")]
+        sev, _label, _detail = self._run(projects, {None: frozenset({"codex"})})
+        assert sev == "ok"
+
+    def test_agents_without_an_auth_entry_are_skipped(self) -> None:
+        """A harness that picks its provider at run time has nothing to check up front."""
+        projects = [self._project("alpha", default_agent="opencode")]
+        sev, _label, _detail = self._run(projects, {None: frozenset()})
+        assert sev == "ok"
+
+    def test_an_unreadable_vault_is_unknown(self) -> None:
+        """The vault row already says why it cannot be read; this one stays informational."""
+        sev, _label, detail = self._run([self._project("alpha")], {None: None})
+        assert sev == "info"
+        assert "unknown" in detail
+
+    def test_many_missing_agents_are_counted_not_listed(self) -> None:
+        """A long fleet stays one readable line: a few names, then a count."""
+        projects = [self._project(f"p{i}", credentials_scope="project") for i in range(5)]
+        sev, _label, detail = self._run(projects, {f"p{i}": frozenset() for i in range(5)})
+        assert sev == "warn"
+        assert "claude (project p2)" in detail
+        assert "claude (project p3)" not in detail
+        assert "2 more" in detail
+
+    def test_a_failing_probe_warns_instead_of_crashing(self) -> None:
+        """Sickbay never dies on a probe."""
+        from terok.cli.commands.sickbay import _check_agent_credentials
+
+        with unittest.mock.patch(
+            "terok.lib.core.projects.discover_projects", side_effect=RuntimeError("boom")
+        ):
+            sev, _label, detail = _check_agent_credentials()
+        assert sev == "warn"
+        assert "boom" in detail
+
+    def test_registered_as_a_global_check(self) -> None:
+        """The row runs with the host-wide checks, under the label it reports."""
+        from terok.cli.commands.sickbay import _GLOBAL_CHECKS, _check_agent_credentials
+
+        assert ("Agent credentials", _check_agent_credentials) in _GLOBAL_CHECKS
 
 
 class TestCheckDefaultAgents:

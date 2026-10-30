@@ -8,6 +8,7 @@ import contextlib
 import inspect
 import sys
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 
@@ -620,6 +621,20 @@ class TestScreenConstruction:
         write_mock.assert_not_called()
         screen.notify.assert_not_called()
 
+    def test_project_details_sets_modal_refusal_is_a_notice_not_a_crash(self) -> None:
+        """A user set that broke since the picker read it fails the write — and says so."""
+        screens, _ = import_screens()
+        project = make_project(name="proj1", shield_sets=("python",))
+        screen = screens.ProjectDetailsScreen(project=project, state=None, task_count=0)
+        screen.notify = mock.Mock()
+        refusal = SystemExit("Invalid user egress set 'corp': line 1: not a host")
+        with mock.patch("terok.lib.api.set_project_shield_sets", side_effect=refusal):
+            screen._on_shield_sets_modal_result(("python", "corp"))
+        screen.notify.assert_called_once()
+        call = screen.notify.call_args
+        assert "corp" in call.args[0] and call.kwargs["severity"] == "error"
+        assert screen._project is project  # the cached selection stays what is on disk
+
     def test_task_details_screen_construction(self) -> None:
         screens, widgets = import_screens()
         task = make_task(widgets, task_id="7", backend="codex")
@@ -915,6 +930,85 @@ class TestProjectReselection:
         proj_widget.select_project.assert_called_once_with(expected)
 
 
+class TestTaskPaneShieldLines:
+    """The task pane's shield block: the open window, the prompts, the pinned names."""
+
+    _NOW = datetime(2026, 10, 27, 14, 27, 11)
+    """A fixed clock the countdown reads against."""
+
+    def _render(self, **overrides: object) -> str:
+        widgets = import_widgets()
+        overrides.setdefault("shield_state", "UP")
+        task = make_task(widgets, task_id="99", **overrides)
+        return str(widgets.render_task_details(task, project_name="proj1", now=self._NOW))
+
+    def test_an_open_window_counts_down_to_its_close_time(self) -> None:
+        """The close time by the clock, the time left, and what the window does."""
+        closes = self._NOW + timedelta(minutes=4, seconds=59)
+        rendered = self._render(bypass_closes_at=closes)
+
+        assert_rendered_needles(
+            rendered,
+            ["Bypass:", "open until 14:32:10", "(4m 59s left)", "accepted and logged"],
+            [],
+        )
+
+    def test_the_last_minute_counts_in_seconds(self) -> None:
+        """Under a minute the countdown drops the minutes."""
+        rendered = self._render(bypass_closes_at=self._NOW + timedelta(seconds=42))
+
+        assert "(42s left)" in rendered
+
+    @pytest.mark.parametrize(
+        ("overrides"),
+        [
+            pytest.param({"bypass_closes_at": None}, id="none-open"),
+            pytest.param({"bypass_closes_at": _NOW - timedelta(seconds=1)}, id="already-closed"),
+            pytest.param(
+                {"shield_state": "DOWN", "bypass_closes_at": _NOW + timedelta(minutes=1)},
+                id="not-up",
+            ),
+        ],
+    )
+    def test_no_bypass_line_without_an_open_window_in_up(
+        self, overrides: dict[str, object]
+    ) -> None:
+        """Only UP reads the window; a closed one is not shown open."""
+        assert "Bypass:" not in self._render(**overrides)
+
+    @pytest.mark.parametrize(
+        ("prompts", "needles"),
+        [
+            pytest.param("asking", ["Prompts:   asking"], id="asking"),
+            pytest.param(
+                "muted", ["Prompts:   muted", "still enforced, but nobody is asked"], id="muted"
+            ),
+            pytest.param("off", ["Prompts:   clearance off", "services.clearance: off"], id="off"),
+            pytest.param("unknown", ["Prompts:   unknown", "did not say"], id="unknown"),
+        ],
+    )
+    def test_the_prompts_line_says_who_is_asked(self, prompts: str, needles: list[str]) -> None:
+        """Muted and unknown say what they mean; nothing reads as asking unless it is."""
+        assert_rendered_needles(self._render(prompts=prompts), needles, [])
+
+    def test_no_prompts_line_while_nothing_was_read(self) -> None:
+        """A stopped task has no hub, so no line rather than a guess."""
+        assert "Prompts:" not in self._render()
+
+    def test_pinned_names_render_under_a_label_on_any_tier(self) -> None:
+        """Break-glass names are pinned on the live tier too, so no DNS line is needed."""
+        from terok.lib.api import DnsTier
+
+        rendered = self._render(
+            dns_tier=DnsTier.DNSMASQ_LIVE,
+            rotation_lines=("Break-glass override name is pinned", "Security: the deny holds"),
+        )
+
+        assert "DNS:" not in rendered
+        assert "Pinned:    Break-glass override name is pinned" in rendered
+        assert "           Security: the deny holds" in rendered
+
+
 class TestTaskMenuShieldOptions:
     """The task menu names what each accept posture still blocks."""
 
@@ -951,6 +1045,21 @@ class TestTaskMenuShieldOptions:
         assert "private ranges blocked" in labels["shield_down"]
         assert "enforce nothing" in labels["shield_disengaged"]
         assert "shield_up" in labels  # the kill-switch is off in the isolated test config
+
+    def test_task_menu_offers_harvest_as_a_place_to_promote(self) -> None:
+        """The harvest entry says it is where promotion happens, not just a read-out."""
+        screen = make_task_screen(has_tasks=True, mode="cli")
+        option_list = next(
+            w for w in screen.compose() if w._stub_kwargs.get("id") == "actions-list"
+        )
+        labels = {
+            opt._stub_kwargs.get("id"): opt._stub_args[0]
+            for opt in option_list._stub_args
+            if opt is not None
+        }
+        assert labels["shield_harvest"] == (
+            "shield \\[h]arvest and promote (what this task reached for)"
+        )
 
 
 class TestActionDispatch:

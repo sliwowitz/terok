@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from terok.lib.core.project_model import ProjectConfig
     from terok.lib.core.yaml_schema import RawGlobalConfig
-    from terok.lib.integrations.sandbox import SandboxConfig, ServicesMode
+    from terok.lib.integrations.sandbox import ClearanceMode, SandboxConfig, ServicesMode
 
 from ..util.yaml import YAMLError, dump as _yaml_dump, load as _yaml_load
 from .paths import config_root as _config_root_base
@@ -348,6 +348,17 @@ def user_projects_dir() -> Path:
     )
 
 
+def egress_sets_dir() -> Path:
+    """Directory of the operator's own egress sets — ``XDG_CONFIG_HOME/terok/egress-sets``.
+
+    One ``<name>.txt`` per set, beside the user's projects and ``config.yml``
+    (``~/.config/terok/egress-sets`` without ``XDG_CONFIG_HOME``).  The
+    sets are host lists the operator authors and shares across projects,
+    so they live with the rest of the user's terok configuration.
+    """
+    return _xdg_config_subdir("egress-sets")
+
+
 def build_dir() -> Path:
     """
     Directory for build artifacts (generated Dockerfiles, etc.).
@@ -403,7 +414,7 @@ def make_sandbox_config(project: ProjectConfig | None = None) -> SandboxConfig:
     """Construct a `SandboxConfig` for sandbox operations.
 
     *project* overlays the per-project settings a launch must honour —
-    including ``services_mode`` and ``aslr_control``. Omit it
+    including ``services_mode``, ``clearance`` and ``aslr_control``. Omit it
     for project-agnostic operations (vault, state paths, sickbay host
     checks), which read the global config alone.
 
@@ -445,7 +456,9 @@ def make_sandbox_config(project: ProjectConfig | None = None) -> SandboxConfig:
         shield_disabled=get_shield_disable_firewall_no_protection(),
         shield_audit=get_shield_audit(),
         shield_dnsmasq_path=get_shield_dnsmasq_path(),
+        shield_bypass_duration=get_shield_bypass_duration(),
         services_mode=project.services_mode if project is not None else get_services_mode(),
+        clearance=project.clearance if project is not None else get_services_clearance(),
         aslr_control=project.aslr_control if project is not None else get_global_aslr_control(),
     )
 
@@ -621,6 +634,22 @@ def get_services_mode() -> ServicesMode:
     return _load_validated().services.mode
 
 
+def get_services_clearance() -> ClearanceMode:
+    """Return the global ``services.clearance``: who is asked about a refused connection.
+
+    ``prompt`` (the default), ``mute`` or ``off``; a project's own
+    ``services.clearance`` overrides it.  Sandbox owns the key, and reads it
+    leniently — an unknown value warns and reads as ``prompt`` rather than
+    invalidating the whole file.
+
+    Global config (config.yml)::
+
+        services:
+          clearance: mute   # or "prompt" / "off"
+    """
+    return _load_validated().services.clearance
+
+
 def vault_transport_for(mode: ServicesMode) -> Literal["direct", "socket"]:
     """Map a services mode to the vault transport (``"direct"`` or ``"socket"``).
 
@@ -691,6 +720,11 @@ def get_shield_audit() -> bool:
 def get_shield_dnsmasq_path() -> Path | None:
     """Return the dnsmasq binary configured as ``shield.dnsmasq_path``, if any."""
     return _load_validated().shield.dnsmasq_path
+
+
+def get_shield_bypass_duration() -> str:
+    """Return how long ``shield.bypass_duration`` keeps the timed allow-all window open."""
+    return _load_validated().shield.bypass_duration
 
 
 def get_public_host() -> str:

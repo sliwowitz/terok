@@ -32,6 +32,8 @@ from tests.testnet import (
     HOST_ALIAS_LOOPBACK,
     HOST_ALIAS_SLIRP,
     PASTA_HOST_LOOPBACK_MAP,
+    TEST_IP,
+    TEST_IP_RFC5737,
 )
 
 from .conftest import MockRunner
@@ -149,6 +151,64 @@ class TestPreStartIntegration:
         assert "--add-host" not in args
         assert "--annotation" in args
         assert "--cap-drop" in args
+
+
+# ── TestOverrideExpiryIntegration ─────────────────────────
+
+
+class TestOverrideExpiryIntegration:
+    """terok's ``shield.override`` lines, through real shield authoring (decision C).
+
+    terok hands each expiring override to shield as ``<host> %expires=<date>``
+    so the kernel ends it; shield must read that line as its own grammar,
+    time the element to the local midnight that ends the date, and drop —
+    and audit — an override already past it.
+    """
+
+    def test_expiring_overrides_are_timed_and_expired_ones_audited(
+        self, shield_config: ShieldConfig
+    ) -> None:
+        import json
+        from datetime import date, datetime, time, timedelta
+        from types import SimpleNamespace
+
+        from terok_shield.state import StateBundle
+
+        from terok.lib.core.project_model import ShieldOverride
+        from terok.lib.orchestration.task_runners.container import _compose_shield_tiers
+
+        until = date.today() + timedelta(days=3)
+        lapsed = date.today() - timedelta(days=1)
+        project = SimpleNamespace(
+            upstream_url=None,
+            shield_sets=(),
+            known_family=None,
+            shield_allow=(),
+            shield_override=(
+                ShieldOverride(host=TEST_IP_RFC5737, reason="debug", expires=until),
+                ShieldOverride(host=TEST_IP, reason="old", expires=lapsed),
+            ),
+        )
+        _allow, override = _compose_shield_tiers(project)
+
+        shield = _make_shield(shield_config)
+        with (
+            patch("os.geteuid", return_value=1000),
+            patch("terok_shield.HooksInstaller.check_setup", return_value=()),
+        ):
+            shield.pre_start("test-ctr", override=override)
+
+        bundle = StateBundle(shield_config.state_dir)
+        tier = bundle.tier_path("override").read_text().splitlines()
+        assert tier == [f"+{TEST_IP_RFC5737} %expires={until.isoformat()}"]
+        deadline = datetime.combine(until + timedelta(days=1), time.min).astimezone()
+        timed = dict(line.split() for line in bundle.override_expiry.read_text().splitlines())
+        assert timed == {TEST_IP_RFC5737: str(int(deadline.timestamp()))}
+        audit = [json.loads(line) for line in bundle.audit.read_text().splitlines()]
+        assert any(
+            event["action"] == "override_expired" and event.get("dest") == TEST_IP
+            for event in audit
+        )
 
 
 # ── TestShieldStatusIntegration ───────────────────────────

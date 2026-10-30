@@ -353,7 +353,7 @@ graph LR
 
     subgraph ALLOWED ["Allowed"]
         GATE_PORT["Gate Server<br/><i>HTTP, localhost:9418</i>"]
-        ALLOW["Allowlisted hosts<br/><i>api.anthropic.com, etc.</i>"]
+        ALLOW["Allowlisted hosts<br/><i>github.com, pypi.org, etc.</i>"]
     end
 
     subgraph BLOCKED ["Blocked"]

@@ -69,7 +69,8 @@ Layers, top to bottom: `presentation` → `domain` → `orchestration` →
 ```text
 presentation (terok.cli, terok.tui)
     └── terok.lib.api — the single stable import boundary
-          ├── terok.lib.domain.*          Project/Task aggregates, ssh/auth, panic, vault access
+          ├── terok.lib.domain.*          Project/Task aggregates, ssh/auth, panic, vault access,
+          │                               egress promotion, clearance prompts
           ├── terok.lib.orchestration.*   tasks, task_runners, image, environment, ports
           ├── terok.lib.core.*            config, paths, project model, task state
           └── terok.lib.integrations.*    the only modules allowed to import sibling wheels
@@ -279,6 +280,13 @@ Services come up in dependency order
    turning `connection_blocked` events into D-Bus popups; degrades to a
    no-op when no session bus exists.
 
+`services.clearance` (sidecar field `clearance`, rewritten by a terok
+restart before the start) decides the clearance arm: `off` starts neither
+the verdict helper nor the hub — nor the notifier the hub feeds — so no
+prompt is raised and no verdict path exists; `mute` starts both, the hub
+with the container already muted; `prompt` is the default.  See
+[Shield Security](shield-security.md#muting-the-prompts-not-the-shield).
+
 ### Socket layout
 
 Per-container endpoints, all on the host:
@@ -286,8 +294,8 @@ Per-container endpoints, all on the host:
 | Path | Keyed by | Contents |
 |------|----------|----------|
 | `$XDG_RUNTIME_DIR/terok/sandbox/run/<container-name>/` | container name | `vault.sock`, `ssh-agent.sock`, `gate-server.sock` — **bind-mounted into the container at `/run/terok/`** |
-| `$XDG_RUNTIME_DIR/terok/clearance/<short-id>.sock` | 12-char container ID | varlink socket operator UIs subscribe to |
-| `$XDG_RUNTIME_DIR/terok/events/<short-id>.sock` | 12-char container ID | line-JSON ingest socket the shield NFLOG reader pushes to |
+| `$XDG_RUNTIME_DIR/terok/clearance/<short-id>/hub.sock` | 12-char container ID | varlink socket operator UIs subscribe to — and mute through, keyed by the same short ID |
+| `$XDG_RUNTIME_DIR/terok/events/<short-id>/ingester.sock` | 12-char container ID | line-JSON ingest socket the shield NFLOG reader pushes to |
 | `$XDG_RUNTIME_DIR/terok/verdict/<short-id>.sock` | 12-char container ID | varlink verdict helper |
 | `$XDG_RUNTIME_DIR/terok/control/<short-id>.sock` | 12-char container ID | reserved |
 

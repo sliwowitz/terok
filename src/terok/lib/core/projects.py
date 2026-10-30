@@ -1,14 +1,20 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""Project discovery and loading."""
+"""Project discovery and loading — and the writers that edit a project's egress policy."""
 
+import copy
 import logging
+import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +25,19 @@ from terok_util.config_stack import ConfigScope
 from terok.lib.integrations.sandbox import gate_use_personal_ssh_default
 
 from ..integrations.executor import ExecutorConfigView
-from ..util.yaml import YAMLError, dump as _yaml_dump, literal_block, load as _yaml_load
+from ..util.net import git_remote_host
+from ..util.yaml import (
+    YAMLError,
+    append_entry,
+    append_section,
+    dump as _yaml_dump,
+    dump_like,
+    edit_in_place,
+    literal_block,
+    load as _yaml_load,
+    put_key,
+    set_entries,
+)
 from .config import (
     build_dir,
     gate_repos_dir,
@@ -29,6 +47,7 @@ from .config import (
     get_global_default_shell,
     get_global_hooks,
     get_global_section,
+    get_services_clearance,
     get_services_mode,
     get_shield_down_on_task_run,
     get_shield_on_task_restart,
@@ -36,7 +55,15 @@ from .config import (
     sandbox_live_dir,
     user_projects_dir,
 )
-from .egress_sets import validate_egress_sets
+from .egress_sets import (
+    EGRESS_SETS,
+    RECOMMENDED_SET,
+    EgressEdit,
+    describe_egress_sets,
+    granting_egress_set,
+    normalize_egress_host,
+    validate_egress_sets,
+)
 from .project_model import (  # noqa: F401 — re-exported public API
     ProjectConfig,
     ShieldOverride,
@@ -323,6 +350,7 @@ def _build_project_config(
         timezone=raw.run.timezone,
         task_name_categories=raw.tasks.name_categories,
         services_mode=raw.services.mode or get_services_mode(),
+        clearance=raw.services.clearance or get_services_clearance(),
         shield_down_on_task_run=shield_down,
         shield_on_task_restart=shield_restart,
         shield_sets=None if raw.shield.sets is None else tuple(raw.shield.sets),
@@ -685,23 +713,38 @@ def set_project_image_agents(project_name: str, selection: str) -> Path:
     return cfg_path
 
 
+# ---------- Egress policy writers ----------
+#
+# Promotion makes ``project.yml`` writes routine, so these edit the file the
+# way its owner would: the one entry changed in place, everything else —
+# comments, flow lists, indentation, long lines, file mode — as it was.
+
+_ShieldEdit = Callable[[dict[str, Any], Path], tuple[bool, str]]
+"""Changes a project's ``shield:`` mapping in place, given the file's path: ``(changed, message)``."""
+
+
 def set_project_shield_sets(project_name: str, sets: tuple[str, ...]) -> Path:
     """Write *sets* into the project's ``project.yml`` under ``shield.sets``.
 
-    Validates the names against the curated registry first (raising
-    ``SystemExit`` with the available names on a typo).  Three selections
-    are expressible: a tuple holding ``recommended`` grants every curated
-    set, including sets added to the registry later; any other non-empty
-    tuple freezes that exact selection; an empty tuple writes ``[]`` —
-    explicitly no curated sets, the same effect as leaving the key unset.
-    Returns the project.yml path written.
+    Validates the names first, raising ``SystemExit`` that names each
+    unknown or broken set and lists the available ones.  Three selections
+    are expressible: a tuple holding ``recommended`` grants every built-in
+    set, including sets a later release adds; any other non-empty tuple
+    freezes that exact selection (user sets included); an empty tuple
+    writes ``[]`` — explicitly no sets, the same effect as leaving the key
+    unset.  The list is refilled in place, so its style and the comments
+    around it survive.  Returns the project.yml path.
     """
-    from terok.lib.integrations.sandbox import yaml_update_section
-
     validate_egress_sets(sets)
-    cfg_path = _find_project_root(project_name) / _PROJECT_YML
-    yaml_update_section(cfg_path, "shield", {"sets": list(sets)})
-    return cfg_path
+
+    def replace(shield: dict[str, Any], _cfg_path: Path) -> tuple[bool, str]:
+        current = shield.get("sets")
+        if isinstance(current, list) and [str(name) for name in current] == list(sets):
+            return False, f"shield.sets is already {describe_egress_sets(sets)}"
+        set_entries(shield, "sets", list(sets))
+        return True, f"shield.sets = {describe_egress_sets(sets)}"
+
+    return _edit_shield_section(project_name, replace).path
 
 
 def set_project_snippet_inline(project_name: str, snippet: str) -> Path:
@@ -715,3 +758,362 @@ def set_project_snippet_inline(project_name: str, snippet: str) -> Path:
     cfg_path = _find_project_root(project_name) / _PROJECT_YML
     yaml_update_section(cfg_path, "image", {"user_snippet_inline": literal_block(snippet)})
     return cfg_path
+
+
+def add_project_shield_allow(project_name: str, host: str) -> EgressEdit:
+    """Append *host* to the project's ``shield.allow`` — unless something grants it already.
+
+    Nothing is written when *host* is the project's git upstream host (its
+    tasks reach that already), when an enabled egress set names it, or when
+    ``shield.allow`` has it; the result says which.  Otherwise *host* joins
+    the end of the list, and the project's tasks pick it up at their next
+    start.
+
+    Raises:
+        ValueError: *host* is not a host
+            ([`normalize_egress_host`][terok.lib.core.egress_sets.normalize_egress_host]).
+        SystemExit: The project does not load, or its ``shield.allow`` is
+            not a list — the file is the operator's to fix.
+    """
+    host = normalize_egress_host(host)
+    project = load_project(project_name)
+    cfg_path = _find_project_root(project_name) / _PROJECT_YML
+    if project.upstream_url and git_remote_host(project.upstream_url) == host:
+        return EgressEdit(
+            cfg_path,
+            False,
+            f"{host} is the project's git upstream host, which its tasks reach already; "
+            "nothing written",
+        )
+    if granted_by := granting_egress_set(host, project.shield_sets, project.known_family):
+        return EgressEdit(
+            cfg_path,
+            False,
+            f"{host} is granted already by the enabled egress set {granted_by!r}; nothing written",
+        )
+
+    def append(shield: dict[str, Any], path: Path) -> tuple[bool, str]:
+        allow = _shield_list(shield, "allow", path)
+        if allow is None:
+            put_key(shield, "allow", [host])
+        elif host in (str(entry).strip().lower() for entry in allow):
+            return False, f"{host} is in shield.allow already; nothing written"
+        else:
+            append_entry(allow, host)
+        return True, f"Added {host} to shield.allow"
+
+    return _edit_shield_section(project_name, append)
+
+
+def enable_project_shield_set(project_name: str, name: str) -> EgressEdit:
+    """Add egress set *name* to the project's ``shield.sets``.
+
+    *name* must be a set that loads — built-in, or a user set whose file
+    parses — or ``SystemExit`` names it and its file.  An unset selection
+    becomes ``[name]``; one that names *name* already, or holds
+    ``recommended`` when *name* is built-in, is left alone and the result
+    says so.  Otherwise *name* joins the end of the list.  ``recommended``
+    never covers a user set, so enabling one next to it adds it.
+
+    Raises:
+        SystemExit: *name* is not a usable set, or the project's
+            ``shield.sets`` is not a list.
+    """
+    validate_egress_sets((name,))
+
+    def enable(shield: dict[str, Any], path: Path) -> tuple[bool, str]:
+        sets = _shield_list(shield, "sets", path)
+        if sets is None:
+            put_key(shield, "sets", [name])
+            return True, f"Enabled the egress set {name!r}"
+        current = [str(entry) for entry in sets]
+        if name in current:
+            return False, f"The egress set {name!r} is enabled already; nothing written"
+        if name in EGRESS_SETS and RECOMMENDED_SET in current:
+            return (
+                False,
+                f"{name!r} is a built-in set, granted already through {RECOMMENDED_SET!r}; "
+                "nothing written",
+            )
+        append_entry(sets, name)
+        return True, f"Enabled the egress set {name!r}"
+
+    return _edit_shield_section(project_name, enable)
+
+
+def add_project_shield_override(
+    project_name: str, host: str, reason: str, expires: date
+) -> EgressEdit:
+    """Grant *host* a break-glass ``shield.override`` — above the security-deny — for *reason*.
+
+    Both *reason* and *expires* are required: the reason is the audit trail
+    for the hole, and the expiry bounds it.  The override stays valid
+    *through* *expires* — to the end of that day — so the date may be today
+    but never earlier.  An existing override for *host* is updated in place
+    (new reason, new expiry) and the result says what changed; otherwise
+    the entry joins the end of the list.  Tasks pick it up at their next
+    start.
+
+    Raises:
+        ValueError: *host* is not a host, *reason* is blank, or *expires*
+            is in the past.
+        SystemExit: The project's ``shield.override`` is not a list.
+    """
+    host = normalize_egress_host(host)
+    reason = reason.strip()
+    if not reason:
+        raise ValueError(
+            "a break-glass override needs a reason: it is the audit trail for the hole it opens"
+        )
+    if isinstance(expires, datetime):
+        expires = expires.date()
+    today = date.today()
+    if expires < today:
+        raise ValueError(
+            f"expiry {expires.isoformat()} is in the past: an override is valid through its "
+            f"expiry date, so the earliest is today ({today.isoformat()})"
+        )
+
+    def grant(shield: dict[str, Any], path: Path) -> tuple[bool, str]:
+        overrides = _shield_list(shield, "override", path)
+        entry = {"host": host, "reason": reason, "expires": expires}
+        if overrides is None:
+            put_key(shield, "override", [entry])
+        elif (existing := _override_for(overrides, host)) is not None:
+            return _update_override(existing, host, reason, expires)
+        else:
+            append_entry(overrides, entry)
+        return (
+            True,
+            f"Added a break-glass override for {host}, valid through {expires.isoformat()} "
+            f"(reason: {reason})",
+        )
+
+    return _edit_shield_section(project_name, grant)
+
+
+def egress_set_users() -> dict[str, tuple[str, ...]]:
+    """Which projects name each egress set in ``shield.sets``, by set name.
+
+    Reads every project's ``project.yml`` as written, so a project that
+    fails to load because a user set it names went missing still counts as
+    using it; a file that does not parse at all is skipped.  Only explicit
+    mentions count — ``recommended`` never covers a user set — so for a
+    user set this is exactly the projects an edit to it widens.
+    """
+    users: dict[str, list[str]] = {}
+    for project_name, cfg_path in sorted(_discover_project_paths().items()):
+        try:
+            names = _parse_project_yaml(cfg_path).shield.sets or ()
+        except SystemExit:
+            continue
+        for name in dict.fromkeys(names):
+            users.setdefault(name, []).append(project_name)
+    return {name: tuple(projects) for name, projects in users.items()}
+
+
+def _shield_list(shield: dict[str, Any], key: str, cfg_path: Path) -> list[Any] | None:
+    """``shield.<key>`` when it is a list, ``None`` when unset or null.
+
+    Raises:
+        SystemExit: When it holds anything else — overwriting it would
+            silently discard what the operator wrote.
+    """
+    value = shield.get(key)
+    if value is None or isinstance(value, list):
+        return value
+    raise SystemExit(f"Invalid {_PROJECT_YML} ({cfg_path}): shield.{key} is not a list")
+
+
+def _override_for(overrides: list[Any], host: str) -> dict[str, Any] | None:
+    """The first ``shield.override`` entry for *host*, matched case-insensitively."""
+    for entry in overrides:
+        if isinstance(entry, dict) and str(entry.get("host", "")).strip().lower() == host:
+            return entry
+    return None
+
+
+def _update_override(
+    entry: dict[str, Any], host: str, reason: str, expires: date
+) -> tuple[bool, str]:
+    """Refresh an existing override's reason and expiry in place; say what changed."""
+    old_reason, old_expires = entry.get("reason"), entry.get("expires")
+    changes: list[str] = []
+    if old_reason != reason:
+        put_key(entry, "reason", reason)
+        changes.append(f"reason {old_reason!r} -> {reason!r}")
+    if old_expires is None or str(old_expires) != expires.isoformat():
+        put_key(entry, "expires", expires)
+        changes.append(f"expiry {old_expires or 'none'} -> {expires.isoformat()}")
+    if not changes:
+        return False, f"{host} has this override already; nothing written"
+    return True, f"Updated the break-glass override for {host}: {'; '.join(changes)}"
+
+
+def _edit_shield_section(project_name: str, edit: _ShieldEdit) -> EgressEdit:
+    """Apply *edit* to the project's ``shield:`` mapping; write the file back if it changed.
+
+    The file is loaded round-trip, edited, and only the lines the edit
+    changed are carried back into its text
+    ([`edit_in_place`][terok.lib.util.yaml.edit_in_place]), so a write
+    changes what *edit* changed and nothing else — every other line stays
+    byte for byte, however a dump would have spelled it.  The result is
+    validated like a load before it replaces the file.  A project without a
+    ``shield:`` section gets one only when *edit* changes something, written
+    after its last section and above the comments that close the file
+    ([`append_section`][terok.lib.util.yaml.append_section]); a file with no
+    content but comments gets it below them.
+
+    Refuses — ``SystemExit``, the file untouched, the change named for the
+    operator to make by hand — when the edit's lines cannot be placed without
+    rewriting lines around them, and when ``project.yml`` is write-protected:
+    that is the operator's own decision about the file.
+    """
+    cfg_path = _find_project_root(project_name) / _PROJECT_YML
+    source, doc = _load_round_trip(cfg_path)
+    no_content = doc is None
+    doc = {} if doc is None else doc
+    if not isinstance(doc, dict):
+        raise SystemExit(f"Invalid {_PROJECT_YML} ({cfg_path}): expected a mapping")
+    shield = _shield_mapping(doc, cfg_path)
+    changed, message = edit(shield, cfg_path)
+    if not changed:
+        return EgressEdit(cfg_path, False, message)
+    # A file without the section gets it as a text of its own, rendered before
+    # the edit below hangs the file's closing comments on it.
+    added = None if "shield" in doc else copy.deepcopy(shield)
+    if doc.get("shield") is None:
+        put_key(doc, "shield", shield, blank_line_before=True)
+    _validate_edited_project(doc, cfg_path)
+    if no_content:
+        # Nothing to keep but comments, which ruamel keeps none of from a
+        # document without content: the new section goes below them.
+        text = _dump_below_comments(source, doc)
+    else:
+        text = _carry_into_source(source, doc, added, cfg_path, message)
+    _write_back(cfg_path, text, message)
+    return EgressEdit(cfg_path, True, message)
+
+
+def _load_round_trip(cfg_path: Path) -> tuple[str, Any]:
+    """*cfg_path*'s text as it is on disk, and the document loaded round-trip from it.
+
+    Raises:
+        SystemExit: The file cannot be read or does not parse.
+    """
+    try:
+        # No newline translation: a CRLF file must come back CRLF.
+        with cfg_path.open(encoding="utf-8", newline="") as stream:
+            source = stream.read()
+        return source, _yaml_load(source)
+    except (OSError, UnicodeDecodeError, YAMLError) as exc:
+        raise SystemExit(f"Failed to read {cfg_path}: {exc}") from exc
+
+
+def _shield_mapping(doc: dict[str, Any], cfg_path: Path) -> dict[str, Any]:
+    """The document's ``shield`` when it is a mapping, a new empty one when unset or null.
+
+    Raises:
+        SystemExit: When it holds anything else — the file is the operator's
+            to fix.
+    """
+    shield = doc.get("shield")
+    if shield is None:
+        return {}
+    if not isinstance(shield, dict):
+        raise SystemExit(f"Invalid {_PROJECT_YML} ({cfg_path}): shield is not a mapping")
+    return shield
+
+
+def _validate_edited_project(doc: dict[str, Any], cfg_path: Path) -> None:
+    """Refuse an edit whose result would not load — the writer never leaves a broken file.
+
+    Validates a copy: some schema validators normalise their input in
+    place, and the round-trip document must reach the file as edited.
+    """
+    try:
+        raw = RawProjectYaml.model_validate(copy.deepcopy(doc))
+    except ValidationError as exc:
+        raise SystemExit(_format_validation_error(exc, cfg_path)) from exc
+    validate_egress_sets(raw.shield.sets)
+
+
+def _dump_below_comments(source: str, doc: dict[str, Any]) -> str:
+    """*doc* dumped as the file's text, below the comments *source* holds, if any.
+
+    *source* has nothing else to keep.  The dump takes its line ends, so a
+    CRLF file stays CRLF.
+    """
+    newline = "\r\n" if "\r\n" in source else "\n"
+    text = dump_like(doc, source).replace("\n", newline)
+    if source.strip():
+        text = f"{source.rstrip()}{newline}{newline}{text}"
+    return text
+
+
+def _carry_into_source(
+    source: str, doc: dict[str, Any], added: dict[str, Any] | None, cfg_path: Path, message: str
+) -> str:
+    """*source* with the edit carried in and every other line as it was.
+
+    *added* is the ``shield:`` section the file lacked, appended whole;
+    without one, the lines the edit changed in *doc* are carried in place.
+
+    Raises:
+        SystemExit: The change cannot be placed without rewriting lines
+            around it; *message* names it for the operator to make by hand.
+    """
+    try:
+        if added is not None:
+            return append_section(source, "shield", added)
+        return edit_in_place(source, doc, section="shield")
+    except ValueError as exc:
+        raise SystemExit(
+            f"{cfg_path} was left as it was: {exc}, so terok cannot change it without "
+            f"rewriting lines you wrote.  Make the change by hand — {message}."
+        ) from exc
+
+
+def _write_back(cfg_path: Path, text: str, message: str) -> None:
+    """Replace *cfg_path*'s text with *text* — unless the operator write-protected the file.
+
+    Raises:
+        SystemExit: Permission to write was denied; *message* names the
+            change for the operator to make by hand.
+    """
+    try:
+        _replace_text(cfg_path, text)
+    except PermissionError as exc:
+        raise SystemExit(
+            f"{cfg_path} was left as it was: {exc}.  Make it writable, or make the change "
+            f"by hand — {message}."
+        ) from exc
+
+
+def _replace_text(path: Path, text: str) -> None:
+    """Replace *path*'s content with *text* atomically, keeping its permission bits.
+
+    The new text lands in a sibling temp file renamed over the target, so a
+    reader never sees half a file.  A symlinked ``project.yml`` (a dotfiles
+    checkout, say) stays a symlink: the file it points at is the one
+    replaced.  The rename needs only the directory to be writable, so the
+    file's own write permission is checked first: a file the operator
+    write-protected is not replaced behind their back.
+
+    Raises:
+        PermissionError: The file is not writable.
+    """
+    target = path.resolve()
+    if not os.access(target, os.W_OK):
+        raise PermissionError(f"{target} is write-protected")
+    mode = stat.S_IMODE(target.stat().st_mode)
+    fd, tmp_name = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
+            stream.write(text)  # written as given: the line ends are the file's own
+        tmp.chmod(mode)
+        tmp.replace(target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
