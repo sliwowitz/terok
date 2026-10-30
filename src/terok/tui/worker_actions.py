@@ -326,7 +326,6 @@ def selinux_switch_to_tcp() -> None:
     from terok.lib.core.config import global_config_path
 
     user_config = global_config_path()
-    user_config.parent.mkdir(parents=True, exist_ok=True)
     yaml_update_section(user_config, "services", {"mode": "tcp"})
     print(f"→ wrote services.mode=tcp to {user_config}")
 

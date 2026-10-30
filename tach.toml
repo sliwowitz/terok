@@ -744,7 +744,10 @@ expose = [
     "require_project_exists",
     "set_project_image_agents",
     "set_project_shield_sets",
+    "set_project_snippet_inline",
+    "project_config_path",
     "validate_project_name",
+    "validate_project_yaml",
 ]
 from = ["terok.lib.core.projects"]
 
@@ -921,6 +924,7 @@ expose = [
     "get_tui_desktop_entry",
     "get_tui_theme",
     "save_tui_theme",
+    "validate_global_config",
     "get_global_human_name",
     "get_global_human_email",
     "get_global_default_agent",
@@ -1083,7 +1087,7 @@ expose = ["ContainerDoctor", "run_container_doctor"]
 from = ["terok.lib.orchestration.container_doctor"]
 
 [[interfaces]]
-expose = ["load", "dump", "YAMLError"]
+expose = ["load", "dump", "literal_block", "YAMLError"]
 from = ["terok.lib.util.yaml"]
 
 [[interfaces]]

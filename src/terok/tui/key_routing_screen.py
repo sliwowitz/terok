@@ -28,8 +28,7 @@ from typing import TYPE_CHECKING
 from textual import screen
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, VerticalScroll
-from textual.widgets import Footer, ListItem, ListView, OptionList, SelectionList, Static
-from textual.widgets.option_list import Option
+from textual.widgets import Footer, ListItem, ListView, SelectionList, Static
 from textual.widgets.selection_list import Selection
 
 from terok.lib.api.ssh_routing import (
@@ -46,7 +45,7 @@ from terok.lib.api.ssh_routing import (
     unlink_key,
 )
 
-from .screens import ConfirmDestructiveScreen, _modal_binding
+from .screens import ChoiceScreen, ConfirmDestructiveScreen, _modal_binding
 from .ssh_key_screens import ShowSshKeyScreen, SshKeyCommentScreen
 from .widgets.routing_matrix import MatrixKey, RoutingMatrix
 
@@ -94,7 +93,11 @@ class _BaseRoutingScreen(screen.Screen[None]):
         """Ask which loaded project should receive a fresh key."""
         if self._routing is not None:
             self.app.push_screen(
-                _ProjectPickerScreen(self._routing.projects), self._mint_for_picked
+                ChoiceScreen(
+                    "Mint key for project",
+                    [(project, project) for project in self._routing.projects],
+                ),
+                self._mint_for_picked,
             )
 
     def _mint_for_picked(self, scope: str | None) -> None:
@@ -482,36 +485,6 @@ class KeyInventoryScreen(_BaseRoutingScreen):
 
     def action_dismiss_screen(self) -> None:
         """Close the inventory."""
-        self.dismiss(None)
-
-
-class _ProjectPickerScreen(screen.ModalScreen[str | None]):
-    """A modal that returns the project the operator picks (or ``None``)."""
-
-    BINDINGS = [_modal_binding("escape", "cancel", "Cancel")]
-
-    CSS = """
-    _ProjectPickerScreen { align: center middle; }
-    #picker { width: 50; height: auto; max-height: 80%; border: round $primary; background: $surface; }
-    """
-
-    def __init__(self, projects: tuple[str, ...]) -> None:
-        """Remember the projects to offer."""
-        super().__init__()
-        self._projects = projects
-
-    def compose(self) -> ComposeResult:
-        """A single option list of project names."""
-        picker = OptionList(*(Option(p, id=p) for p in self._projects), id="picker")
-        picker.border_title = "Mint key for project"
-        yield picker
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        """Return the chosen project."""
-        self.dismiss(event.option_id)
-
-    def action_cancel(self) -> None:
-        """Dismiss without picking."""
         self.dismiss(None)
 
 

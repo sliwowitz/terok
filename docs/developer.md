@@ -514,7 +514,11 @@ terminal run as captured child processes instead:
 - **`WorkerLogScreen`** — live tail view over an entry;
   `ConsoleOutputScreen` lists all entries.
 - Interactive workflows are native widgets (`tui/text_screens.py` for
-  instructions, `tui/clearance_screen.py` for shield verdicts).
+  the instructions, `project.yml`, `config.yml` and Docker snippet
+  editors, `tui/clearance_screen.py` for shield verdicts).
+- Text editing goes through `ProjectActionsMixin._edit_text`: `$EDITOR`
+  on a draft file in a local terminal, the integrated `TextEditorScreen`
+  otherwise, and the text's validator before any write.
 - Web detection: prefer `App.is_web`; CLI container login is hard-gated
   off in web mode.
 

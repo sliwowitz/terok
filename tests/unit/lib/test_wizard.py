@@ -722,6 +722,16 @@ class TestRenderAndWrite:
             path = write_project_yaml("scratch", "second: true\n", overwrite=True)
             assert path.read_text() == "second: true\n"
 
+    def test_write_project_yaml_creates_a_private_project(self) -> None:
+        """A new project directory gets 0700 and its project.yml 0600."""
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("terok.lib.domain.wizards.new_project.user_projects_dir", return_value=Path(td)),
+        ):
+            path = write_project_yaml("scratch", "first: true\n")
+            assert path.stat().st_mode & 0o777 == 0o600
+            assert path.parent.stat().st_mode & 0o777 == 0o700
+
 
 # ---------------------------------------------------------------------------
 # QUESTIONS registry — ordering and shape invariants the presenters rely on.

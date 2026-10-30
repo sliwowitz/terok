@@ -65,7 +65,7 @@ class ProjectList(ListView):
         self.broken: list[BrokenProject] = []
         self._generation = 0
 
-    def set_projects(
+    async def set_projects(
         self,
         projects: list[ProjectConfig],
         broken: list[BrokenProject] | None = None,
@@ -75,24 +75,28 @@ class ProjectList(ListView):
         Broken projects render with an error marker ahead of healthy ones so
         they are impossible to miss; selecting one lets the app show the
         validation error in place of the normal project state panel (#565).
+        Returns once the new rows have replaced the old ones, so a selection
+        made next lands on a new row.
         """
         self.projects = projects
         self.broken = list(broken or [])
         self._generation += 1
-        self.clear()
+        await self.clear()
 
         # Broken first — a damaged config is the thing most likely to need
         # attention, so putting it at the top makes the error indicator the
         # first thing the user sees.
+        rows: list[ProjectListItem] = []
         for bp in self.broken:
             label = f"{render_emoji(_BROKEN_BADGE)} {bp.name} (broken)"
-            self.append(ProjectListItem(bp.name, label, self._generation, is_broken=True))
+            rows.append(ProjectListItem(bp.name, label, self._generation, is_broken=True))
 
         for proj in projects:
             sec = SECURITY_CLASS_DISPLAY.get(proj.security_class, SECURITY_CLASS_DISPLAY["online"])
             gpu = GPU_DISPLAY[has_gpu(proj)]
             label = f"{render_emoji(sec)}{render_emoji(gpu)} {proj.name}"
-            self.append(ProjectListItem(proj.name, label, self._generation))
+            rows.append(ProjectListItem(proj.name, label, self._generation))
+        await self.extend(rows)
 
     def select_project(self, project_name: str) -> None:
         """Select a project by id (healthy or broken)."""

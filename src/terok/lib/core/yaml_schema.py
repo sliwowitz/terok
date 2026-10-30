@@ -426,6 +426,25 @@ class RawCredentialsSection(BaseModel):
     )
 
 
+class RawProjectImageSection(RawImageSection):
+    """The ``image:`` section of project.yml — the config.yml image keys plus a Dockerfile snippet.
+
+    The snippet is project configuration only: the project's image build
+    pastes it into the L2 Dockerfile, and config.yml refuses it.
+    """
+
+    user_snippet_inline: str | None = Field(
+        default=None, description="Inline Dockerfile snippet injected into the project image"
+    )
+    user_snippet_file: str | None = Field(
+        default=None,
+        description=(
+            "Path to a file holding a Dockerfile snippet; ``~`` expands and a "
+            "relative path resolves against the project directory"
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Top-level project YAML
 # ---------------------------------------------------------------------------
@@ -445,7 +464,7 @@ class RawProjectYaml(BaseModel):
     run: RawRunSection = Field(default_factory=RawRunSection)
     shield: RawShieldProjectSection = Field(default_factory=RawShieldProjectSection)
     services: RawServicesProjectSection = Field(default_factory=RawServicesProjectSection)
-    image: RawImageSection = Field(default_factory=RawImageSection)
+    image: RawProjectImageSection = Field(default_factory=RawProjectImageSection)
     credentials: RawCredentialsSection = Field(default_factory=RawCredentialsSection)
     default_agent: str | None = Field(
         default=None, description="Default agent provider (e.g. ``claude``, ``codex``)"
@@ -520,11 +539,17 @@ class RawTUISection(BaseModel):
     external_editor: bool = Field(
         default=True,
         description=(
-            "Open instruction-editing actions in ``$EDITOR`` when it is set, "
-            "instead of the integrated text editor.  Honoured only on a "
-            "local-terminal TUI — the web TUI (``terok-web`` / textual-serve) "
-            "always uses the integrated editor, as there is no terminal to "
-            "suspend to.  Set ``false`` to always use the integrated editor."
+            "Edit texts from the TUI — instructions, ``project.yml``, "
+            "``config.yml`` and Docker snippets — in ``$EDITOR`` when it is "
+            "set, instead of the integrated text editor.  The editor gets a "
+            "draft copy; a text that would not load is refused when the "
+            "editor exits, and the real file stays unchanged.  ``$EDITOR`` "
+            "must wait until the file is closed (e.g. ``code --wait``).  "
+            "Honoured only "
+            "on a local-terminal TUI — the web TUI (``terok-web`` / "
+            "textual-serve) always uses the integrated editor, as there is "
+            "no terminal to suspend to.  Set ``false`` to always use the "
+            "integrated editor."
         ),
     )
     desktop_entry: Literal["auto", "skip", "install"] = Field(
@@ -641,3 +666,16 @@ class RawGlobalConfig(ExecutorConfigView):
     def _coerce_none_to_defaults(cls, data: Any) -> Any:
         """Coerce top-level ``None`` section values to ``{}``."""
         return _coerce_none_sections(data, cls._SECTION_KEYS)
+
+    @field_validator("image", mode="before")
+    @classmethod
+    def _refuse_snippets(cls, image: Any) -> Any:
+        """Refuse a Dockerfile snippet in config.yml, naming the project.yml that takes it."""
+        if isinstance(image, dict) and (
+            keys := [key for key in ("user_snippet_inline", "user_snippet_file") if key in image]
+        ):
+            raise ValueError(
+                f"{', '.join(keys)}: a Dockerfile snippet is set per project, "
+                "in the project's project.yml"
+            )
+        return image

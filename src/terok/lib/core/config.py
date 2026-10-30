@@ -132,8 +132,8 @@ _validated_config_cache: RawGlobalConfig | None = None
 _raw_config_cache: dict[str, Any] | None = None
 
 
-def _build_config_stack() -> ConfigStack:
-    """Build a `ConfigStack` from all existing config layer files.
+def _build_config_stack(layers: list[tuple[str, Path]] | None = None) -> ConfigStack:
+    """Build a `ConfigStack` from the existing files among *layers* (default: all layers).
 
     Loads each layer independently; unreadable or malformed files are
     skipped with a stderr warning so the remaining layers still apply.
@@ -144,7 +144,7 @@ def _build_config_stack() -> ConfigStack:
     from ..util.logging_utils import warn_user
 
     stack = ConfigStack()
-    for label, path in _config_layers():
+    for label, path in _config_layers() if layers is None else layers:
         if not path.is_file():
             continue
         try:
@@ -196,6 +196,43 @@ def _load_validated() -> RawGlobalConfig:
         warn_user("config", f"Invalid config ({sources}): {field_errors}. Using defaults.")
         _validated_config_cache = RawGlobalConfig()
     return _validated_config_cache
+
+
+def validate_global_config(text: str) -> str | None:
+    """Return why *text* would not work as the user config file, or ``None`` if it would.
+
+    *text* takes the place of the file at
+    [`global_config_path`][terok.lib.core.config.global_config_path], the
+    top config layer.  It is merged over the lower layers and validated
+    the way startup validates the config.  At startup an invalid result
+    falls back to defaults with only a stderr warning, so an editor uses
+    this to refuse such a save.  Nothing is written.
+    """
+    from pydantic import ValidationError
+    from terok_util.config_stack import ConfigScope
+
+    from .yaml_schema import RawGlobalConfig
+
+    *lower_layers, (label, path) = _config_layers()
+    try:
+        edited = _yaml_load(text) or {}
+    except YAMLError as exc:
+        return f"Malformed YAML in {path}: {exc}"
+    except Exception as exc:  # noqa: BLE001 — YAML parsers can raise anything; report it
+        return f"Malformed YAML in {path}: {type(exc).__name__}: {exc}"
+    if not isinstance(edited, dict):
+        return f"{path}: the top level must be a mapping of settings (key: value)"
+
+    stack = _build_config_stack(lower_layers)
+    stack.push(ConfigScope(label, path, edited))
+    try:
+        RawGlobalConfig.model_validate(stack.resolve())
+    except ValidationError as exc:
+        # A lower layer can hold the bad key, so name every merged source.
+        sources = ", ".join(str(scope.source) for scope in stack.scopes if scope.data)
+        errors = (f"  {'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+        return "\n".join((f"Invalid config (merged from {sources}):", *errors))
+    return None
 
 
 def load_global_config() -> dict[str, Any]:
@@ -449,7 +486,7 @@ def get_tui_default_tmux() -> bool:
 
 
 def get_tui_external_editor() -> bool:
-    """Return whether instruction editing should prefer ``$EDITOR`` over the integrated editor.
+    """Return whether TUI text editing should prefer ``$EDITOR`` over the integrated editor.
 
     Default ``True``; the TUI still only honours it on a local-terminal
     session — the web TUI always uses the integrated editor.
@@ -468,9 +505,10 @@ def save_tui_theme(theme: str) -> None:
     A surgical round-trip update of
     [`global_config_path`][terok.lib.core.config.global_config_path]:
     only the one key changes — everything else in the file, comments
-    included, survives via ruamel's round-trip mode.  Creates the file
-    (and its parent directory) when missing, and invalidates the
-    in-process config caches so subsequent reads observe the new value.
+    included, survives via ruamel's round-trip mode.  The file is
+    written as operator-owned config: in place when it exists, created
+    private when it does not.  Invalidates the in-process config caches
+    so subsequent reads observe the new value.
 
     Raises:
         OSError: The config file or its directory cannot be read or written.
@@ -478,6 +516,8 @@ def save_tui_theme(theme: str) -> None:
             not a mapping — the file is left untouched rather than
             clobbered with a theme-only stump.
     """
+    from terok_util import write_config_file
+
     global _validated_config_cache, _raw_config_cache  # noqa: PLW0603
     path = global_config_path()
     data: dict[str, Any] = {}
@@ -491,8 +531,7 @@ def save_tui_theme(theme: str) -> None:
         tui = {}
         data["tui"] = tui
     tui["theme"] = theme
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_yaml_dump(data), encoding="utf-8")
+    write_config_file(path, _yaml_dump(data))
     _validated_config_cache = None
     _raw_config_cache = None
 

@@ -379,6 +379,130 @@ async def test_review_screen_textarea_keeps_tab_on_focus_ring() -> None:
         assert ta.theme == "vscode_dark"
 
 
+@pytest.mark.asyncio
+async def test_review_screen_refuses_to_initialize_an_invalid_text() -> None:
+    """Initialize stays on the screen, with the reason, while the validator refuses the text."""
+    from terok.tui.text_screens import ValidationErrorLine
+
+    screen = ProjectReviewScreen(
+        "demo",
+        "project:\n  id: demo\n",
+        validate=lambda text: "broken" if "bogus" in text else None,
+    )
+    app = _WizardHost(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        ta = app.screen.query_one("#wizard-review-yaml", TextArea)
+        ta.text = "project:\n  bogus: 1\n"
+        await pilot.click("#wizard-review-init")
+        await pilot.pause()
+        assert app.result is _SENTINEL_PENDING
+        assert app.screen.query_one(ValidationErrorLine).display
+
+        ta.text = "project:\n  id: demo\n"
+        # A second click within the button's press effect is debounced; press directly.
+        app.screen.query_one("#wizard-review-init", Button).press()
+        await pilot.pause()
+    assert app.result == "project:\n  id: demo\n"
+
+
+@pytest.mark.asyncio
+async def test_review_screen_offers_editor_only_when_edits_go_there() -> None:
+    app = _WizardHost(ProjectReviewScreen("demo", "project:\n  id: demo\n"))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not app.screen.query("#wizard-review-external")
+
+
+@pytest.mark.asyncio
+async def test_review_screen_editor_round_trip_replaces_the_text() -> None:
+    """The text the operator accepts in ``$EDITOR`` lands back in the review pane."""
+    from unittest.mock import AsyncMock
+
+    edit_externally = AsyncMock(return_value="project:\n  id: demo\n  edited: true\n")
+    screen = ProjectReviewScreen("demo", "project:\n  id: demo\n", edit_externally=edit_externally)
+    app = _WizardHost(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#wizard-review-external")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        ta = app.screen.query_one("#wizard-review-yaml", TextArea)
+        assert ta.text == "project:\n  id: demo\n  edited: true\n"
+    edit_externally.assert_awaited_once_with("project:\n  id: demo\n")
+
+
+@pytest.mark.asyncio
+async def test_review_screen_abandoned_editor_round_trip_keeps_the_text() -> None:
+    from unittest.mock import AsyncMock
+
+    edit_externally = AsyncMock(return_value=None)
+    screen = ProjectReviewScreen("demo", "project:\n  id: demo\n", edit_externally=edit_externally)
+    app = _WizardHost(screen)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#wizard-review-external")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        assert app.screen.query_one("#wizard-review-yaml", TextArea).text == (
+            "project:\n  id: demo\n"
+        )
+    edit_externally.assert_awaited_once_with("project:\n  id: demo\n")
+
+
+@pytest.mark.asyncio
+async def test_review_screen_editor_failure_is_reported() -> None:
+    """A failing round-trip (a malformed ``$EDITOR``, say) shows why instead of vanishing."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    screen = ProjectReviewScreen(
+        "demo",
+        "project:\n  id: demo\n",
+        edit_externally=AsyncMock(side_effect=ValueError("No closing quotation")),
+    )
+    app = _WizardHost(screen)
+    app.notify = MagicMock()  # type: ignore[method-assign]
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.click("#wizard-review-external")
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        assert app.screen.query_one("#wizard-review-yaml", TextArea).text == (
+            "project:\n  id: demo\n"
+        )
+    message = app.notify.call_args.args[0]
+    assert "project.yml — demo" in message
+    assert "No closing quotation" in message
+    assert app.notify.call_args.kwargs["severity"] == "error"
+    assert app.notify.call_args.kwargs["markup"] is False
+
+
+@pytest.mark.asyncio
+async def test_form_offers_editor_for_the_snippet_only_when_edits_go_there() -> None:
+    app = _WizardHost(WizardFormScreen())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert not app.screen.query(".wizard-external-edit")
+
+
+@pytest.mark.asyncio
+async def test_form_snippet_round_trips_through_the_editor() -> None:
+    """The Docker snippet field is edited in ``$EDITOR`` like every other text."""
+    from unittest.mock import AsyncMock
+
+    edit_externally = AsyncMock(return_value="RUN dnf install -y jq\n")
+    app = _WizardHost(WizardFormScreen(edit_externally=edit_externally))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.screen.query_one(".wizard-external-edit", Button).press()
+        await pilot.pause()
+        await app.workers.wait_for_complete()
+        area = app.screen.query_one("#wizard-field-user_snippet", TextArea)
+        assert area.text == "RUN dnf install -y jq\n"
+    edit_externally.assert_awaited_once_with("")
+
+
 # ── Registry-level smoke ──────────────────────────────────────────────
 
 
@@ -567,6 +691,24 @@ async def test_failed_step_is_marked_without_widget_readback() -> None:
             step = str(screen.query_one("#wizard-init-step-ssh", Static).render())
             assert "boom" in step
             assert "⋯" not in step
+
+
+@pytest.mark.asyncio
+async def test_init_reports_a_project_that_does_not_load() -> None:
+    """A project.yml that fails to load is logged; the SystemExit must not end the TUI."""
+    from terok.tui.wizard_screens import InitProgressScreen
+
+    with patch.object(InitProgressScreen, "on_mount", new=AsyncMock()):
+        app = _WizardHost(InitProgressScreen("demo"))
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, InitProgressScreen)
+            with patch("terok.lib.api.get_project", side_effect=SystemExit("Invalid project.yml")):
+                await screen._run_init()
+            await pilot.pause()
+            log_text = "\n".join(str(line) for line in screen.query_one("#wizard-init-log").lines)
+            assert "Invalid project.yml" in log_text
 
 
 # ── Form prefill (Back round-trip preservation) ──────────────────────

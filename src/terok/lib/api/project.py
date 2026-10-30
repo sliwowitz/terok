@@ -39,9 +39,12 @@ if TYPE_CHECKING:
         ProjectConfig as ProjectConfig,
         discover_projects as discover_projects,
         load_project as load_project,
+        project_config_path as project_config_path,
         require_project_exists as require_project_exists,
         set_project_image_agents as set_project_image_agents,
         set_project_shield_sets as set_project_shield_sets,
+        set_project_snippet_inline as set_project_snippet_inline,
+        validate_project_yaml as validate_project_yaml,
     )
     from terok.lib.domain.image_cleanup import (
         cleanup_images as cleanup_images,
@@ -127,6 +130,9 @@ _LAZY: dict[str, str] = {
     "selected_egress_sets": "terok.lib.core.egress_sets",
     "set_project_image_agents": "terok.lib.core.projects",
     "set_project_shield_sets": "terok.lib.core.projects",
+    "set_project_snippet_inline": "terok.lib.core.projects",
+    "project_config_path": "terok.lib.core.projects",
+    "validate_project_yaml": "terok.lib.core.projects",
     "summarize_ssh_init": "terok.lib.domain.ssh",
     "validate_answer": "terok.lib.domain.wizards.new_project",
     "write_project_yaml": "terok.lib.domain.wizards.new_project",

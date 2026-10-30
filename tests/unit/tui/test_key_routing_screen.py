@@ -22,8 +22,8 @@ from terok.tui.key_routing_screen import (
     _hint,
     _inventory_label,
     _key_label,
-    _ProjectPickerScreen,
 )
+from terok.tui.screens import ChoiceScreen
 from terok.tui.ssh_key_screens import ShowSshKeyScreen, SshKeyCommentScreen
 from terok.tui.widgets.routing_matrix import RoutingMatrix
 
@@ -91,7 +91,7 @@ class TestMintShortcuts:
             await pilot.pause()
             await pilot.press("m", "n")
             await pilot.pause()
-            assert isinstance(app.screen, _ProjectPickerScreen)
+            assert isinstance(app.screen, ChoiceScreen)
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, SshKeyCommentScreen)
@@ -107,7 +107,7 @@ class TestMintShortcuts:
             await pilot.pause()
             await pilot.press("i", "n")
             await pilot.pause()
-            assert isinstance(app.screen, _ProjectPickerScreen)
+            assert isinstance(app.screen, ChoiceScreen)
             await pilot.press("enter")
             await pilot.pause()
             assert isinstance(app.screen, SshKeyCommentScreen)

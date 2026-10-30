@@ -3,6 +3,8 @@
 
 """Focused tests for project/task list widget identity plumbing."""
 
+import asyncio
+from collections.abc import Generator, Iterable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -11,8 +13,19 @@ from terok.lib.api import BrokenProject
 from tests.unit.tui.tui_test_helpers import import_widgets
 
 
+class _Done:
+    """An already-finished awaitable, like Textual's ``AwaitRemove`` / ``AwaitMount`` once done."""
+
+    def __await__(self) -> Generator[None, None, None]:
+        return iter(())
+
+
 def _wire_listview(widget: Any) -> tuple[list[Any], list[Any]]:
-    """Attach the tiny ListView surface the Textual stubs intentionally omit."""
+    """Attach the tiny ListView surface the Textual stubs intentionally omit.
+
+    ``clear`` and ``extend`` act at once and return an awaitable, as
+    Textual's do, so both awaiting and non-awaiting callers work.
+    """
     appended: list[Any] = []
     posted: list[Any] = []
 
@@ -20,8 +33,18 @@ def _wire_listview(widget: Any) -> tuple[list[Any], list[Any]]:
         item.parent = widget
         appended.append(item)
 
+    def extend(items: Iterable[Any]) -> _Done:
+        for item in items:
+            append(item)
+        return _Done()
+
+    def clear() -> _Done:
+        appended.clear()
+        return _Done()
+
     widget.append = append
-    widget.clear = appended.clear
+    widget.extend = extend
+    widget.clear = clear
     widget.post_message = posted.append
     return appended, posted
 
@@ -39,7 +62,7 @@ def test_project_list_uses_project_names_for_rows_and_messages(tmp_path: Path) -
         error="project.name must match directory",
     )
 
-    project_list.set_projects([healthy], [broken])
+    asyncio.run(project_list.set_projects([healthy], [broken]))
 
     assert [row.project_name for row in rows] == ["broken", "healthy"]
     assert [row.is_broken for row in rows] == [True, False]

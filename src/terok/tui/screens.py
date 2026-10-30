@@ -174,6 +174,8 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
         _modal_binding("a", "auth", "Authenticate"),
         _modal_binding("A", "set_agents", "Set agents"),
         _modal_binding("e", "shield_sets", "Egress sets"),
+        _modal_binding("y", "edit_project_yml", "Edit project.yml"),
+        _modal_binding("S", "edit_snippet", "Edit docker snippet"),
         _modal_binding("I", "edit_instructions", "Edit instructions"),
         _modal_binding("t", "toggle_inherit", "Toggle inherit"),
         _modal_binding("v", "show_resolved", "Show resolved instructions"),
@@ -230,6 +232,10 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
             Option("\\[a]uthenticate...", id="auth"),
             Option("set \\[A]gents (image.agents in project.yml)...", id="set_agents"),
             Option("\\[e]gress sets (shield.sets in project.yml)...", id="shield_sets"),
+            Option("edit project.\\[y]ml", id="edit_project_yml"),
+            Option(
+                "edit docker \\[S]nippet (image.user_snippet_* in project.yml)", id="edit_snippet"
+            ),
             None,
             Option("edit \\[I]nstructions", id="edit_instructions"),
             Option("\\[t]oggle instructions inherit", id="toggle_inherit"),
@@ -382,6 +388,14 @@ class ProjectDetailsScreen(screen.Screen[str | None]):
     def action_shield_sets(self) -> None:
         """Open the per-project egress-set picker modal."""
         self._open_shield_sets_modal()
+
+    def action_edit_project_yml(self) -> None:
+        """Open project.yml for editing."""
+        self.dismiss("edit_project_yml")
+
+    def action_edit_snippet(self) -> None:
+        """Open the project's Docker snippet for editing."""
+        self.dismiss("edit_snippet")
 
     def action_edit_instructions(self) -> None:
         """Open instructions for editing."""
@@ -1896,6 +1910,64 @@ class ConfirmDestructiveScreen(screen.ModalScreen[bool]):
         self.dismiss(False)
 
 
+class ChoiceScreen(screen.ModalScreen[str | None]):
+    """Modal that asks the operator to pick one of a few labelled choices.
+
+    *choices* are ``(choice_id, label)`` pairs.  Dismisses with the
+    picked choice's id, or ``None`` on Escape.
+    """
+
+    BINDINGS = [
+        _modal_binding("escape", "cancel", "Cancel"),
+    ]
+
+    CSS = """
+    ChoiceScreen {
+        align: center middle;
+    }
+
+    #choice-dialog {
+        width: auto;
+        min-width: 50;
+        max-width: 90%;
+        height: auto;
+        border: heavy $primary;
+        border-title-align: right;
+        border-subtitle-align: left;
+        background: $surface;
+        padding: 1;
+    }
+
+    #choice-list {
+        height: auto;
+    }
+    """
+
+    def __init__(self, title: str, choices: list[tuple[str, str]]) -> None:
+        """Create the chooser with *title* on its border."""
+        super().__init__()
+        self._title = title
+        self._choices = choices
+
+    def compose(self) -> ComposeResult:
+        """Build the list of choices."""
+        with Vertical(id="choice-dialog") as dialog:
+            yield OptionList(
+                *(Option(label, id=choice_id) for choice_id, label in self._choices),
+                id="choice-list",
+            )
+        dialog.border_title = self._title
+        dialog.border_subtitle = "Esc to cancel"
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Dismiss with the picked choice's id."""
+        self.dismiss(event.option_id)
+
+    def action_cancel(self) -> None:
+        """Dismiss without a choice."""
+        self.dismiss(None)
+
+
 class GateBackupsScreen(screen.ModalScreen["tuple[str, str] | None"]):
     """Browse the gate's backup refs and pick one to restore or delete.
 
@@ -2087,19 +2159,19 @@ class TmuxQuitScreen(screen.ModalScreen[str | None]):
         self.dismiss({"q": "detach", "n": "next"}.get(event.key))
 
 
-class UpdateRestartScreen(screen.ModalScreen[bool]):
-    """Offer a restart when a newer terok was installed under the running TUI.
+class RestartOfferScreen(screen.ModalScreen[bool]):
+    """Offer to restart the TUI in place, after a change only a restart picks up.
 
-    Dismisses with ``True`` when the operator presses ``r`` (restart the
-    TUI in place, picking up the new version) and ``False`` on any other
-    key.  A dismissed offer is not repeated for the same on-disk version.
+    *reason* says what changed.  Dismisses with ``True`` on ``r`` and
+    ``False`` on ``Esc`` or ``n``; other keys are ignored, so a key meant
+    for the screen below (a second Ctrl+S, say) does not answer the offer.
     """
 
     CSS = """
-    UpdateRestartScreen {
+    RestartOfferScreen {
         align: center middle;
     }
-    #update-restart {
+    #restart-offer {
         width: auto;
         height: auto;
         border: round $primary;
@@ -2108,28 +2180,29 @@ class UpdateRestartScreen(screen.ModalScreen[bool]):
     }
     """
 
-    def __init__(self, running: str, installed: str) -> None:
-        """Remember the running and freshly installed version strings."""
+    def __init__(self, reason: str) -> None:
+        """Remember the *reason* the prompt shows above the restart key."""
         super().__init__()
-        # Not ``_running`` — that would shadow (and clobber) the bool
-        # driving Textual's MessagePump.
-        self._running_version = running
-        self._installed_version = installed
+        self._reason = reason
 
     def compose(self) -> ComposeResult:
-        """A centred prompt naming both versions and the restart key."""
+        """A centred prompt: the reason, then the restart key."""
+        from textual.markup import escape
+
         yield Static(
-            f"terok has been updated: {self._installed_version} is now installed\n"
-            f"(this TUI is still running {self._running_version}).\n\n"
+            f"{escape(self._reason)}\n\n"
             "\\[[$footer-key-foreground]r[/]] restart terok now\n"
-            "any other key: keep running, restart later.",
-            id="update-restart",
+            "\\[[$footer-key-foreground]Esc[/]] keep running, restart later",
+            id="restart-offer",
         )
 
     def on_key(self, event: events.Key) -> None:
-        """Restart on ``r``; any other key dismisses the offer."""
+        """Restart on ``r``, keep running on ``Esc`` or ``n``; ignore any other key."""
         event.stop()
-        self.dismiss(event.key == "r")
+        if event.key == "r":
+            self.dismiss(True)
+        elif event.key in ("escape", "n"):
+            self.dismiss(False)
 
 
 class LoginProgressScreen(screen.ModalScreen[None]):
