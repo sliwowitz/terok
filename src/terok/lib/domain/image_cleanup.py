@@ -213,7 +213,7 @@ def remove_images(images: Iterable[ImageInfo], *, dry_run: bool = False) -> Clea
                 removed.append(img.full_name)
             else:
                 failed.append(img.full_name)
-        except Exception as exc:  # noqa: BLE001 — one bad image shouldn't abort the sweep
+        except Exception as exc:  # noqa: BLE001 - one bad image shouldn't abort the sweep
             from ..util.logging_utils import log_warning
 
             log_warning(f"Image cleanup failed for {img.full_name}: {exc}")

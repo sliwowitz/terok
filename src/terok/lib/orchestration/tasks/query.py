@@ -203,7 +203,7 @@ def get_task_meta(project_name: str, task_id: str) -> TaskMeta:
             ws = read_work_status(agent_cfg)
             ws_status = ws.status
             ws_message = ws.message
-        except Exception:  # noqa: BLE001 — best-effort; agent-config may not exist yet
+        except Exception:  # noqa: BLE001 - best-effort; agent-config may not exist yet
             pass
     return TaskMeta(
         task_id=tid,
@@ -397,7 +397,7 @@ def container_event_stream(project_name: str) -> ContainerEventStream | None:
     try:
         events = getattr(PodmanRuntime(), "events", None)
         return events(project_name) if callable(events) else None
-    except Exception:  # noqa: BLE001 — podman absent / subscribe failed; resync covers it
+    except Exception:  # noqa: BLE001 - podman absent / subscribe failed; resync covers it
         return None
 
 

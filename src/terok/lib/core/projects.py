@@ -64,7 +64,7 @@ from .egress_sets import (
     normalize_egress_host,
     validate_egress_sets,
 )
-from .project_model import (  # noqa: F401 — re-exported public API
+from .project_model import (  # noqa: F401 - re-exported public API
     ProjectConfig,
     ShieldOverride,
     is_valid_project_name,
@@ -189,13 +189,13 @@ def _parse_project_text(text: str, cfg_path: Path) -> RawProjectYaml:
         raw = _yaml_load(text) or {}
     except YAMLError as exc:
         raise SystemExit(f"Failed to read {cfg_path}: {exc}") from exc
-    except Exception as exc:  # noqa: BLE001 — YAML parsers can raise anything; quarantine it
+    except Exception as exc:  # noqa: BLE001 - YAML parsers can raise anything; quarantine it
         raise SystemExit(f"Failed to read {cfg_path}: {type(exc).__name__}: {exc}") from exc
     try:
         return RawProjectYaml.model_validate(raw)
     except ValidationError as exc:
         raise SystemExit(_format_validation_error(exc, cfg_path)) from exc
-    except Exception as exc:  # noqa: BLE001 — defensive against non-Validation pydantic surprises
+    except Exception as exc:  # noqa: BLE001 - defensive against non-Validation pydantic surprises
         raise SystemExit(f"Failed to validate {cfg_path}: {type(exc).__name__}: {exc}") from exc
 
 

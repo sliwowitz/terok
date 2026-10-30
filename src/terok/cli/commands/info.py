@@ -127,7 +127,7 @@ def dispatch(args: argparse.Namespace) -> bool:
             _cmd_config_schema(args.scope, args.as_json)
         case "import-opencode":
             _cmd_import_opencode(args.file)
-        case _:  # pragma: no cover — required=True makes argparse enforce this
+        case _:  # pragma: no cover - required=True makes argparse enforce this
             return False
     return True
 

@@ -32,18 +32,18 @@ in ``task_logs``.
 # ``container_name`` / ``CONTAINER_MODES`` originate in core.task_state;
 # tasks has historically re-exported them as part of its public surface.
 from ...core.task_state import CONTAINER_MODES, container_name  # noqa: F401
-from .archive import (  # noqa: F401 — re-exported public API
+from .archive import (  # noqa: F401 - re-exported public API
     ArchivedTask,
     list_archived_tasks,
     task_archive_list,
     task_archive_logs,
 )
-from .identity import (  # noqa: F401 — re-exported public API
+from .identity import (  # noqa: F401 - re-exported public API
     is_task_id,
     normalize_task_id_input,
     resolve_task_id,
 )
-from .lifecycle import (  # noqa: F401 — re-exported public API
+from .lifecycle import (  # noqa: F401 - re-exported public API
     TaskDeleteResult,
     capture_task_logs,
     get_login_command,
@@ -55,7 +55,7 @@ from .lifecycle import (  # noqa: F401 — re-exported public API
     task_stop,
     wait_for_container_exit,
 )
-from .meta import (  # noqa: F401 — re-exported public API
+from .meta import (  # noqa: F401 - re-exported public API
     CONTAINER_TEROK_CONFIG,
     agent_config_dir,
     dossier_path,
@@ -71,13 +71,13 @@ from .meta import (  # noqa: F401 — re-exported public API
     write_task_meta,
     write_task_state,
 )
-from .naming import (  # noqa: F401 — re-exported public API
+from .naming import (  # noqa: F401 - re-exported public API
     TASK_NAME_MAX_LEN,
     generate_task_name,
     sanitize_task_name,
     validate_task_name,
 )
-from .query import (  # noqa: F401 — re-exported public API
+from .query import (  # noqa: F401 - re-exported public API
     ContainerEventStream,
     TaskMeta,
     container_event_stream,

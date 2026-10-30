@@ -15,7 +15,7 @@ from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 import pytest
-import textual.theme  # noqa: F401 — prime the real module before stubbing (see import_fresh)
+import textual.theme  # noqa: F401 - prime the real module before stubbing (see import_fresh)
 
 from tests.unit.tui.tui_test_helpers import build_textual_stubs, import_app, import_fresh
 

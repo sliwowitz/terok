@@ -51,7 +51,7 @@ from .tasks import container_name, load_task_meta, read_task_meta, task_exists, 
 _CheckResult = tuple[str, str, str]
 
 _SHIELD_STATE_FILENAME = "shield_desired_state"
-_CONTAINER_WORKSPACE = "/workspace"  # nosec B108 — standard workspace mount point
+_CONTAINER_WORKSPACE = "/workspace"  # nosec B108 - standard workspace mount point
 _SHIELD_STATE_LABEL = "Shield state"
 
 #: Per-container service paths relative to the runtime tree mounted at
@@ -490,7 +490,7 @@ def _read_sidecar_wiring(cname: str) -> dict[str, int | str]:
     try:
         sidecar = make_sandbox_config().state_dir / "sidecar" / f"{cname}.json"
         payload = json.loads(sidecar.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — best-effort; any read/parse failure → no ports
+    except Exception:  # noqa: BLE001 - best-effort; any read/parse failure -> no ports
         return {}
     if not isinstance(payload, dict):
         return {}

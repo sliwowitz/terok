@@ -265,10 +265,10 @@ class TestExperimentalAck:
             raise SystemExit(2)
 
         def _unreachable_spawn(*_args: object, **_kwargs: object) -> None:
-            called.append("spawn")  # pragma: no cover — must not run
+            called.append("spawn")  # pragma: no cover - must not run
 
         def _unreachable_pump(*_args: object, **_kwargs: object) -> None:
-            called.append("pump")  # pragma: no cover — must not run
+            called.append("pump")  # pragma: no cover - must not run
 
         monkeypatch.setattr(acp_mod, "_check_experimental_ack", _stub_check)
         monkeypatch.setattr(acp_mod, "_spawn_daemon", _unreachable_spawn)

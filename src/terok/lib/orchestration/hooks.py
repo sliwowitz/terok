@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess  # nosec B404 — hooks execute user-configured commands by design
+import subprocess  # nosec B404 - hooks execute user-configured commands by design
 from pathlib import Path
 from typing import Any
 

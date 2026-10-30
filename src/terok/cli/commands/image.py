@@ -144,7 +144,7 @@ def dispatch(args: argparse.Namespace) -> bool:
                 project_name=getattr(args, "project", None),
                 json_output=getattr(args, "json_output", False),
             )
-        case _:  # pragma: no cover — required=True makes argparse enforce this
+        case _:  # pragma: no cover - required=True makes argparse enforce this
             return False
     return True
 

@@ -3025,7 +3025,7 @@ class VaultCreatePassphraseModal(screen.ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         """Lay out the explainer, the two typed-entry fields, and the buttons."""
-        if Input is None:  # pragma: no cover — textual is stubbed in unit tests
+        if Input is None:  # pragma: no cover - textual is stubbed in unit tests
             return
         dialog = Vertical(id="vault-create-dialog")
         dialog.border_title = "Create vault passphrase"
@@ -3057,7 +3057,7 @@ class VaultCreatePassphraseModal(screen.ModalScreen[str | None]):
 
     def on_mount(self) -> None:
         """Focus the primary (generate) button — it's the recommended path."""
-        if Input is None:  # pragma: no cover — textual is stubbed in unit tests
+        if Input is None:  # pragma: no cover - textual is stubbed in unit tests
             return
         self.query_one("#vault-create-generate", Button).focus()
 
@@ -3170,7 +3170,7 @@ class VaultUnlockModal(screen.ModalScreen["str | None"]):
 
     def compose(self) -> ComposeResult:
         """Lay out prompt, masked input, and Cancel / confirm buttons."""
-        if Input is None:  # pragma: no cover — textual is stubbed in unit tests
+        if Input is None:  # pragma: no cover - textual is stubbed in unit tests
             return
         dialog = Vertical(id="vault-unlock-dialog")
         dialog.border_title = self._title

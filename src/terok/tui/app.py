@@ -679,7 +679,7 @@ if _HAS_TEXTUAL:
                 proceed = await self._run_setup_flow(verdict)
                 if proceed and empty_install:
                     self.action_new_project_wizard()
-            except Exception as exc:  # noqa: BLE001 — last-resort surface
+            except Exception as exc:  # noqa: BLE001 - last-resort surface
                 self.notify(
                     f"First-run flow failed: {exc}",
                     severity="error",
@@ -802,7 +802,7 @@ if _HAS_TEXTUAL:
             # palette worker in a silent ERROR state.
             try:
                 plan = await asyncio.to_thread(plan_provisioning, cfg)
-            except Exception as exc:  # noqa: BLE001 — e.g. an unsealable systemd-creds credential
+            except Exception as exc:  # noqa: BLE001 - e.g. an unsealable systemd-creds credential
                 self.notify(
                     f"Vault passphrase probe failed: {exc}",
                     severity="error",
@@ -834,7 +834,7 @@ if _HAS_TEXTUAL:
                 result = await asyncio.to_thread(
                     provision_passphrase_tier, cfg, tier=tier, passphrase=typed or None
                 )
-            except Exception as exc:  # noqa: BLE001 — surface desktop-keyring/seal failures verbatim
+            except Exception as exc:  # noqa: BLE001 - surface desktop-keyring/seal failures verbatim
                 self.notify(
                     f"Vault passphrase provisioning failed: {exc}",
                     severity="error",
@@ -912,7 +912,7 @@ if _HAS_TEXTUAL:
 
             try:
                 status = await asyncio.to_thread(load_vault_status)
-            except Exception as exc:  # noqa: BLE001 — surface probe failures verbatim
+            except Exception as exc:  # noqa: BLE001 - surface probe failures verbatim
                 self.notify(f"Vault probe failed: {exc}", severity="error", timeout=15)
                 return None
             if status.state is VaultState.UNPROVISIONED:
@@ -1177,7 +1177,7 @@ if _HAS_TEXTUAL:
                         timeout=10,
                     )
                     return
-                except Exception as exc:  # noqa: BLE001 — every failure becomes a notification
+                except Exception as exc:  # noqa: BLE001 - every failure becomes a notification
                     self._notify_change_failure(exc)
                     return
 
@@ -2798,7 +2798,7 @@ if _HAS_TEXTUAL:
                     timeout=10,
                 )
                 return
-            except Exception as exc:  # noqa: BLE001 — e.g. legacy plaintext DB; surface verbatim
+            except Exception as exc:  # noqa: BLE001 - e.g. legacy plaintext DB; surface verbatim
                 self.notify(str(exc), severity="error", timeout=10)
                 return
             if not result.written:
@@ -2846,7 +2846,7 @@ if _HAS_TEXTUAL:
             print("terok-tui not found on PATH — restart it manually.")
             return
         try:
-            os.execv(exe, [exe, *restart_flags])  # nosec B606 — resolved entry point, literal flags
+            os.execv(exe, [exe, *restart_flags])  # nosec B606 - resolved entry point, literal flags
         except OSError:
             # The entry point vanished or lost its exec bit between the
             # which() above and here — an upgrade in flight can do that.
@@ -2908,7 +2908,7 @@ if _HAS_TEXTUAL:
                     "terok",
                     shlex.quote(require_host_tool("terok-tui")),
                 ]
-            os.execvp(  # nosec B606 B607 — tmux from PATH, argv of fixed verbs
+            os.execvp(  # nosec B606 B607 - tmux from PATH, argv of fixed verbs
                 tmux, ["tmux", *land_args, ";", "attach-session", "-t", session]
             )
 

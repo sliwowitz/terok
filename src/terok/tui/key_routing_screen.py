@@ -75,7 +75,7 @@ class _BaseRoutingScreen(screen.Screen[None]):
         """Re-fetch the routing and repaint, surfacing a locked vault as a toast."""
         try:
             self._routing = load_key_routing()
-        except Exception as exc:  # noqa: BLE001 — any DB-open failure is operator-facing
+        except Exception as exc:  # noqa: BLE001 - any DB-open failure is operator-facing
             self._routing = None
             self.app.notify(f"Vault unavailable: {exc}", severity="error")
             return
@@ -109,7 +109,7 @@ class _BaseRoutingScreen(screen.Screen[None]):
         """Offer an editable comment before minting a key for *scope*."""
         try:
             comment = suggested_key_comment(scope)
-        except Exception as exc:  # noqa: BLE001 — any vault failure is operator-facing
+        except Exception as exc:  # noqa: BLE001 - any vault failure is operator-facing
             self.app.notify(f"Mint failed: {exc}", severity="error")
             return
         self.app.push_screen(
@@ -127,7 +127,7 @@ class _BaseRoutingScreen(screen.Screen[None]):
         """Show a selected public key without exposing private key material."""
         try:
             public_line = public_key(key_id)
-        except Exception as exc:  # noqa: BLE001 — any vault failure is operator-facing
+        except Exception as exc:  # noqa: BLE001 - any vault failure is operator-facing
             self.app.notify(f"Public key unavailable: {exc}", severity="error")
             return
         self.app.push_screen(ShowSshKeyScreen(public_line))
@@ -196,7 +196,7 @@ class _BaseRoutingScreen(screen.Screen[None]):
         """
         try:
             mutate()
-        except Exception as exc:  # noqa: BLE001 — any vault failure is operator-facing
+        except Exception as exc:  # noqa: BLE001 - any vault failure is operator-facing
             self.app.notify(f"{failure}: {exc}", severity="error")
             return
         self.reload()

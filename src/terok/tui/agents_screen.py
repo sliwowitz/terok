@@ -20,7 +20,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Label, Rule
 
-_MASTER_ALL = "all"  # nosec: B105 — selection token, not a secret
+_MASTER_ALL = "all"  # nosec: B105 - selection token, not a secret
 _MASTER_ID = "agents-select-all"
 _ERROR_ID = "agents-select-error"
 

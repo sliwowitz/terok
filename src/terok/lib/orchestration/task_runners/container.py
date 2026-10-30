@@ -206,7 +206,7 @@ def _maybe_warn_recovery_unconfirmed(color: bool) -> None:
 
     try:
         status = RecoveryStatus.load()
-    except Exception:  # noqa: BLE001 — a best-effort hint and never the source of truth
+    except Exception:  # noqa: BLE001 - a best-effort hint and never the source of truth
         return
     if status.acknowledged:
         return
