@@ -805,7 +805,7 @@ class InitProgressScreen(ModalScreen[InitOutcome]):
                     log.write(f"[red]Failed to write project.yml: {exc}[/]")
                     return
             await self._run_init()
-        except Exception as exc:  # noqa: BLE001 — modal must never freeze silently
+        except Exception as exc:  # noqa: BLE001 - modal must never freeze silently
             log.write(f"[red]Unexpected wizard error: {exc}[/]")
         finally:
             self._finish_with_close_button()

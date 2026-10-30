@@ -148,7 +148,7 @@ class PollingMixin(_MixinBase):
             return
         try:
             watcher = TaskWatcher()
-        except Exception as e:  # noqa: BLE001 — best-effort; the poll timer covers it
+        except Exception as e:  # noqa: BLE001 - best-effort; the poll timer covers it
             self._log_debug(f"gate marker watch init error: {e}")
             return
         if not watcher.start([project.gate_path]):
@@ -234,7 +234,7 @@ class PollingMixin(_MixinBase):
 
         try:
             watcher = TaskWatcher()
-        except Exception as e:  # noqa: BLE001 — watch is best-effort; resync covers it
+        except Exception as e:  # noqa: BLE001 - watch is best-effort; resync covers it
             self._log_debug(f"task watcher init error: {e}")
             return False
         if not watcher.start(self._task_watch_paths(project_name)):
@@ -263,13 +263,13 @@ class PollingMixin(_MixinBase):
         try:
             paths.append(tasks_meta_dir(project_name))
             tasks = get_tasks(project_name)
-        except Exception as e:  # noqa: BLE001 — a bad project name just means no metadata watch
+        except Exception as e:  # noqa: BLE001 - a bad project name just means no metadata watch
             self._log_debug(f"task watch path error: {e}")
             return paths
         for task in tasks:
             try:
                 paths.append(agent_config_dir(project_name, task.task_id))
-            except Exception:  # noqa: BLE001 # nosec B112 — skip tasks whose config dir won't resolve
+            except Exception:  # noqa: BLE001 # nosec B112 - skip tasks whose config dir won't resolve
                 continue
         return paths
 
@@ -337,7 +337,7 @@ class PollingMixin(_MixinBase):
         try:
             for _event in stream:
                 self.call_from_thread(self._on_container_event, project_name)
-        except Exception as e:  # noqa: BLE001 — stream died; resync covers the gap
+        except Exception as e:  # noqa: BLE001 - stream died; resync covers the gap
             self._log_debug(f"container event stream ended: {e}")
 
     def _on_container_event(self, project_name: str) -> None:
@@ -351,7 +351,7 @@ class PollingMixin(_MixinBase):
             return
         try:
             self._container_event_stream.close()
-        except Exception:  # noqa: BLE001 # nosec B110 — best-effort teardown
+        except Exception:  # noqa: BLE001 # nosec B110 - best-effort teardown
             pass
         self._container_event_stream = None
 
@@ -408,7 +408,7 @@ class PollingMixin(_MixinBase):
         try:
             tasks = await asyncio.get_event_loop().run_in_executor(None, _snapshot)
             return (project_name, tasks)
-        except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - background worker; must not crash TUI
             self._log_debug(f"container state batch check error: {e}")
             return (project_name, None)
 
@@ -450,7 +450,7 @@ class PollingMixin(_MixinBase):
 
             self._on_staleness_updated(project_name, staleness)
 
-        except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - background worker; must not crash TUI
             self._log_debug(f"upstream poll error: {e}")
 
         # Same cadence, opposite direction: gate ahead of an open review.
@@ -481,7 +481,7 @@ class PollingMixin(_MixinBase):
             loop = asyncio.get_event_loop()
             project = await loop.run_in_executor(None, lambda: load_project(project_name))
             entries = await loop.run_in_executor(None, lambda: refresh_review_lag(project))
-        except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - background worker; must not crash TUI
             self._log_debug(f"review lag error: {e}")
             return
         if entries is not None and project_name == self.current_project_name:
@@ -570,7 +570,7 @@ class PollingMixin(_MixinBase):
                 exclusive=True,
             )
 
-        except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - background worker; must not crash TUI
             self._log_debug(f"auto-sync error: {e}")
 
     async def _sync_worker(
@@ -626,6 +626,6 @@ class PollingMixin(_MixinBase):
                 label = "Auto-sync" if is_auto else "Sync"
                 self.notify(f"{label} failed: {', '.join(result['errors'])}")
 
-        except (Exception, SystemExit) as e:  # noqa: BLE001 — background worker; must not crash TUI
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - background worker; must not crash TUI
             label = "Auto-sync" if is_auto else "Sync"
             self.notify(f"{label} error: {e}")

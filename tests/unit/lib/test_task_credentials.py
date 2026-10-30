@@ -29,7 +29,7 @@ from terok.lib.domain.task_credentials import (
 # ── Shared fixtures ────────────────────────────────────────────────────
 
 
-_TEST_VAULT_PASSPHRASE = "test-vault-passphrase"  # nosec: B105 — test fixture
+_TEST_VAULT_PASSPHRASE = "test-vault-passphrase"  # nosec: B105 - test fixture
 
 
 @pytest.fixture

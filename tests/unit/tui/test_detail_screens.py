@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import pytest
-import textual.theme  # noqa: F401 — prime the real module; see comment below
+import textual.theme  # noqa: F401 - prime the real module; see comment below
 from rich.text import Text
 
 from tests.testfs import MOCK_BASE, MOCK_CONFIG_ROOT

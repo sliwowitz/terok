@@ -218,7 +218,7 @@ def validate_global_config(text: str) -> str | None:
         edited = _yaml_load(text) or {}
     except YAMLError:
         return f"Malformed YAML in {path}"
-    except Exception as exc:  # noqa: BLE001 — YAML parsers can raise anything; report it
+    except Exception as exc:  # noqa: BLE001 - YAML parsers can raise anything; report it
         return f"Malformed YAML in {path}: {type(exc).__name__}"
     if not isinstance(edited, dict):
         return f"{path}: the top level must be a mapping of settings (key: value)"

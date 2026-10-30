@@ -123,7 +123,7 @@ def clearance_off_notice(project_name: str | None = None) -> str | None:
         try:
             if load_project(project_name).clearance != "off":
                 return None
-        except (SystemExit, Exception):  # noqa: BLE001 — a probe: no project means no override
+        except (SystemExit, Exception):  # noqa: BLE001 - a probe: no project means no override
             pass
         else:
             scope = f"globally and for {project_name}"
@@ -170,7 +170,7 @@ def task_audit_enabled(project_name: str, task_id: str) -> bool | None:
     """
     try:
         project = load_project(project_name)
-    except (SystemExit, Exception):  # noqa: BLE001 — a probe: a failure reads as unknown
+    except (SystemExit, Exception):  # noqa: BLE001 - a probe: a failure reads as unknown
         return None
     return _audit_enabled(task_shield_manager(project.tasks_root / str(task_id)))
 
@@ -207,7 +207,7 @@ def set_task_prompts_muted(project_name: str, task_id: str, *, muted: bool) -> M
         )
     try:
         now = _send_mute(clearance_hub_socket(short_id), short_id, muted)
-    except Exception as exc:  # noqa: BLE001 — transport errors and varlink refusals alike
+    except Exception as exc:  # noqa: BLE001 - transport errors and varlink refusals alike
         if _task_started_clearance(project.name, task_id) == "off":
             return MuteResult(
                 None,
@@ -256,7 +256,7 @@ def container_prompts_muted(short_id: str) -> bool | None:
 
     try:
         mutes = asyncio.run(_call())
-    except Exception:  # noqa: BLE001 — a probe: a failure reads as unknown
+    except Exception:  # noqa: BLE001 - a probe: a failure reads as unknown
         return None
     return short_id in mutes
 
@@ -317,7 +317,7 @@ def _task_started_clearance(project_name: str, task_id: str) -> ClearanceMode | 
         if not mode:
             return None
         return started_clearance_mode(container_name(project_name, mode, task_id))
-    except (SystemExit, Exception):  # noqa: BLE001 — a probe: a failure reads as unknown
+    except (SystemExit, Exception):  # noqa: BLE001 - a probe: a failure reads as unknown
         return None
 
 
@@ -342,5 +342,5 @@ def _audit_enabled(manager: ShieldManager) -> bool | None:
     """The audit flag *manager*'s container was created with; ``None`` when unreadable."""
     try:
         return manager.harvest().audit_enabled
-    except Exception:  # noqa: BLE001 — a probe: a failure reads as unknown
+    except Exception:  # noqa: BLE001 - a probe: a failure reads as unknown
         return None

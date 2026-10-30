@@ -60,7 +60,7 @@ _TOAD_PUBLIC_PORT = 8080
 """Port that Caddy binds inside the container — the one podman publishes."""
 _TOAD_INTERNAL_PORT = 8081
 """Loopback port that toad binds inside the container — reached only via Caddy."""
-_TOAD_TOKEN_FILE_NAME = "toad.token"  # nosec B105 — filename, not a credential
+_TOAD_TOKEN_FILE_NAME = "toad.token"  # nosec B105 - filename, not a credential
 
 
 def _ensure_toad_token(agent_config_dir: Path, existing: str | None = None) -> str:

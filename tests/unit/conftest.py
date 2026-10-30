@@ -188,7 +188,7 @@ def _stub_credential_db(tmp_path_factory: pytest.TempPathFactory) -> Iterator[No
     from terok_sandbox import CredentialDB
 
     db_path = tmp_path_factory.mktemp("unit-vault") / "credentials.db"
-    test_passphrase = "unit-test-passphrase"  # nosec: B105 — fixture, not a real secret
+    test_passphrase = "unit-test-passphrase"  # nosec: B105 - fixture, not a real secret
 
     def _open(_db_path: Path | None = None, *, prompt_on_tty: bool = False) -> CredentialDB:
         return CredentialDB(db_path, passphrase=test_passphrase)

@@ -289,7 +289,7 @@ def selinux_install_policy() -> None:
     using the current absolute PATH entries. Failing either lookup turns into a clear
     [`SystemExit`][SystemExit] rather than a confusing ``FileNotFoundError``.
     """
-    import subprocess  # noqa: S404 — running sudo to load a bundled SELinux policy is the whole point of this verb  # nosec B404
+    import subprocess  # noqa: S404 - running sudo to load a bundled SELinux policy is the whole point of this verb  # nosec B404
 
     from terok_util import find_host_tool
 
@@ -305,7 +305,7 @@ def selinux_install_policy() -> None:
         )
     # Stream stdout/stderr to the parent process so ConsoleLog captures
     # them line-by-line — same shape as every other dispatched action.
-    subprocess.run(  # noqa: S603 — argv built from absolute paths + a bundled script  # nosec B603
+    subprocess.run(  # noqa: S603 - argv built from absolute paths + a bundled script  # nosec B603
         [sudo, bash, str(selinux_install_script())],
         check=True,
     )

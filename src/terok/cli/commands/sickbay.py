@@ -724,7 +724,7 @@ def _check_recovery_acknowledged() -> _CheckResult:
         from terok.lib.api.shield import RecoveryStatus
 
         status = RecoveryStatus.load()
-    except Exception as exc:  # noqa: BLE001 — best-effort probe that never blocks sickbay
+    except Exception as exc:  # noqa: BLE001 - best-effort probe that never blocks sickbay
         return ("warn", label, f"check failed — {exc}")
     if status.acknowledged:
         return ("ok", label, "recovery key acknowledged")
@@ -791,7 +791,7 @@ def _check_stray_sidecars() -> _CheckResult:
         from ...lib.core.config import make_sandbox_config
 
         verdict = make_stray_sidecar_check(make_sandbox_config()).evaluate(0, "", "")
-    except Exception as exc:  # noqa: BLE001 — probe is best-effort; never crash sickbay
+    except Exception as exc:  # noqa: BLE001 - probe is best-effort; never crash sickbay
         return ("warn", label, f"check failed — {exc}")
     return (verdict.severity, label, verdict.detail)
 
@@ -807,7 +807,7 @@ def _check_default_agents() -> _CheckResult:
         from terok.lib.integrations.executor import ExecutorConfigView
 
         current = ExecutorConfigView.image_agents()
-    except Exception as exc:  # noqa: BLE001 — probe is best-effort; never crash sickbay
+    except Exception as exc:  # noqa: BLE001 - probe is best-effort; never crash sickbay
         return ("warn", label, f"check failed — {exc}")
 
     if current:
@@ -852,7 +852,7 @@ def _check_agent_credentials() -> _CheckResult:
     try:
         missing = _missing_credentials()
         unrouted = missing == [] and _claude_login_unrouted()
-    except Exception as exc:  # noqa: BLE001 — a probe; never crash sickbay
+    except Exception as exc:  # noqa: BLE001 - a probe; never crash sickbay
         return ("warn", label, f"check failed — {exc}")
 
     if missing is None:

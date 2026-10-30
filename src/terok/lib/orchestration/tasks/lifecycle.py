@@ -344,7 +344,7 @@ def _sweep_container_state(project_name: str, task_id: str, warnings: list[str])
         cname = container_name(project_name, mode, str(task_id))
         try:
             remove_container_state(cname, cfg=cfg)
-        except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+        except Exception as exc:  # noqa: BLE001 - best-effort cleanup
             _log_debug(f"task_delete: container state sweep failed for {cname}: {exc}")
             warnings.append(f"Container state sweep failed for {cname}: {exc}")
 
@@ -361,7 +361,7 @@ def _release_task_web_port(
         from ..ports import release_web_port
 
         release_web_port(project_name, task_id)
-    except Exception as exc:  # noqa: BLE001 — best-effort cleanup
+    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
         _log_debug(f"task_delete: web port release failed: {exc}")
         warnings.append(f"Web port release failed: {exc}")
 
@@ -544,7 +544,7 @@ def _task_stop(project: ProjectConfig, task_id: str, *, timeout: int | None = No
         from ..ports import release_web_port
 
         release_web_port(project.name, task_id)
-    except Exception:  # noqa: BLE001 — best-effort; container is already stopped
+    except Exception:  # noqa: BLE001 - best-effort; container is already stopped
         pass
 
     from ..hooks import run_hook

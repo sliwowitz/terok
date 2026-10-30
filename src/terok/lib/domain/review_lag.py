@@ -27,7 +27,7 @@ to make the state impossible to miss, not actionable.
 from __future__ import annotations
 
 import json
-import subprocess  # nosec B404 — forge queries go through the operator's own gh/glab CLIs
+import subprocess  # nosec B404 - forge queries go through the operator's own gh/glab CLIs
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,7 +148,7 @@ def fetch_open_reviews(upstream_url: str) -> list[OpenReview] | None:
     if command is None:
         return None
     try:
-        result = subprocess.run(  # nosec B603 — argv is a fixed CLI verb + values derived from project config
+        result = subprocess.run(  # nosec B603 - argv is a fixed CLI verb + values derived from project config
             command,
             executable=require_host_tool(command[0]),
             capture_output=True,

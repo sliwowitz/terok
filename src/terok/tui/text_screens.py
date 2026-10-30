@@ -88,7 +88,7 @@ async def edit_externally_into(
     """
     try:
         edited = await edit_externally(area.text)
-    except Exception as exc:  # noqa: BLE001 — an edit must never fail silently
+    except Exception as exc:  # noqa: BLE001 - an edit must never fail silently
         area.notify(f"Editing {title} failed: {exc}", severity="error", markup=False)
         return False
     if edited is None:

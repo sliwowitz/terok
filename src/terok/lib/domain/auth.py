@@ -218,9 +218,9 @@ def authenticate(
 
     image: str | Callable[[], str]
     if project_name is None:
-        image = lambda: _resolve_host_auth_image(provider)  # noqa: E731 — lazy by design
+        image = lambda: _resolve_host_auth_image(provider)  # noqa: E731 - lazy by design
     else:
-        image = lambda: _resolve_project_auth_image(  # noqa: E731 — lazy by design
+        image = lambda: _resolve_project_auth_image(  # noqa: E731 - lazy by design
             project_name, provider
         )
 

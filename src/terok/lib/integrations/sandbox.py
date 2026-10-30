@@ -221,8 +221,8 @@ _LAZY: dict[str, str] = {
     "LifecycleHooks": "terok_sandbox",
     "NoPassphraseError": "terok_sandbox",
     "ShieldSetupError": "terok_sandbox",
-    "PassphraseChangeResult": "terok_sandbox",  # nosec: B105 — export-map path, not a secret
-    "PassphraseTier": "terok_sandbox",  # nosec: B105 — export-map path, not a secret
+    "PassphraseChangeResult": "terok_sandbox",  # nosec: B105 - export-map path, not a secret
+    "PassphraseTier": "terok_sandbox",  # nosec: B105 - export-map path, not a secret
     "ProvisioningPlan": "terok_sandbox",
     "NullRuntime": "terok_sandbox",
     "PodmanRuntime": "terok_sandbox",
@@ -260,7 +260,7 @@ _LAZY: dict[str, str] = {
     "git_http_backend": "terok_sandbox",
     "handle_setup_component": "terok_sandbox",
     "claim_port": "terok_sandbox",
-    "change_passphrase": "terok_sandbox",  # nosec: B105 — export-map path, not a secret
+    "change_passphrase": "terok_sandbox",  # nosec: B105 - export-map path, not a secret
     "container_diagnostics": "terok_sandbox",
     "respawn_supervisor": "terok_sandbox",
     "credentials_provisioned": "terok_sandbox",
@@ -280,7 +280,7 @@ _LAZY: dict[str, str] = {
     "mint_gate_token": "terok_sandbox",
     "normalize_gpus": "terok_sandbox",
     "plan_provisioning": "terok_sandbox",
-    "provision_passphrase_tier": "terok_sandbox",  # nosec: B105 — export-map path, not a secret
+    "provision_passphrase_tier": "terok_sandbox",  # nosec: B105 - export-map path, not a secret
     "provision_session_passphrase": "terok_sandbox",
     "public_line_of": "terok_sandbox",
     "purge_passphrase_tiers": "terok_sandbox",

@@ -149,7 +149,7 @@ class TestBypassContainerConnectivity:
             container_id = resolve_container_uuid(unshielded_container)
             try:
                 ShieldManager(Path(td)).down(unshielded_container, container_id)
-            except Exception as exc:  # noqa: BLE001 — shield raises its own ExecError family
+            except Exception as exc:  # noqa: BLE001 - shield raises its own ExecError family
                 # nft missing in alpine, nsenter perms, etc.  The regression
                 # under test is a *successful* down that installs blocking
                 # rules, so a down that never applied proves nothing — skip

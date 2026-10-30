@@ -21,7 +21,7 @@ verdicts reach the right hub.
 
 from __future__ import annotations
 
-import subprocess  # noqa: S404 — wrapping ``podman inspect``; argv is built from fixed verbs + caller-vetted container name  # nosec B404
+import subprocess  # noqa: S404 - wrapping ``podman inspect``; argv is built from fixed verbs + caller-vetted container name  # nosec B404
 import sys
 from contextlib import suppress
 from typing import TYPE_CHECKING
@@ -86,7 +86,7 @@ def resolve_container_uuid(cname: str) -> str:
     ``try`` block.
     """
     try:
-        out = subprocess.check_output(  # noqa: S603 — argv is fixed verbs + caller-vetted name  # nosec B603 B607
+        out = subprocess.check_output(  # noqa: S603 - argv is fixed verbs + caller-vetted name  # nosec B603 B607
             ["podman", "container", "inspect", "-f", "{{.Id}}", "--", cname],
             executable=require_host_tool("podman"),
             stderr=subprocess.DEVNULL,

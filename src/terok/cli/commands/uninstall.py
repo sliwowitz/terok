@@ -148,7 +148,7 @@ def _uninstall_sandbox_stack() -> bool:
     with stage_line("Sandbox stack") as s:
         try:
             sandbox_uninstall()
-        except (SystemExit, Exception) as exc:  # noqa: BLE001 — aggregator may raise
+        except (SystemExit, Exception) as exc:  # noqa: BLE001 - aggregator may raise
             s.fail(str(exc))
             return False
         s.ok("clearance + vault + shield removed")

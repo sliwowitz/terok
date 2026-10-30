@@ -134,7 +134,7 @@ def _rotation_warning(manager: "ShieldManager", posture: "ShieldState") -> str |
     try:
         risk = manager.rotation_risk
         lines = risk.lines(posture) if risk is not None else []
-    except Exception:  # noqa: BLE001 — advisory: the posture change already landed
+    except Exception:  # noqa: BLE001 - advisory: the posture change already landed
         return None
     return "\n".join(lines) or None
 
