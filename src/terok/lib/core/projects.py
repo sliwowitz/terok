@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from terok_util import ConfigStack, require_host_tool, write_config_file
 from terok_util.config_stack import ConfigScope
 
-from terok.lib.integrations.sandbox import gate_use_personal_ssh_default
+from terok.lib.integrations.sandbox import CredentialsConfigError, gate_use_personal_ssh_default
 
 from ..integrations.executor import ExecutorConfigView
 from ..util.net import git_remote_host
@@ -535,16 +535,28 @@ def project_config_path(project_name: str) -> Path:
 
 @dataclass(frozen=True)
 class BrokenProject:
-    """A project directory whose ``project.yml`` failed to load.
+    """A project unavailable because its local or global configuration failed to load.
 
     Carries just enough context for the TUI to render a row and show the
-    validation error in the details pane, without forcing callers to
+    configuration error in the details pane, without forcing callers to
     re-run the failing ``load_project`` to rediscover the message.
+    ``global_config_paths`` distinguishes global configuration failures
+    from errors in the project's own ``config_path``.
     """
 
     name: str
     config_path: Path
     error: str
+    global_config_paths: tuple[Path, ...] = ()
+
+
+class _GlobalConfigError(SystemExit):
+    """Keep global provenance while preserving project loading's CLI exit contract."""
+
+    def __init__(self, error: CredentialsConfigError) -> None:
+        """Carry only the credential reader's secret-safe message and source paths."""
+        super().__init__(_sanitize_for_tty(str(error)))
+        self.config_paths = error.config_paths
 
 
 def discover_projects() -> tuple[list[ProjectConfig], list[BrokenProject]]:
@@ -554,7 +566,8 @@ def discover_projects() -> tuple[list[ProjectConfig], list[BrokenProject]]:
     ones (issue #565) — silently hiding them turns "project vanished" into
     a mystery.  ``_parse_project_yaml`` wraps every config error (bad YAML,
     schema drift, filesystem issues) in ``SystemExit`` with a human-readable
-    message; anything else propagates as a genuine bug.
+    message. Global credential failures retain their source paths so callers
+    can direct repairs to the global configuration instead of ``project.yml``.
     """
     paths_by_id = _discover_project_paths()
     valid: list[ProjectConfig] = []
@@ -562,6 +575,15 @@ def discover_projects() -> tuple[list[ProjectConfig], list[BrokenProject]]:
     for pid in sorted(paths_by_id):
         try:
             valid.append(load_project(pid))
+        except _GlobalConfigError as exc:
+            broken.append(
+                BrokenProject(
+                    name=pid,
+                    config_path=paths_by_id[pid],
+                    error=str(exc),
+                    global_config_paths=exc.config_paths,
+                )
+            )
         except SystemExit as exc:
             msg = _sanitize_for_tty(str(exc))
             broken.append(BrokenProject(name=pid, config_path=paths_by_id[pid], error=msg))
@@ -583,8 +605,11 @@ def list_projects() -> list[ProjectConfig]:
         # embedded newlines would split across records and could be read
         # as injected log lines.  stderr print keeps newlines so pydantic's
         # multi-line validation output is readable on the console.
-        logger.warning("Skipping broken project '%s': %s", bp.name, bp.error.replace("\n", "\\n"))
-        print(f"warning: skipping broken project '{bp.name}': {bp.error}", file=sys.stderr)
+        status = "blocked" if bp.global_config_paths else "broken"
+        logger.warning(
+            "Skipping %s project '%s': %s", status, bp.name, bp.error.replace("\n", "\\n")
+        )
+        print(f"warning: skipping {status} project '{bp.name}': {bp.error}", file=sys.stderr)
     return valid
 
 
@@ -685,6 +710,8 @@ def _resolve_project(raw: RawProjectYaml, root: Path, project_name: str) -> Proj
 
     try:
         return _build_project_config(raw, identity, root, project_name)
+    except CredentialsConfigError as exc:
+        raise _GlobalConfigError(exc) from None
     except ValidationError as exc:
         # Identity values come from merged sources (git config, global config,
         # project.yml).  Include provenance in the error so the user knows

@@ -1327,6 +1327,12 @@ load; the project panel shows why) to open its `project.yml`.  The
 integrated editor also shows the load error under the text.  After a
 valid save, the project list shows the project as healthy again.
 
+A project marked **blocked: global config** has a global configuration
+error, not necessarily an invalid `project.yml`. The project panel shows
+the full global configuration path; for merged validation errors, it lists
+the loaded global configuration files. **Enter** reports that error without
+opening `project.yml`. Repair the named global configuration instead.
+
 When files open in `$EDITOR`, the new-project wizard shows an **Edit in
 $EDITOR** button for its Docker snippet field and on its review step.
 

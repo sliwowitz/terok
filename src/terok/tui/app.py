@@ -14,6 +14,7 @@ import socket
 import sys
 from collections.abc import Iterator
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 
@@ -387,6 +388,7 @@ if _HAS_TEXTUAL:
             # set on every action (#565).  Resets when all breakages clear,
             # so a later regression toasts again.
             self._announced_broken_ids: set[str] = set()
+            self._announced_global_config_errors: set[tuple[tuple[Path, ...], str]] = set()
             self._last_task_count: int | None = None
             # Upstream polling state
             self._staleness_info: GateStalenessInfo | None = None
@@ -1386,26 +1388,41 @@ if _HAS_TEXTUAL:
             self._restore_or_default_project_selection(proj_widget, projects, broken)
 
         def _announce_newly_broken(self, broken: list[BrokenProject]) -> None:
-            """Toast once when the set of broken-project names changes.
+            """Announce global blockers once per failure and local failures once per project set.
 
-            Users upgrading across a schema change need to see the breakage
-            immediately — but only once per distinct set, so repeated
-            ``refresh_projects`` calls don't spam (#565).
+            A single invalid global setting can block every project.  Toast
+            that cause once, without calling the projects' own files broken.
+            Recovery clears the remembered failures so a regression re-fires.
             """
-            current_ids = {bp.name for bp in broken}
+            global_errors = {
+                (bp.global_config_paths, bp.error) for bp in broken if bp.global_config_paths
+            }
+            for paths, error in sorted(global_errors - self._announced_global_config_errors):
+                summary = error.partition("\n")[0]
+                self.notify(
+                    f"Global config blocks projects — {summary}\n"
+                    f"Global config: {', '.join(repr(str(path)) for path in paths)}",
+                    severity="warning",
+                    timeout=15,
+                    markup=False,
+                )
+            self._announced_global_config_errors = global_errors
+            project_errors = [bp for bp in broken if not bp.global_config_paths]
+            current_ids = {bp.name for bp in project_errors}
             if not current_ids:
                 # Breakages cleared — forget announced so a regression re-fires.
                 self._announced_broken_ids = set()
                 return
             if current_ids == self._announced_broken_ids:
                 return
-            first = broken[0]
+            first = project_errors[0]
             summary = f"{first.name}: {first.error.splitlines()[0]}"
-            extra = f" (+{len(broken) - 1} more)" if len(broken) > 1 else ""
+            extra = f" (+{len(project_errors) - 1} more)" if len(project_errors) > 1 else ""
             self.notify(
                 f"Broken project config detected — {summary}{extra}",
                 severity="warning",
                 timeout=15,
+                markup=False,
             )
             self._announced_broken_ids = current_ids
 
@@ -2363,10 +2380,20 @@ if _HAS_TEXTUAL:
             if not self.current_project_name:
                 self.notify("No project selected.")
                 return
-            if self.current_project_name in self._broken_by_id:
-                # A broken project has no loadable config to act on; the one
-                # thing to do with it is fix its project.yml.
-                self._edit_project_yml(self.current_project_name)
+            if broken := self._broken_by_id.get(self.current_project_name):
+                if broken.global_config_paths:
+                    # The invalid source may be a system layer, not the file
+                    # the global editor writes.  Do not open an unrelated file.
+                    self.notify(
+                        f"Project blocked by invalid global configuration:\n{broken.error}\n"
+                        "Global config: "
+                        + ", ".join(repr(str(path)) for path in broken.global_config_paths),
+                        severity="error",
+                        timeout=15,
+                        markup=False,
+                    )
+                else:
+                    self._edit_project_yml(self.current_project_name)
                 return
             project = self._projects_by_id.get(self.current_project_name)
             if not project:

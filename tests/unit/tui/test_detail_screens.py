@@ -891,7 +891,7 @@ class TestProjectConfigEditors:
         instance.push_screen = mock.AsyncMock()  # Textual's, absent from the stub App
         instance.notify = mock.Mock()
         instance.current_project_name = "broken"
-        instance._broken_by_id = {"broken": mock.Mock(name="BrokenProject")}
+        instance._broken_by_id = {"broken": SimpleNamespace(global_config_paths=())}
         run(app_class.action_show_project_actions(instance))
         instance._edit_project_yml.assert_called_once_with("broken")
         instance.push_screen.assert_not_called()
