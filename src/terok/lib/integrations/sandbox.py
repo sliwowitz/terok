@@ -68,6 +68,7 @@ if TYPE_CHECKING:
         ClearanceMode as ClearanceMode,
         ContainerRuntime as ContainerRuntime,
         CredentialDB as CredentialDB,
+        CredentialsConfigError as CredentialsConfigError,
         DnsTier as DnsTier,
         DoctorCheck as DoctorCheck,
         EnvironmentCheck as EnvironmentCheck,
@@ -171,6 +172,7 @@ if TYPE_CHECKING:
 
 #: Public name -> defining module (PEP 562 lazy resolution).
 _LAZY: dict[str, str] = {
+    "CredentialsConfigError": "terok_sandbox",
     "AppliedOp": "terok_sandbox",
     "AllowResult": "terok_sandbox",
     "ClearanceMode": "terok_sandbox",
@@ -333,6 +335,7 @@ __all__ = [
     "Container",
     "ContainerRuntime",
     "CredentialDB",
+    "CredentialsConfigError",
     "DEFAULT_GUEST_SSHD_PORT",
     "DEFAULT_SSH_HOST",
     "DnsTier",

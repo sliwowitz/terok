@@ -22,6 +22,7 @@ from ...lib.util.emoji import render_emoji
 # emoji pipeline (wide glyph, --no-emoji fallback label) stays consistent
 # with how other errors render in the TUI.
 _BROKEN_BADGE = StatusInfo(label="broken", emoji="❌", color="red")
+_BLOCKED_BADGE = StatusInfo(label="blocked", emoji="❌", color="red")
 
 
 class ProjectListItem(ListItem):
@@ -72,7 +73,7 @@ class ProjectList(ListView):
     ) -> None:
         """Populate the list with healthy and (optionally) broken projects.
 
-        Broken projects render with an error marker ahead of healthy ones so
+        Unloadable projects render with an error marker ahead of healthy ones so
         they are impossible to miss; selecting one lets the app show the
         validation error in place of the normal project state panel (#565).
         Returns once the new rows have replaced the old ones, so a selection
@@ -83,12 +84,15 @@ class ProjectList(ListView):
         self._generation += 1
         await self.clear()
 
-        # Broken first — a damaged config is the thing most likely to need
+        # Unloadable first — a damaged config is the thing most likely to need
         # attention, so putting it at the top makes the error indicator the
         # first thing the user sees.
         rows: list[ProjectListItem] = []
         for bp in self.broken:
-            label = f"{render_emoji(_BROKEN_BADGE)} {bp.name} (broken)"
+            blocked = bool(bp.global_config_paths)
+            badge = _BLOCKED_BADGE if blocked else _BROKEN_BADGE
+            status = "blocked: global config" if blocked else "broken"
+            label = f"{render_emoji(badge)} {bp.name} ({status})"
             rows.append(ProjectListItem(bp.name, label, self._generation, is_broken=True))
 
         for proj in projects:

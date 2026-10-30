@@ -61,25 +61,36 @@ def render_project_loading(
 
 
 def render_broken_project(bp: BrokenProject, css_variables: dict[str, str] | None = None) -> Text:
-    """Render a damaged project's validation error as a Rich Text block (#565).
+    """Render a project-load failure, identifying the configuration that needs repair.
 
-    The config path plus the raw error message are enough for the user to
-    open ``project.yml`` in an editor and fix whatever pydantic or the
-    YAML parser flagged — no extra round-trip to the CLI.
+    Global configuration can block an otherwise valid project.  Show its
+    source paths instead of suggesting that the project's own file is broken.
     """
     variables = css_variables or {}
     error_color = variables.get("error", "red")
     dim = Style(dim=True)
+    blocked = bool(bp.global_config_paths)
+    status = "blocked: global config" if blocked else "broken"
     header = Text(f"Project:   {bp.name} ", style=Style(color=error_color, bold=True))
-    header.append("(broken)", style=Style(color=error_color))
+    header.append(f"({status})", style=Style(color=error_color))
+    explanation = (
+        "This project is blocked by invalid global configuration:"
+        if blocked
+        else "This project's configuration could not be loaded:"
+    )
+    config_lines = (
+        [Text(f"Global config: {str(path)!r}", style=dim) for path in bp.global_config_paths]
+        if blocked
+        else [Text(f"Config: {bp.config_path}", style=dim)]
+    )
     lines = [
         header,
         Text(""),
-        Text("This project's configuration could not be loaded:"),
+        Text(explanation),
         Text(""),
         Text(bp.error, style=Style(color=error_color)),
         Text(""),
-        Text(f"Config: {bp.config_path}", style=dim),
+        *config_lines,
     ]
     return Text("\n").join(lines)
 

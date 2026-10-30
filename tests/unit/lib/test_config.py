@@ -1362,6 +1362,101 @@ def test_validate_global_config_resolves_inherit_markers_like_startup(
     assert cfg.validate_global_config("tui:\n  _inherit: true\n  theme: x\n") is None
 
 
+@pytest.mark.parametrize("surface", ["startup", "editor"])
+@pytest.mark.parametrize(
+    ("text", "location"),
+    [
+        pytest.param(
+            'credentials:\n  passphrase: "PRIVATE_CONFIG_SENTINEL\n',
+            "Malformed YAML",
+            id="malformed-yaml",
+        ),
+        pytest.param(
+            "credentials:\n  PRIVATE_CONFIG_SENTINEL: PRIVATE_CONFIG_SENTINEL\n",
+            "credentials",
+            id="unknown-credential-key",
+        ),
+        pytest.param(
+            "credentials:\n  use_desktop_keyring: PRIVATE_CONFIG_SENTINEL\n",
+            "credentials.use_desktop_keyring",
+            id="invalid-credential-value",
+        ),
+        pytest.param(
+            "credentials:\n  passphrase: PRIVATE_CONFIG_SENTINEL\n",
+            "credentials.passphrase",
+            id="removed-plaintext-tier",
+        ),
+    ],
+)
+def test_global_config_diagnostics_keep_credential_values_private(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    surface: str,
+    text: str,
+    location: str,
+) -> None:
+    """Startup warnings, their logs and editor refusals never reproduce credential input."""
+    from terok_util import BestEffortLogger
+
+    from terok.lib.util import logging_utils
+
+    user = _config_layers_in(monkeypatch, tmp_path)
+    log_file = tmp_path / "config-diagnostics.log"
+    monkeypatch.setattr(logging_utils, "_logger", BestEffortLogger(lambda: log_file))
+    if surface == "startup":
+        user.write_text(text, encoding="utf-8")
+        assert cfg._load_validated().credentials.use_desktop_keyring is True
+        refusal = ""
+    else:
+        refusal = cfg.validate_global_config(text)
+        assert refusal is not None
+        assert not user.exists()
+
+    captured = capsys.readouterr()
+    diagnostics = refusal + captured.out + captured.err
+    if log_file.exists():
+        diagnostics += log_file.read_text(encoding="utf-8")
+    assert "PRIVATE_CONFIG_SENTINEL" not in diagnostics
+    assert str(user) in diagnostics
+    assert location in diagnostics
+
+
+def test_global_config_read_error_keeps_exception_details_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A file-read failure identifies the file and error class, not its arbitrary details."""
+    user = _config_layers_in(monkeypatch, tmp_path)
+    user.touch()
+
+    def unreadable(_path: Path, **_kwargs: object) -> str:
+        raise OSError("PRIVATE_CONFIG_SENTINEL")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    assert cfg._build_config_stack().resolve() == {}
+    captured = capsys.readouterr()
+    assert "PRIVATE_CONFIG_SENTINEL" not in captured.err
+    assert str(user) in captured.err
+    assert "OSError" in captured.err
+
+
+def test_global_config_editor_keeps_unexpected_parser_errors_private(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Even an unexpected parser failure cannot echo secret-bearing exception text."""
+    user = _config_layers_in(monkeypatch, tmp_path)
+
+    def broken_parser(_text: str) -> object:
+        raise RuntimeError("PRIVATE_CONFIG_SENTINEL")
+
+    monkeypatch.setattr(cfg, "_yaml_load", broken_parser)
+    refusal = cfg.validate_global_config("credentials: {}\n")
+    assert refusal is not None
+    assert "PRIVATE_CONFIG_SENTINEL" not in refusal
+    assert str(user) in refusal
+    assert "RuntimeError" in refusal
+
+
 @pytest.mark.parametrize("override", [True, False], ids=["TEROK_CONFIG_FILE", "xdg"])
 def test_top_config_layer_is_the_user_config_file(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, override: bool

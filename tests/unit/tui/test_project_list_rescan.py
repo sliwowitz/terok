@@ -41,12 +41,20 @@ def _project(name: str, tmp_path: Path) -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
-async def test_repaired_project_is_selected_after_the_rescan(tmp_path: Path) -> None:
+@pytest.mark.parametrize("global_error", [False, True], ids=["project-config", "global-config"])
+async def test_repaired_project_is_selected_after_the_rescan(
+    tmp_path: Path, global_error: bool
+) -> None:
     """Broken before, healthy after: the selection after the rebuild reaches the new row."""
     app = _ListHost()
     async with app.run_test() as pilot:
         project_list = app.query_one(ProjectList)
-        broken = BrokenProject(name="beta", config_path=tmp_path / "beta.yml", error="bad")
+        broken = BrokenProject(
+            name="beta",
+            config_path=tmp_path / "beta.yml",
+            error="bad",
+            global_config_paths=(tmp_path / "config.yml",) if global_error else (),
+        )
         await project_list.set_projects([_project("alpha", tmp_path)], [broken])
         project_list.select_project("beta")
         await pilot.pause()

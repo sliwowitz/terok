@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from terok.lib.api import BrokenProject
 from tests.unit.tui.tui_test_helpers import import_widgets
 
@@ -75,6 +77,37 @@ def test_project_list_uses_project_names_for_rows_and_messages(tmp_path: Path) -
     project_list._post_selected_project(rows[1])
     assert messages[-1].project_name == "healthy"
     assert messages[-1].is_broken is False
+
+
+@pytest.mark.parametrize("emoji_enabled", [True, False])
+def test_global_config_failure_labels_the_project_blocked(
+    tmp_path: Path, emoji_enabled: bool
+) -> None:
+    """The label, including the no-emoji badge, never blames the project's own config."""
+    from terok.lib.util.emoji import is_emoji_enabled, set_emoji_enabled
+
+    widgets = import_widgets()
+    project_list = widgets.ProjectList()
+    rows, messages = _wire_listview(project_list)
+    blocked = BrokenProject(
+        name="blocked",
+        config_path=tmp_path / "blocked" / "project.yml",
+        error="Invalid global credentials configuration",
+        global_config_paths=(tmp_path / "config.yml",),
+    )
+    original = is_emoji_enabled()
+    set_emoji_enabled(emoji_enabled)
+    try:
+        asyncio.run(project_list.set_projects([], [blocked]))
+    finally:
+        set_emoji_enabled(original)
+
+    label = rows[0]._stub_args[0]._stub_args[0]
+    assert "(blocked: global config)" in label
+    assert "broken" not in label
+    project_list._post_selected_project(rows[0])
+    assert messages[-1].project_name == "blocked"
+    assert messages[-1].is_broken is True
 
 
 def test_task_list_preserves_live_state_and_posts_current_project() -> None:

@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
     from terok_util import ConfigStack
 
     from terok.lib.core.project_model import ProjectConfig
@@ -150,10 +151,11 @@ def _build_config_stack(layers: list[tuple[str, Path]] | None = None) -> ConfigS
         try:
             raw = _yaml_load(path.read_text(encoding="utf-8")) or {}
         except (OSError, UnicodeDecodeError) as exc:
-            warn_user("config", f"Cannot read {path}: {exc}. Skipping layer.")
+            warn_user("config", f"Cannot read {path} ({type(exc).__name__}). Skipping layer.")
             continue
-        except YAMLError as exc:
-            warn_user("config", f"Malformed YAML in {path}: {exc}. Skipping layer.")
+        except YAMLError:
+            # Parser diagnostics can reproduce credential values from the source.
+            warn_user("config", f"Malformed YAML in {path}. Skipping layer.")
             continue
         if not isinstance(raw, dict):
             warn_user(
@@ -190,9 +192,7 @@ def _load_validated() -> RawGlobalConfig:
         from ..util.logging_utils import warn_user
 
         sources = ", ".join(str(s.source) for s in stack.scopes if s.data)
-        field_errors = "; ".join(
-            f"{'.'.join(str(part) for part in e['loc'])}: {e['msg']}" for e in exc.errors()[:3]
-        )
+        field_errors = "; ".join(_format_config_error(error) for error in exc.errors()[:3])
         warn_user("config", f"Invalid config ({sources}): {field_errors}. Using defaults.")
         _validated_config_cache = RawGlobalConfig()
     return _validated_config_cache
@@ -216,10 +216,10 @@ def validate_global_config(text: str) -> str | None:
     *lower_layers, (label, path) = _config_layers()
     try:
         edited = _yaml_load(text) or {}
-    except YAMLError as exc:
-        return f"Malformed YAML in {path}: {exc}"
+    except YAMLError:
+        return f"Malformed YAML in {path}"
     except Exception as exc:  # noqa: BLE001 — YAML parsers can raise anything; report it
-        return f"Malformed YAML in {path}: {type(exc).__name__}: {exc}"
+        return f"Malformed YAML in {path}: {type(exc).__name__}"
     if not isinstance(edited, dict):
         return f"{path}: the top level must be a mapping of settings (key: value)"
 
@@ -230,9 +230,25 @@ def validate_global_config(text: str) -> str | None:
     except ValidationError as exc:
         # A lower layer can hold the bad key, so name every merged source.
         sources = ", ".join(str(scope.source) for scope in stack.scopes if scope.data)
-        errors = (f"  {'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors())
+        errors = (f"  {_format_config_error(error)}" for error in exc.errors())
         return "\n".join((f"Invalid config (merged from {sources}):", *errors))
     return None
+
+
+def _format_config_error(error: Mapping[str, Any]) -> str:
+    """Describe invalid settings without exposing credential input."""
+    location = error["loc"]
+    if location and location[0] == "credentials":
+        from .yaml_schema import RawGlobalConfig
+
+        credentials_model = cast(
+            "type[BaseModel]", RawGlobalConfig.model_fields["credentials"].annotation
+        )
+        if len(location) > 1 and location[1] not in credentials_model.model_fields:
+            return "credentials: unsupported setting"
+        # Only schema-defined locations are safe; validators may quote their input.
+        return f"{'.'.join(map(str, location[:2]))}: invalid value"
+    return f"{'.'.join(map(str, location))}: {error['msg']}"
 
 
 def load_global_config() -> dict[str, Any]:
