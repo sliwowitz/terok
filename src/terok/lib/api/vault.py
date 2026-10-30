@@ -71,8 +71,8 @@ if TYPE_CHECKING:
 _LAZY: dict[str, str] = {
     "DbHolder": "terok.lib.domain.vault_rekey",
     "NoPassphraseError": "terok.lib.integrations.sandbox",
-    "PassphraseChangeResult": "terok.lib.integrations.sandbox",  # nosec: B105 — export-map path, not a secret
-    "PassphraseTier": "terok.lib.integrations.sandbox",  # nosec: B105 — export-map path, not a secret
+    "PassphraseChangeResult": "terok.lib.integrations.sandbox",  # nosec: B105 - export-map path, not a secret
+    "PassphraseTier": "terok.lib.integrations.sandbox",  # nosec: B105 - export-map path, not a secret
     "ProvisioningPlan": "terok.lib.integrations.sandbox",
     "RecoveryStatus": "terok.lib.integrations.sandbox",
     "RunningTask": "terok.lib.domain.vault_rekey",
@@ -84,7 +84,7 @@ _LAZY: dict[str, str] = {
     "VaultWarning": "terok.lib.integrations.sandbox",
     "VaultWarningKind": "terok.lib.integrations.sandbox",
     "WrongPassphraseError": "terok.lib.integrations.sandbox",
-    "change_passphrase": "terok.lib.integrations.sandbox",  # nosec: B105 — export-map path, not a secret
+    "change_passphrase": "terok.lib.integrations.sandbox",  # nosec: B105 - export-map path, not a secret
     "credentials_provisioned": "terok.lib.integrations.sandbox",
     "find_db_holders": "terok.lib.domain.vault_rekey",
     "find_running_tasks": "terok.lib.domain.vault_rekey",
@@ -92,7 +92,7 @@ _LAZY: dict[str, str] = {
     "handle_vault_to_desktop_keyring": "terok.lib.integrations.sandbox",
     "desktop_keyring_backend_available": "terok.lib.integrations.sandbox",
     "plan_provisioning": "terok.lib.integrations.sandbox",
-    "provision_passphrase_tier": "terok.lib.integrations.sandbox",  # nosec: B105 — export-map path, not a secret
+    "provision_passphrase_tier": "terok.lib.integrations.sandbox",  # nosec: B105 - export-map path, not a secret
     "provision_session_passphrase": "terok.lib.integrations.sandbox",
     "purge_passphrase_tiers": "terok.lib.integrations.sandbox",
     "restart_tasks_after_rekey": "terok.lib.domain.vault_rekey",

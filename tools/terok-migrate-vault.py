@@ -133,7 +133,7 @@ def _import_ssh_keys_to_db(state_dir: Path, vault_dir: Path) -> list[str]:
                     continue
                 try:
                     result = import_ssh_keypair(db, scope, priv, pub_path=pub)
-                except Exception as exc:  # noqa: BLE001 — surface, don't abort the loop
+                except Exception as exc:  # noqa: BLE001 - surface; don't abort the loop
                     actions.append(f"[skip] {scope}/{priv.name}: {exc}")
                     continue
                 state = "already in DB" if result.already_present else "imported"

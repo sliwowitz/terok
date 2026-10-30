@@ -161,7 +161,7 @@ def _read(project: str, task_id: str) -> _Loaded:
         review = review_egress(project, task_id)
     except SystemExit as exc:
         return _Loaded(error=str(exc) or "the project or the task could not be loaded")
-    except Exception as exc:  # noqa: BLE001 — shown to the operator and never raised
+    except Exception as exc:  # noqa: BLE001 - shown to the operator and never raised
         return _Loaded(error=str(exc) or type(exc).__name__)
     try:
         user_sets = tuple(
@@ -169,7 +169,7 @@ def _read(project: str, task_id: str) -> _Loaded:
             for egress_set in egress_set_catalog()
             if egress_set.origin == USER_ORIGIN and egress_set.error is None
         )
-    except Exception:  # noqa: BLE001 — suggestions only: the form takes any name
+    except Exception:  # noqa: BLE001 - suggestions only: the form takes any name
         user_sets = ()
     return _Loaded(review=review, user_sets=user_sets)
 
@@ -371,7 +371,7 @@ class ShieldHarvestScreen(screen.Screen[None]):
             listing = self.query_one("#harvest-list", OptionList)
             detail = self.query_one("#harvest-detail", Static)
             note = self.query_one("#harvest-note", Static)
-        except NoMatches:  # pragma: no cover — closed meanwhile
+        except NoMatches:  # pragma: no cover - closed meanwhile
             return
         self._review = loaded.review
         self._user_sets = loaded.user_sets
@@ -552,7 +552,7 @@ class ShieldHarvestScreen(screen.Screen[None]):
         """The highlighted option's id; ``None`` when the list shows nothing."""
         try:
             listing = self.query_one("#harvest-list", OptionList)
-        except NoMatches:  # pragma: no cover — closed meanwhile
+        except NoMatches:  # pragma: no cover - closed meanwhile
             return None
         if not listing.display:
             return None

@@ -26,7 +26,7 @@ from textual.widgets import Button, Checkbox, Input, Label, Rule
 
 from ..lib.api import GpuDeviceChoice, detect_gpu_choices, validate_gpus
 
-_GPU_ALL = "all"  # nosec: B105 — selector token, not a secret
+_GPU_ALL = "all"  # nosec: B105 - selector token, not a secret
 _MASTER_ID = "gpu-select-all"
 _ERROR_ID = "gpu-select-error"
 _DEVICES_ID = "gpu-select-devices"

@@ -17,7 +17,7 @@ from terok.lib.orchestration.tasks import (
     TASK_NAME_MAX_LEN,
     generate_task_name,
     get_tasks,
-    iter_task_ids,  # noqa: F401 — used in renamed assert
+    iter_task_ids,  # noqa: F401 - used in renamed assert
     load_task_meta,
     sanitize_task_name,
     task_new,

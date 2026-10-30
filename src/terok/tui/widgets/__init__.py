@@ -6,7 +6,7 @@
 Re-exports widget classes and render helpers from focused submodules.
 """
 
-from ...lib.api import TaskMeta  # noqa: F401 — re-exported public API
+from ...lib.api import TaskMeta  # noqa: F401 - re-exported public API
 from .ansi_log import AnsiLog  # noqa: F401
 from .panic_button import PanicButton  # noqa: F401
 from .project_list import ProjectList, ProjectListItem  # noqa: F401

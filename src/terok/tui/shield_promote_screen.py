@@ -321,14 +321,14 @@ class _PromotionModal(ModalScreen["PromotionResult | None"]):
         self._promoting = busy
         try:
             self.query_one(f"#{_SUBMIT_ID}", Button).disabled = busy
-        except NoMatches:  # pragma: no cover — dismissed meanwhile
+        except NoMatches:  # pragma: no cover - dismissed meanwhile
             pass
 
     def _show_error(self, message: str) -> None:
         """Put *message* under the fields; an empty one clears it."""
         try:
             self.query_one(f"#{_ERROR_ID}", Label).update(message)
-        except NoMatches:  # pragma: no cover — dismissed meanwhile
+        except NoMatches:  # pragma: no cover - dismissed meanwhile
             pass
 
     def action_cancel(self) -> None:

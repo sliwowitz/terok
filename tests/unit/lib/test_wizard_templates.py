@@ -17,7 +17,7 @@ from terok.lib.domain.wizards.new_project import BASE_IMAGES, BASES, SECURITY_CL
 def _render_template(path: Path, variables: dict) -> str:
     """Inline Jinja2 render with the standard terok defaults."""
     # autoescape off because outputs are YAML/Dockerfile/.desktop, never HTML.
-    env = jinja2.Environment(  # noqa: S701 — see comment above
+    env = jinja2.Environment(  # noqa: S701 - see comment above
         loader=jinja2.FileSystemLoader(str(path.parent)),
         keep_trailing_newline=True,
         undefined=jinja2.StrictUndefined,

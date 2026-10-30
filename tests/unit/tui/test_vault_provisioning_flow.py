@@ -370,7 +370,7 @@ class TestRevealAndSkipHelpers:
 _SENTINEL_PENDING = object()
 
 
-def _modal_host(modal):  # noqa: ANN001, ANN202 — Textual App subclass built per test
+def _modal_host(modal):  # noqa: ANN001, ANN202 - Textual App subclass built per test
     """Minimal test host that pushes *modal* and stashes its dismissal result.
 
     Uses the callback form of ``push_screen`` because ``push_screen_wait``

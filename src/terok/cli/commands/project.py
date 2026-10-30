@@ -299,7 +299,7 @@ def dispatch(args: argparse.Namespace) -> bool:
         case "agents":
             if args.agents_cmd == "set":
                 _cmd_agents_set(args.project_name, getattr(args, "selection", None))
-        case _:  # pragma: no cover — required=True makes argparse enforce this
+        case _:  # pragma: no cover - required=True makes argparse enforce this
             return False
     return True
 

@@ -535,7 +535,7 @@ def promote_egress(
 
 def _required(expires: date | None) -> date:
     """*expires*, which ``_check_request`` has vouched for on an override."""
-    if expires is None:  # pragma: no cover — refused before any file is read
+    if expires is None:  # pragma: no cover - refused before any file is read
         raise PromotionRefused("a break-glass override needs an expiry")
     return expires
 
@@ -1060,7 +1060,7 @@ class _TaskContext:
             return False
         try:
             return get_task_container_state(self.project.name, self.task_id, self.mode) == "running"
-        except Exception:  # noqa: BLE001 — a probe: the grant then waits for the next start
+        except Exception:  # noqa: BLE001 - a probe: the grant then waits for the next start
             return False
 
 

@@ -32,7 +32,7 @@ import argparse
 import os
 import select
 import socket
-import subprocess  # nosec B404 — only used with explicit argv (no shell, no untrusted input)
+import subprocess  # nosec B404 - only used with explicit argv (no shell, no untrusted input)
 import sys
 import time
 from pathlib import Path
@@ -223,9 +223,9 @@ def _spawn_daemon(
         raise SystemExit(f"task {task_id} has no mode set; cannot resolve container name")
     cname = resolve_container_name(project_name, task_meta.mode, task_id)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_fd = open(log_path, "ab", buffering=0)  # noqa: SIM115 — handed to Popen
+    log_fd = open(log_path, "ab", buffering=0)  # noqa: SIM115 - handed to Popen
     try:
-        proc = subprocess.Popen(  # nosec B603 — argv = [interpreter, -m, module, container, sock]
+        proc = subprocess.Popen(  # nosec B603 - argv = [interpreter, -m, module, container, sock]
             [sys.executable, "-P", "-m", "terok_executor.acp.daemon", cname, str(sock_path)],
             env=child_process_env(),
             stdin=subprocess.DEVNULL,

@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess  # nosec B404 — cache refresh binaries are trusted
+import subprocess  # nosec B404 - cache refresh binaries are trusted
 import tempfile
 from enum import StrEnum
 from importlib import resources as importlib_resources
@@ -235,9 +235,9 @@ def _run_xdg(binary: str, *args: str) -> bool:
     hand off to the manual fallback.
     """
     found = find_host_tool(binary)
-    if not found:  # pragma: no cover — gated by xdg_utils_available
+    if not found:  # pragma: no cover - gated by xdg_utils_available
         return False
-    # nosec B603 — argv is our own literal binary path plus subcommand/arg tokens.
+    # nosec B603 - argv is our own literal binary path plus subcommand/arg tokens.
     try:
         result = subprocess.run(  # noqa: S603  # nosec B603
             [found, *args],
@@ -379,7 +379,7 @@ def _render_desktop_file(bin_str: str) -> str:
         # ``StrictUndefined`` upgrades silent ``{{TYPO}}`` to a hard error;
         # ``autoescape=False`` because ``.desktop`` syntax is not HTML and
         # any escaping would corrupt ``Exec=`` quoting.
-        env = jinja2.Environment(  # nosec B701 — see comment above  # noqa: S701
+        env = jinja2.Environment(  # nosec B701 - see comment above  # noqa: S701
             loader=jinja2.FileSystemLoader(str(template_path.parent)),
             keep_trailing_newline=True,
             undefined=jinja2.StrictUndefined,
@@ -412,7 +412,7 @@ def _run_cache_refresh(binary: str, args: list[str | Path]) -> None:
     found = find_host_tool(binary)
     if not found:
         return
-    # nosec B603 — argv is a literal + controlled Path; no shell, no user input.
+    # nosec B603 - argv is a literal + controlled Path; no shell, no user input.
     try:
         result = subprocess.run(  # noqa: S603  # nosec B603
             [found, *[str(a) for a in args]],

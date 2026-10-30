@@ -268,7 +268,7 @@ class _ModalAnsweringApp(App):
         super().__init__()
         self._canned_answer = canned_answer
 
-    async def on_screen_resume(self) -> None:  # pragma: no cover — edge path
+    async def on_screen_resume(self) -> None:  # pragma: no cover - edge path
         pass
 
     def on_mount(self) -> None:

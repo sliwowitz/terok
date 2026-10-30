@@ -281,7 +281,7 @@ except ImportError:
     def dbusmock_session() -> Iterator[Any]:
         """Fallback skip when python-dbusmock isn't installed."""
         pytest.skip("python-dbusmock not installed (or dbus-python failed to build)")
-        yield None  # pragma: no cover — pytest.skip raises
+        yield None  # pragma: no cover - pytest.skip raises
 
 
 @pytest.fixture(scope="session")

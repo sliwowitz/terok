@@ -48,7 +48,7 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import FoldedScalarString, LiteralScalarString
-from terok_util.yaml import YAMLError, dump, literal_block, load  # noqa: F401 — re-exported
+from terok_util.yaml import YAMLError, dump, literal_block, load  # noqa: F401 - re-exported
 
 __all__ = [
     "load",

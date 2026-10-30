@@ -379,7 +379,7 @@ class ProjectActionsMixin(_MixinBase):
         pid = self.current_project_name
         try:
             suggestion = await asyncio.to_thread(get_project(pid).suggested_ssh_key_comment)
-        except Exception as exc:  # noqa: BLE001 — vault failures are operator-facing
+        except Exception as exc:  # noqa: BLE001 - vault failures are operator-facing
             self.notify(f"SSH key unavailable: {exc}", severity="error")
             return
 
@@ -542,7 +542,7 @@ class ProjectActionsMixin(_MixinBase):
         _mounts_dir, credential_set = resolve_credential_routing(project_name)
         try:
             store_api_key(provider, key, credential_set=credential_set)
-        except Exception as exc:  # noqa: BLE001 — surface every storage failure
+        except Exception as exc:  # noqa: BLE001 - surface every storage failure
             self.notify(
                 f"Failed to store API key for {provider}: {exc}",
                 severity="error",
@@ -705,7 +705,7 @@ class ProjectActionsMixin(_MixinBase):
                 return
             session.capture()
             self.notify(f"Credentials captured for {session.provider.name}.")
-        except Exception as exc:  # noqa: BLE001 — surface any extractor / vault error
+        except Exception as exc:  # noqa: BLE001 - surface any extractor / vault error
             self.notify(
                 f"Capture failed for {session.provider.name}: {exc}",
                 severity="error",
@@ -758,7 +758,7 @@ class ProjectActionsMixin(_MixinBase):
             pending = await asyncio.to_thread(
                 lambda: make_git_gate(load_project(pid)).pending_ops()
             )
-        except (Exception, SystemExit):  # noqa: BLE001 — sync already reported errors
+        except (Exception, SystemExit):  # noqa: BLE001 - sync already reported errors
             return
         if not pending or pid != self.current_project_name:
             return
@@ -814,7 +814,7 @@ class ProjectActionsMixin(_MixinBase):
             backups = await asyncio.to_thread(
                 lambda: make_git_gate(load_project(pid)).list_backups()
             )
-        except (Exception, SystemExit):  # noqa: BLE001 — a bad gate just means nothing to show
+        except (Exception, SystemExit):  # noqa: BLE001 - a bad gate just means nothing to show
             self.notify("Could not read gate backups.")
             return
         if pid != self.current_project_name:
@@ -887,7 +887,7 @@ class ProjectActionsMixin(_MixinBase):
         """Worker body of ``_edit_text`` — a failure becomes a notification, never a crash."""
         try:
             await self._edit_and_save(text, done_msg=done_msg, after_save=after_save)
-        except Exception as exc:  # noqa: BLE001 — an edit must never take the TUI down
+        except Exception as exc:  # noqa: BLE001 - an edit must never take the TUI down
             self.notify(f"Editing {text.title} failed: {exc}", severity="error", markup=False)
 
     async def _edit_and_save(
@@ -1241,7 +1241,7 @@ class ProjectActionsMixin(_MixinBase):
         """
         try:
             await self._run_wizard_flow_body()
-        except Exception as exc:  # noqa: BLE001 — last-resort wizard error surface
+        except Exception as exc:  # noqa: BLE001 - last-resort wizard error surface
             self.notify(
                 f"New-project wizard failed: {exc}",
                 severity="error",
@@ -1373,7 +1373,7 @@ class ProjectActionsMixin(_MixinBase):
 
             if ExecutorConfigView.image_agents():
                 return
-        except Exception:  # noqa: BLE001 — an advisory probe that must not surface
+        except Exception:  # noqa: BLE001 - an advisory probe that must not surface
             return
         self.notify(
             "Tip: no default agents are configured.  "
@@ -1486,7 +1486,7 @@ class ProjectActionsMixin(_MixinBase):
 
         try:
             state = load_vault_status().state
-        except Exception:  # noqa: BLE001 — fall through to the unlock prompt on a broken probe
+        except Exception:  # noqa: BLE001 - fall through to the unlock prompt on a broken probe
             state = VaultState.LOCKED
         if state is VaultState.UNPROVISIONED:
             self._run_vault_provision_flow()

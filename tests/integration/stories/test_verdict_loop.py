@@ -57,7 +57,7 @@ class _RecordingVerdictClient:
         self.calls.append((container, dest, action))
         return True, ""
 
-    async def stop(self) -> None:  # pragma: no cover — lifecycle no-op
+    async def stop(self) -> None:  # pragma: no cover - lifecycle no-op
         """No-op: nothing to clean up."""
 
 
@@ -100,7 +100,7 @@ async def _send_reader_event(socket_path: Path, event: dict[str, Any]) -> None:
 
 
 async def test_verdict_loop_blocked_to_allow(
-    terok_env,  # noqa: ANN001 — parent-conftest fixture
+    terok_env,  # noqa: ANN001 - parent-conftest fixture
     tmp_path: Path,
     dbusmock_session: Any,
     notification_daemon: Any,
@@ -133,7 +133,7 @@ async def test_verdict_loop_blocked_to_allow(
     hub = ClearanceHub(
         clearance_socket=clearance_sock,
         reader_socket=reader_sock,
-        verdict_client=verdicts,  # type: ignore[arg-type]  — duck-typed
+        verdict_client=verdicts,  # type: ignore[arg-type]  - duck-typed
     )
     await hub.start()
     try:

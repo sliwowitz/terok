@@ -148,7 +148,7 @@ def detect_gpu_choices() -> tuple[GpuDeviceChoice, ...]:
     try:
         vendors = detect_gpu_vendors()
         addresses = gpu_device_addresses()
-    except Exception:  # noqa: BLE001 — detection is decorative and never fatal
+    except Exception:  # noqa: BLE001 - detection is decorative and never fatal
         return ()
     choices: list[GpuDeviceChoice] = []
     for vendor in ("nvidia", "amd", "intel"):
@@ -816,7 +816,7 @@ def render_project_yaml(values: dict) -> str:
         # corrupted by HTML escaping.  The wizard's template uses
         # ``{% if %}`` blocks and the ``| indent`` filter — Jinja2
         # control flow, not just ``{{VAR}}`` substitution.
-        env = jinja2.Environment(  # nosec B701 — see comment above  # noqa: S701
+        env = jinja2.Environment(  # nosec B701 - see comment above  # noqa: S701
             loader=jinja2.FileSystemLoader(str(template_path.parent)),
             keep_trailing_newline=True,
             undefined=jinja2.StrictUndefined,
@@ -909,7 +909,7 @@ def _maybe_print_global_agents_hint(values: dict) -> None:
         return
     try:
         from terok.lib.integrations.executor import ExecutorConfigView
-    except ImportError:  # pragma: no cover — executor adapter is always present in shipped builds
+    except ImportError:  # pragma: no cover - executor adapter is always present in shipped builds
         return
     if ExecutorConfigView.image_agents():
         return

@@ -20,7 +20,7 @@ def _import_screen() -> tuple[type, type]:
     the screen's pure state transitions.
     """
     if "textual" not in sys.modules:
-        from . import test_detail_screens as _ds  # noqa: F401 — loads the textual stubs
+        from . import test_detail_screens as _ds  # noqa: F401 - loads the textual stubs
 
     module = importlib.reload(importlib.import_module("terok.tui.selinux_fix_screen"))
     return module.SelinuxFixScreen, module.SelinuxFixOutcome

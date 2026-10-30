@@ -26,22 +26,22 @@ Task metadata, lifecycle, and queries live in the companion ``tasks``
 package.
 """
 
-from .cli import task_run_cli  # noqa: F401 — re-exported public API
-from .headless import (  # noqa: F401 — re-exported public API
+from .cli import task_run_cli  # noqa: F401 - re-exported public API
+from .headless import (  # noqa: F401 - re-exported public API
     DetachedSummary,
     HeadlessRunRequest,
     task_followup_headless,
     task_run_headless,
 )
-from .restart import (  # noqa: F401 — re-exported public API
+from .restart import (  # noqa: F401 - re-exported public API
     ensure_task_running,
     task_restart,
 )
-from .shield import (  # noqa: F401 — re-exported public API
+from .shield import (  # noqa: F401 - re-exported public API
     resolve_container_uuid,
     task_shield_manager,
 )
-from .toad import task_run_toad  # noqa: F401 — re-exported public API
+from .toad import task_run_toad  # noqa: F401 - re-exported public API
 
 __all__ = [
     "DetachedSummary",
