@@ -152,9 +152,9 @@ def _maybe_warn_recovery_unconfirmed(color: bool) -> None:
     from getting their login command.
 
     Escalates from yellow ``warn`` to red ``error`` text when the
-    resolver landed on the session-unlock tmpfs tier and the marker
-    is missing — the passphrase is wiped on the next reboot and the
-    vault becomes unrecoverable then.
+    resolver landed on the temporary session cache (kernel keyring or
+    tmpfs session file) and the marker is missing — the cache is lost
+    at reboot or earlier, leaving the vault unrecoverable without a saved copy.
     """
     from terok.lib.integrations.sandbox import RecoveryStatus
 
@@ -170,8 +170,9 @@ def _maybe_warn_recovery_unconfirmed(color: bool) -> None:
         print(
             _red(
                 "Vault recovery key UNCONFIRMED and the passphrase lives ONLY"
-                " in the session-unlock tmpfs file — it WILL be wiped on the"
-                " next reboot and your vault becomes UNRECOVERABLE then.\n"
+                " in the temporary session cache (kernel keyring or tmpfs session file)"
+                " — it WILL be lost at reboot or earlier, and your vault becomes"
+                " UNRECOVERABLE if the cache is lost.\n"
                 "  Save it NOW off-host: terok vault passphrase reveal",
                 color,
             )

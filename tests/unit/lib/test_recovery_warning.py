@@ -60,7 +60,9 @@ class TestMaybeWarnRecoveryUnconfirmed:
         monkeypatch.setattr(
             RecoveryStatus,
             "load",
-            classmethod(lambda cls, cfg=None: _status(acknowledged=False, source="keyring")),
+            classmethod(
+                lambda cls, cfg=None: _status(acknowledged=False, source="desktop-keyring")
+            ),
         )
         _maybe_warn_recovery_unconfirmed(color=False)
         out = capsys.readouterr().out
@@ -72,25 +74,28 @@ class TestMaybeWarnRecoveryUnconfirmed:
     def test_unacknowledged_volatile_only_escalates(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Marker missing + kernel-keyring source → loud ``error`` footer.
+        """Marker missing + session-cache source → loud ``error`` footer.
 
-        The volatile tier is wiped on the next reboot, so this state is
+        The volatile tier is lost at reboot or earlier, so this state is
         a genuinely different severity from the durable-tier warning.
-        The text must call out "session-unlock", "reboot", and
-        "UNRECOVERABLE" so the operator understands the asymmetry.
+        The text must name the session cache and both possible backings,
+        its lifetime, and "UNRECOVERABLE" so the operator understands the risk.
         """
         from terok.lib.integrations.sandbox import RecoveryStatus
 
         monkeypatch.setattr(
             RecoveryStatus,
             "load",
-            classmethod(lambda cls, cfg=None: _status(acknowledged=False, source="kernel-keyring")),
+            classmethod(lambda cls, cfg=None: _status(acknowledged=False, source="session-cache")),
         )
         _maybe_warn_recovery_unconfirmed(color=False)
         out = capsys.readouterr().out
         assert "UNCONFIRMED" in out
-        assert "session-unlock" in out
-        assert "reboot" in out.lower()
+        assert "session cache" in out
+        assert "kernel keyring" in out
+        assert "tmpfs session file" in out
+        assert "reboot or earlier" in out.lower()
+        assert "session-unlock" not in out
         assert "UNRECOVERABLE" in out
         assert "terok vault passphrase reveal" in out
 
