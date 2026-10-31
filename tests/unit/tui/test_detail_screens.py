@@ -19,6 +19,7 @@ from rich.text import Text
 from tests.testfs import MOCK_BASE, MOCK_CONFIG_ROOT
 from tests.testnet import TEST_EGRESS_URL, TEST_UPSTREAM_URL
 from tests.unit.tui.tui_test_helpers import (
+    discard_worker,
     import_app,
     import_screens,
     import_widgets,
@@ -121,7 +122,7 @@ def make_creation_app(app_class: type) -> object:
     instance.refresh_tasks = mock.AsyncMock()
     instance.push_screen = fake_push_screen
     instance._mark_launching = mock.Mock()
-    instance.run_worker = mock.Mock()
+    instance.run_worker = mock.Mock(side_effect=discard_worker)
     return instance
 
 
