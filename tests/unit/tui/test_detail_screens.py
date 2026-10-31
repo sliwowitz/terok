@@ -1811,8 +1811,7 @@ class TestCommandPalette:
         ("title", "action"),
         [
             ("Edit global config", "action_edit_global_config"),
-            ("Edit global instructions", "action_edit_global_instructions"),
-            ("Show default instructions", "action_show_default_instructions"),
+            ("Instructions", "action_show_instructions"),
         ],
     )
     def test_get_system_commands_includes_global_editors(self, title: str, action: str) -> None:

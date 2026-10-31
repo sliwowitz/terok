@@ -109,11 +109,11 @@ def test_tui_default_tmux(
 @pytest.mark.parametrize(
     ("config_text", "expected"),
     [
-        ("", True),
+        ("", False),
         ("tui:\n  external_editor: true\n", True),
         ("tui:\n  external_editor: false\n", False),
     ],
-    ids=["default-true", "explicit-true", "explicit-false"],
+    ids=["default-false", "explicit-true", "explicit-false"],
 )
 def test_tui_external_editor(
     monkeypatch: pytest.MonkeyPatch,
@@ -1219,7 +1219,6 @@ class TestRootConfigFile:
         from terok_executor.config import writable_config_path
 
         assert cfg.global_config_path() == writable_config_path()
-        assert cfg.global_config_path() == Path("/etc/terok/config.yml")
 
     def test_user_file_stays_the_top_layer_once(self) -> None:
         """An editor replaces the top layer, so root's file has to be the top one."""

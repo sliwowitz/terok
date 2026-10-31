@@ -2139,17 +2139,13 @@ if _HAS_TEXTUAL:
 
         # ---------- Actions (keys + called from buttons) ----------
 
-        async def action_edit_global_instructions(self) -> None:
-            """Edit Global Instructions."""
-            await self._action_edit_global_instructions()
+        async def action_show_instructions(self) -> None:
+            """Open the screen for the instructions every project starts from."""
+            await self._action_show_instructions()
 
         async def action_edit_global_config(self) -> None:
             """Edit the user config file (config.yml)."""
             await self._action_edit_global_config()
-
-        async def action_show_default_instructions(self) -> None:
-            """Show Default Instructions."""
-            await self._action_show_default_instructions()
 
         async def action_panic(self) -> None:
             """Emergency panic: arm the button (or fire if already armed)."""
@@ -2530,14 +2526,9 @@ if _HAS_TEXTUAL:
                 self.action_edit_global_config,
             )
             yield SystemCommand(
-                "Edit global instructions",
-                "Edit the instructions.md that every project's agents inherit",
-                self.action_edit_global_instructions,
-            )
-            yield SystemCommand(
-                "Show default instructions",
-                "View the agent instructions bundled with terok (read-only)",
-                self.action_show_default_instructions,
+                "Instructions",
+                "The bundled default and global agent instructions, and how they combine",
+                self.action_show_instructions,
             )
 
         def action_show_console_output(self) -> None:

@@ -517,10 +517,12 @@ def get_tui_default_tmux() -> bool:
 
 
 def get_tui_external_editor() -> bool:
-    """Return whether TUI text editing should prefer ``$EDITOR`` over the integrated editor.
+    """Return whether TUI text editing goes straight to ``$EDITOR``.
 
-    Default ``True``; the TUI still only honours it on a local-terminal
-    session — the web TUI always uses the integrated editor.
+    Default ``False``, as a set ``$EDITOR`` is not always the operator's
+    choice: some distributions set it by default.  The integrated editor
+    then offers ``$EDITOR`` on a button.  The TUI only honours this on a
+    local-terminal session — the web TUI always uses the integrated editor.
     """
     return _load_validated().tui.external_editor
 
