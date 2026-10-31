@@ -180,6 +180,9 @@ earlier ones, key by key):
 2. `sys.prefix/etc/terok/config.yml` (pip/venv installs)
 3. `${XDG_CONFIG_HOME:-~/.config}/terok/config.yml` (user override)
 
+For root, `/etc/terok/config.yml` is the user file, and it stays the top
+layer.
+
 Setting `TEROK_CONFIG_FILE=/path/to/config.yml` disables layering and
 uses only that file.  `terok config paths` prints the merge order.
 
