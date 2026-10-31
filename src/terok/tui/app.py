@@ -14,6 +14,7 @@ import socket
 import sys
 from collections.abc import Iterator
 from datetime import datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -2399,16 +2400,14 @@ if _HAS_TEXTUAL:
             if not project:
                 self.notify("Project data not loaded yet.")
                 return
-            await self.push_screen(
-                ProjectDetailsScreen(
-                    project,
-                    self._last_project_state,
-                    self._last_task_count,
-                    self._staleness_info,
-                    review_lag=self._review_lag_lines,
-                ),
-                self._on_project_action_screen_result,
+            details = ProjectDetailsScreen(
+                project,
+                self._last_project_state,
+                self._last_task_count,
+                self._staleness_info,
+                review_lag=self._review_lag_lines,
             )
+            await self.push_screen(details, partial(self._on_project_details_closed, details))
 
         async def action_show_task_actions(self) -> None:
             """Show detail screen with task info and actions."""
@@ -2429,6 +2428,14 @@ if _HAS_TEXTUAL:
                 ),
                 self._on_task_action_screen_result,
             )
+
+        async def _on_project_details_closed(
+            self, details: ProjectDetailsScreen, result: str | None
+        ) -> None:
+            """Show what the closed *details* screen wrote, then run the action it picked."""
+            if details.config_changed:
+                await self.refresh_projects()
+            await self._on_project_action_screen_result(result)
 
         async def _on_project_action_screen_result(self, result: str | None) -> None:
             """Handle result from project actions screen."""
