@@ -235,6 +235,7 @@ path = "terok.lib.api.agents"
 layer = "domain"
 depends_on = [
     "terok.lib.core.images",
+    "terok.lib.core.instructions",
     "terok.lib.domain.auth",
     "terok.lib.integrations.executor",
     "terok.lib.orchestration.agent_config",
@@ -400,7 +401,11 @@ depends_on = [
 [[modules]]
 path = "terok.lib.orchestration.agent_config"
 layer = "orchestration"
-depends_on = ["terok.lib.core.config", "terok.lib.core.projects"]
+depends_on = [
+    "terok.lib.core.config",
+    "terok.lib.core.instructions",
+    "terok.lib.core.projects",
+]
 
 # Project infrastructure state (queries podman & filesystem)
 [[modules]]
@@ -580,6 +585,12 @@ depends_on = []
 path = "terok.lib.core.config"
 layer = "core"
 depends_on = ["terok.lib.core.paths", "terok.lib.core.yaml_schema", "terok.lib.util.yaml"]
+
+# The global instructions file and what each instructions layer inherits
+[[modules]]
+path = "terok.lib.core.instructions"
+layer = "core"
+depends_on = ["terok.lib.core.config", "terok.lib.util.yaml"]
 
 # Project data models (pure types, no I/O)
 [[modules]]
