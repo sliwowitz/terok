@@ -161,19 +161,20 @@ Containers follow podman's own lifecycle, split across the three layers:
   from the name.
 - **terok** owns tasks (container + workspace + metadata).  The mode
   runners (`task_runners/cli.py`, `toad.py`) only ever *create*;
-  everything that brings a container back goes through one ladder in
-  `task_runners/restart.py`: resume the existing container, else
-  recreate it in place through the normal launch path (same names,
+  everything that brings a container back goes through
+  `task_runners/restart.py`: resume an existing container, or launch
+  an absent one through the normal launch path (same names,
   same task-persistent gate token, config re-read, per-task settings
-  from metadata).
-  `task_restart` is the ladder's bounce flavor (stop-if-running first);
-  a plain restart resumes the container as-is and an image-ID drift
-  probe only *warns* that the image is stale (long-running tasks keep
-  their in-container state), while `--recreate` (`fresh=True`) forces
-  the recreate rung to pick up a rebuilt image.  `ensure_task_running`
-  is the attach flavor (a running container is reported, never
-  disturbed).  Headless tasks never take the recreate rung — that would
-  replay their original prompt.
+  from metadata). A failed resume reports the error and retains the
+  container; it never falls back to destructive recreation.
+  `task_restart` is the bounce flavor (stop-if-running first);
+  a plain restart resumes the container as-is, warning about image
+  drift or an obsolete input protocol so the operator can recover files
+  before upgrading. Host setup and shield safety checks still apply.
+  `--recreate` (`fresh=True`) explicitly replaces the container to pick
+  up a rebuilt image. `ensure_task_running` is the attach flavor (a
+  running container is reported, never disturbed). Headless tasks are
+  never recreated — that would replay their original prompt.
 
 Invariants: the task workspace is never re-seeded on relaunch (the
 new-task-marker protocol decides), podman is the source of truth for
@@ -562,14 +563,17 @@ history and `host-control` outside all mounts. Agent status is telemetry, not an
 input to emergency container discovery. Initial-prompt delivery is an atomic
 empty-marker claim, not an exactly-once guarantee of provider processing.
 
-Destructive restart decisions use strict runtime inspection snapshots, not the
-best-effort properties used for display. Only a confirmed `InputProtocolMismatch`
-allows an automatic protocol upgrade; inspection errors preserve the retained
-container. Before recreation, the retained mount snapshot determines whether the
-task's host workspace backs `/workspace`, regardless of the current isolation
-setting. Container-only work produces a discard warning, not a confirmation or
-workflow gate. Sealed isolation is an explicit operator choice; work is not
-exported automatically.
+Restart decisions use strict runtime inspection snapshots, not the best-effort
+properties used for display. `InputProtocolMismatch` is advisory when restarting
+or attaching to an existing container; inspection and resume failures preserve it.
+Only explicit recreation replaces a retained container. Recreation skips the old
+container's protocol check, but rejects an incompatible replacement image before
+teardown. Headless follow-ups still require a compatible input protocol before
+delivering a new prompt. Before recreation, the retained mount snapshot determines
+whether the task's host workspace backs `/workspace`, regardless of the current
+isolation setting. Container-only work produces a discard warning, not a
+confirmation or workflow gate. Sealed isolation is an explicit operator choice;
+work is not exported automatically.
 
 `ContainerEnvResult.broker_context` must travel unchanged from token issuance to
 `AgentRunner.launch_prepared`. Public provider markers select a provider; they

@@ -593,12 +593,7 @@ def test_task_restart_recreate_on_image_drift_upgrades() -> None:
 
 
 def test_task_restart_headless_start_failure_never_destroys() -> None:
-    """A headless container that refuses to start is refused, not torn down.
-
-    The resume-failure fallback must hit the headless refusal *before*
-    any teardown — otherwise the container would be removed with nothing
-    relaunched into its place (a headless task has no recreate rung).
-    """
+    """A headless start failure surfaces unchanged and preserves the container."""
     project_name = "proj_restart_run_fallback"
     with project_env(project_config(project_name), project_name=project_name) as ctx:
         task_id = create_task_with_mode(ctx, project_name, mode="run")
@@ -611,7 +606,7 @@ def test_task_restart_headless_start_failure_never_destroys() -> None:
             patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
             patch("terok.lib.orchestration.task_runners.restart._sandbox") as sandbox,
         ):
-            with pytest.raises(SystemExit, match="never recreated"):
+            with pytest.raises(SystemExit, match="layer missing"):
                 task_restart(project_name, task_id)
 
         sandbox.return_value.rm.assert_not_called()
@@ -638,11 +633,15 @@ def test_task_restart_headless_ignores_image_drift() -> None:
         assert "Restarted" in output
 
 
-def test_task_restart_start_failure_falls_back_to_recreate() -> None:
-    """When podman refuses to start the container, the ladder recreates instead."""
+@pytest.mark.parametrize("mode", ["cli", "toad"])
+@pytest.mark.parametrize("restart_task", [task_restart, ensure_task_running])
+def test_task_restart_start_failure_preserves_container(
+    mode: str, restart_task: Callable[..., None]
+) -> None:
+    """Failed restart or attach never destroys retained work through a recreation fallback."""
     project_name = "proj_restart_fallback"
     with project_env(project_config(project_name), project_name=project_name) as ctx:
-        task_id = create_task_with_mode(ctx, project_name)
+        task_id = create_task_with_mode(ctx, project_name, mode=mode)
 
         container = _mock_container(state="exited")
         container.start.side_effect = RuntimeError("layer missing")
@@ -655,12 +654,15 @@ def test_task_restart_start_failure_falls_back_to_recreate() -> None:
             patch("terok.lib.core.runtime.resolve_runtime", return_value=runtime_mock),
             patch("terok.lib.orchestration.task_runners.restart._sandbox") as sandbox,
             patch("terok.lib.orchestration.task_runners.restart.task_run_cli") as run_cli,
+            patch("terok.lib.orchestration.task_runners.restart.task_run_toad") as run_toad,
+            patch("terok.lib.orchestration.task_runners.restart._rehydrate_toad_token"),
         ):
-            output = capture_stdout(task_restart, project_name, task_id)
+            with pytest.raises(SystemExit, match="layer missing"):
+                restart_task(project_name, task_id)
 
-        assert "Recreating" in output
-        sandbox.return_value.rm.assert_called_once()
-        run_cli.assert_called_once()
+        sandbox.return_value.rm.assert_not_called()
+        run_cli.assert_not_called()
+        run_toad.assert_not_called()
 
 
 def test_task_restart_stop_failure_raises() -> None:

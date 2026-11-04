@@ -1,13 +1,12 @@
 # SPDX-FileCopyrightText: 2025 Jiri Vyskocil
 # SPDX-License-Identifier: Apache-2.0
 
-"""The make-it-running ladder for task containers.
+"""Resume task containers without implicitly replacing retained state.
 
-Two entry points share one ladder: ``task_restart`` (stop if running,
+Two entry points share one workflow: ``task_restart`` (stop if running,
 then start) and ``ensure_task_running`` (report if running, otherwise
-start).  The start itself resumes the existing container when possible
-and recreates it in place through the launch-only mode runners when
-not.
+start). Existing containers are preserved even when startup fails.
+Only explicit recreation or an absent container takes the launch path.
 """
 
 from __future__ import annotations
@@ -55,20 +54,20 @@ _WORKSPACE_MOUNT = "/workspace"
 def task_restart(project_name: str, task_id: str, *, fresh: bool = False) -> None:
     """Bring a task's container back to running: stop if running, then start.
 
-    The start is a best-effort ladder.  First rung: resume the existing
-    container in place — kept as-is even when the project image was
-    rebuilt underneath it, so a long-running task keeps its in-container
+    Resume the existing container in place — kept as-is even when the project
+    image was rebuilt underneath it, so a long-running task keeps its in-container
     state.  A stale image is only *warned* about, not acted on (see
     ``_warn_if_stale_image``).
-    When the resume rung is gone — the container no longer exists or
-    podman refuses to start it — recreate the container through the
+    An obsolete input protocol also only warns, allowing recovery of files
+    from the retained container. A failed start propagates without removing it.
+    When the container no longer exists, launch it through the
     normal launch path: same task and container name, host-backed workspace reused
     as-is (never re-seeded), project config re-read, the task's
     persistent gate token reused (the workspace's origin URL embeds it,
     so it must survive the recreate), per-task settings carried over
     from the saved metadata.
 
-    *fresh* skips straight to the recreate rung — the explicit
+    *fresh* explicitly replaces a retained container — the
     "recreate + restart" that picks up a rebuilt image, upgrading a task
     that a plain restart deliberately left on its old image.
 
@@ -92,7 +91,7 @@ def ensure_task_running(
 ) -> None:
     """Bring a task to running without bouncing it.
 
-    The attach flavor of the restart ladder: already running → report
+    The attach flavor of restart: already running → report
     how to reach it; stopped → resume; container gone → launch through
     the mode runner.  *mode* overrides the task's recorded mode — an
     attach picks the interface, and a first attach on a fresh task
@@ -118,11 +117,11 @@ def _make_running(
     mode_override: str | None = None,
     unrestricted: bool | None = None,
 ) -> None:
-    """The shared ladder behind both entry points.
+    """The shared resume-or-explicit-recreate workflow behind both entry points.
 
     *bounce* is the only fork: a restart stops a running container first,
-    an ensure reports it and returns.  Everything below — resume, the
-    recreate fallbacks, the headless refusal — is identical.
+    an ensure reports it and returns. Both preserve retained containers on
+    failure; only explicit recreation or absence takes the launch path.
     """
     project = load_project(project_name)
     validate_host_setup()
@@ -138,7 +137,9 @@ def _make_running(
     inspection = _inspect_container(container)
     container_state = inspection.state if inspection is not None else None
 
-    reason = _recreate_reason(container, inspection, fresh=fresh)
+    reason = _recreate_reason(inspection, fresh=fresh)
+    if reason is None and inspection is not None:
+        _warn_if_obsolete_input_protocol(container, inspection, mode=mode)
 
     if not bounce and container_state == "running" and reason is None:
         # Ensure never disturbs a live container — stale image or not.
@@ -166,35 +167,15 @@ def _make_running(
         # it gates on the bundle version — a recreate builds a fresh bundle
         # and must never be blocked by a stale one — and refreshes both from
         # the current roster/config before anything is torn down.
-        _refresh_before_resume(project, cname, project.tasks_root / str(task_id), runtime=runtime)
+        _refresh_before_resume(project, cname, project.tasks_root / str(task_id))
         if container_state == "running":
             _stop_running_container(project, task_id, mode, cname, meta_path)
-        reason = _resume_failure_reason(project, task_id, mode, cname, meta, meta_path, runtime)
-        if reason is None:
-            return
+        _start_and_report_restart(project, task_id, mode, cname, meta, meta_path)
+        return
 
     _recreate_in_place(
         project, task_id, mode, cname, meta, meta_path, reason, unrestricted=unrestricted
     )
-
-
-def _resume_failure_reason(
-    project: ProjectConfig,
-    task_id: str,
-    mode: str,
-    cname: str,
-    meta: dict,
-    meta_path: Path,
-    runtime: ContainerRuntime,
-) -> str | None:
-    """Resume the retained container or preflight its replacement after a failed start."""
-    try:
-        _start_and_report_restart(project, task_id, mode, cname, meta, meta_path)
-    except SystemExit as exc:
-        if mode != "run":
-            _preflight_replacement_image(project, runtime)
-        return str(exc) or "podman start failed"
-    return None
 
 
 def _inspect_container(container: Container) -> ContainerInspection | None:
@@ -235,9 +216,7 @@ def _preflight_replacement_image(project: ProjectConfig, runtime: ContainerRunti
         raise SystemExit(str(exc)) from exc
 
 
-def _refresh_before_resume(
-    project: ProjectConfig, cname: str, task_dir: Path, *, runtime: ContainerRuntime
-) -> None:
+def _refresh_before_resume(project: ProjectConfig, cname: str, task_dir: Path) -> None:
     """Bring an existing container's start-time inputs up to today's config, before it starts.
 
     ``podman start`` replays what the container was created with: its shield
@@ -250,10 +229,6 @@ def _refresh_before_resume(
     ``SystemExit`` from the gate or the tier refresh, with the container
     untouched; the clearance refresh only warns.
     """
-    try:
-        require_task_input_protocol(runtime.container(cname))
-    except RuntimeError as exc:
-        raise SystemExit(str(exc)) from exc
     _validate_shield_bundle_version(cname)
     _refresh_shield_tiers(project, cname, task_dir)
     _refresh_clearance_mode(project, cname)
@@ -290,10 +265,8 @@ def _refresh_clearance_mode(project: ProjectConfig, cname: str) -> None:
         )
 
 
-def _recreate_reason(
-    container: Container, inspection: ContainerInspection | None, *, fresh: bool
-) -> str | None:
-    """First reason the resume rung can't be taken, or ``None`` to resume.
+def _recreate_reason(inspection: ContainerInspection | None, *, fresh: bool) -> str | None:
+    """Launch only when explicitly requested or when no container remains.
 
     Image drift is deliberately *not* a reason: a plain restart keeps a
     long-running task's container as-is and only warns about the stale
@@ -301,18 +274,42 @@ def _recreate_reason(
     Picking up a rebuilt image is the explicit job of *fresh* — the
     "recreate + restart" the caller asked for.
     """
-    if inspection is not None:
-        try:
-            require_task_input_protocol(container, inspection=inspection)
-        except InputProtocolMismatch as exc:
-            return str(exc)
-        except RuntimeError as exc:
-            raise SystemExit(str(exc)) from exc
     if fresh:
         return "recreate requested"
     if inspection is None:
         return "the container no longer exists"
     return None
+
+
+def _warn_if_obsolete_input_protocol(
+    container: Container, inspection: ContainerInspection, *, mode: str
+) -> None:
+    """Warn about obsolete inputs without preventing access to retained files.
+
+    Only a confirmed mismatch is advisory. Failed inspection remains an error,
+    never permission to replace a container or assume its protocol is current.
+    """
+    try:
+        require_task_input_protocol(container, inspection=inspection)
+    except InputProtocolMismatch:
+        remedy = (
+            "Rebuild the agent and project images, then create a new headless task "
+            "with an explicit prompt."
+            if mode == "run"
+            else "Rebuild the agent and project images, then explicitly recreate "
+            "(TUI: R; CLI: terok task restart --recreate)."
+        )
+        print(
+            _yellow(
+                f"WARNING: Task container {container.name!r} uses an obsolete input protocol.\n"
+                "  Continuing with the existing container for recovery. "
+                f"Read-only input protections and automation may not work.\n  {remedy}",
+                _supports_color(),
+            ),
+            file=sys.stderr,
+        )
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _warn_if_stale_image(project: ProjectConfig, task_id: str, mode: str, cname: str) -> None:
@@ -514,8 +511,7 @@ def _recreate_in_place(
     overrides the runner's config resolution.
 
     The headless refusal lives here, next to the teardown it guards:
-    every path that could destroy a container — pre-checked reasons and
-    the resume-failure fallback alike — must refuse *before* anything
+    every path that could destroy a container must refuse *before* anything
     is removed, or a headless container would be torn down with nothing
     relaunched into its place.
     """

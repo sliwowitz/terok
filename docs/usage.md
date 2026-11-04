@@ -874,16 +874,21 @@ than following links. Shared vendor configuration remains untrusted agent state;
 sharing it is not a security boundary between tasks.
 
 After upgrading from the old writable-input layout, rebuild agent/project images.
-CLI/Toad restart recreates confirmed obsolete containers; inspection failures
-abort restart without removing the container. Host-backed workspaces and shared
-vendor state remain intact. Sealed workspaces live inside the retained container:
-recreation discards unexported changes and prints a warning. This applies to automatic
-upgrades, explicit recreation and failed-resume fallbacks, without extra confirmation
-or a sealed-mode workflow restriction. No automatic workspace export is performed.
-Ordinary restart can still resume a compatible sealed container without recreating
-it. Old headless containers cannot safely replay a task-writable
-prompt: create a new headless task with an explicit prompt instead. Legacy prompt
-contents are not promoted into trusted host instructions.
+Restarting or attaching to an obsolete container warns loudly but does not replace
+it: features may be broken, but you can recover files before recreating. Inspection
+or resume failures report an error and retain the container. Host setup and shield
+safety checks still apply.
+
+Use `terok task restart myproj v9krt --recreate` (TUI: **R**) when ready to upgrade.
+Recreation checks the replacement image, not the old container's input protocol;
+an obsolete replacement image is rejected before the old container is removed.
+Host-backed workspaces and shared vendor state remain intact. Sealed workspaces
+live inside the retained container: recreation discards unexported changes and
+prints a warning, without extra confirmation. No automatic workspace export is
+performed. A headless follow-up still requires a compatible input protocol before
+delivering a new prompt; create a new headless task with an explicit prompt instead
+of following up on an obsolete container. Legacy prompt contents are not promoted
+into trusted host instructions.
 
 The former workspace **view/copy diff** actions and headless diff statistics have
 been removed. Review agent changes through the git gate; terok does not execute

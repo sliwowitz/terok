@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 from terok.lib.core.projects import load_project
-from terok.lib.integrations.executor import agent_input_dir
+from terok.lib.integrations.executor import agent_input_dir, require_task_input_protocol
 from terok.lib.orchestration.task_runners import (
     HeadlessRunRequest,
     task_followup_headless,
@@ -657,6 +657,10 @@ class TestTaskFollowupHeadless:
             restart_mod = "terok.lib.orchestration.task_runners.restart"
             with (
                 unittest.mock.patch(
+                    "terok.lib.orchestration.task_runners.headless.require_task_input_protocol",
+                    wraps=require_task_input_protocol,
+                ) as protocol,
+                unittest.mock.patch(
                     f"{restart_mod}._validate_shield_bundle_version",
                     side_effect=lambda _c: order.append("version"),
                 ) as gate,
@@ -683,12 +687,74 @@ class TestTaskFollowupHeadless:
                 )
 
             cname = f"proj_refresh-run-{task_id}"
+            protocol.assert_called_once_with(container)
             gate.assert_called_once_with(cname)
             project, tier_cname, task_dir = tiers.call_args.args
             assert tier_cname == cname
             assert task_dir == project.tasks_root / task_id
             assert clearance.call_args.args[1] == cname
             assert order == ["version", "tiers", "clearance", "prompt", "start"]
+
+    @pytest.mark.parametrize("obsolete", ["container-env", "image-label"])
+    def test_followup_protocol_mismatch_preserves_prompt_and_container(
+        self, tmp_path: Path, mock_runtime, obsolete: str
+    ) -> None:
+        """Salvage restarts do not authorize sending a new prompt through legacy inputs."""
+        project_name = "proj_legacy_followup"
+        task_id = self._create_completed_task(tmp_path, project_name)
+        container = mock_runtime.container.return_value
+        if obsolete == "container-env":
+            container.env = {"TEROK_CONTAINER_PROTOCOL": "3"}
+        else:
+            container.image.labels.return_value = {}
+
+        with (
+            unittest.mock.patch(
+                "terok.lib.orchestration.task_runners.headless._refresh_before_resume"
+            ) as refresh,
+            unittest.mock.patch(
+                "terok.lib.orchestration.task_runners.headless._inject_followup_prompt"
+            ) as inject,
+            pytest.raises(SystemExit, match="obsolete input protocol") as error,
+        ):
+            run_followup_request(
+                tmp_path, project_name, task_id, "new prompt", container_state="exited"
+            )
+
+        assert isinstance(error.value.__cause__, RuntimeError)
+        refresh.assert_not_called()
+        inject.assert_not_called()
+        container.start.assert_not_called()
+        agent_cfg, _ = task_paths(tmp_path, project_name, task_id)
+        assert (agent_input_dir(agent_cfg.parent) / "prompt.txt").read_text() == "initial prompt"
+        assert not (agent_cfg.parent / "prompt-history.txt").exists()
+
+    def test_followup_protocol_inspection_failure_preserves_prompt(
+        self, tmp_path: Path, mock_runtime
+    ) -> None:
+        """Unavailable protocol metadata stops prompt delivery before refreshing or starting."""
+        project_name = "proj_unverified_followup"
+        task_id = self._create_completed_task(tmp_path, project_name)
+        container = mock_runtime.container.return_value
+        container.inspect.side_effect = RuntimeError("inspection unavailable")
+        with (
+            unittest.mock.patch(
+                "terok.lib.orchestration.task_runners.headless._refresh_before_resume"
+            ) as refresh,
+            unittest.mock.patch(
+                "terok.lib.orchestration.task_runners.headless._inject_followup_prompt"
+            ) as inject,
+            pytest.raises(SystemExit, match="inspection unavailable"),
+        ):
+            run_followup_request(
+                tmp_path, project_name, task_id, "new prompt", container_state="exited"
+            )
+
+        refresh.assert_not_called()
+        inject.assert_not_called()
+        container.start.assert_not_called()
+        agent_cfg, _ = task_paths(tmp_path, project_name, task_id)
+        assert (agent_input_dir(agent_cfg.parent) / "prompt.txt").read_text() == "initial prompt"
 
     def test_followup_refused_by_the_bundle_gate_leaves_the_prompt_alone(
         self, mock_runtime

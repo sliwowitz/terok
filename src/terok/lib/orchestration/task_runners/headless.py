@@ -23,6 +23,7 @@ from terok.lib.integrations.executor import (
     AgentConfigSpec,
     agent_input_dir,
     prepare_agent_config_dir,
+    require_task_input_protocol,
     resolve_agent_value,
     resolve_instructions,
 )
@@ -420,7 +421,11 @@ def task_followup_headless(
     # sidecar unless they are refreshed first — today's tiers (an override
     # shortened or removed since), today's clearance mode.  Before the prompt
     # is handed over, so a refusal here leaves the task as it was.
-    _refresh_before_resume(project, cname, task_dir, runtime=runtime)
+    try:
+        require_task_input_protocol(runtime.container(cname))
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    _refresh_before_resume(project, cname, task_dir)
     _inject_followup_prompt(
         task_dir=task_dir,
         prompt=prompt,

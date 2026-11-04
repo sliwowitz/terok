@@ -96,19 +96,23 @@ That is the rule rootless podman documents for the containers themselves; a task
 |---------|---------------------------|---------------------------|------------------------|
 | `task run` | Always creates a fresh task + container (new ID) | Always creates a fresh task + container (new ID) | Always creates a fresh task + container (new ID) |
 | `task stop` | `podman stop` | Error: not running | Error: not running |
-| `task restart` | `podman stop`, then resume as-is (warns on image drift) — or recreate on `--recreate` | Resume (`podman start`) as-is (warns on image drift) — or recreate on `--recreate` | Recreates the container in place (same task ID, name, workspace) |
+| `task restart` | `podman stop`, then resume as-is (warns on image drift or obsolete input protocol) — or recreate on `--recreate` | Resume (`podman start`) as-is (warns on image drift or obsolete input protocol) — or recreate on `--recreate` | Recreates the container in place (same task ID, name, host-backed workspace) |
 | `task status`  | Shows state            | Shows state     | Shows "not found"      |
 | `task delete` | `podman rm -f` + cleanup | `podman rm -f` + cleanup | Cleanup only |
 
-`task restart` is a resume-or-recreate ladder: it resumes the existing
-container when it can — keeping it as-is even when the project image was
-rebuilt underneath it, so a long-running task keeps its in-container
-state.  A stale image is only *warned* about (pointing at recreate +
-restart), not upgraded.  When the resume rung is gone — the container no
-longer exists, or podman refuses to start it — it recreates through the
-normal launch path (workspace kept, gate token reused).  `--recreate`
-skips straight to that rung, the explicit upgrade that picks up a
-rebuilt image.  Headless tasks are the exception — recreating would
+`task restart` preserves an existing container, even when its project image
+was rebuilt or its input protocol is obsolete. Image drift and protocol
+mismatches produce warnings, not automatic upgrades: partially working
+containers remain available for recovering files. If a resume fails, the
+error is reported and the container is retained, never automatically replaced.
+Host setup and shield safety checks still apply.
+
+`--recreate` explicitly replaces the container to pick up a rebuilt image.
+It checks the replacement image's input protocol before removing the old
+container, without warning about the old container's protocol. Host-backed
+workspaces and the gate token are reused; container-only changes are discarded.
+If the container is already absent, an ordinary restart launches it again
+through the same path. Headless tasks are the exception — recreating would
 replay their original prompt, so a missing container is an error there.
 
 ### Container Naming
@@ -208,7 +212,8 @@ as fallback) — not raw image IDs.  A plain `task restart` resumes the
 container as-is and *warns* when the image has drifted, leaving a
 long-running task on its existing image; `--recreate` picks up the
 rebuilt image by recreating the container in place.  The workspace is
-kept either way — no need to delete the task.
+kept across recreation only when host-backed; recover any container-only
+work before recreating. There is no need to delete the task.
 
 ---
 
